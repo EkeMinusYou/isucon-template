@@ -1,15 +1,7 @@
-USER:=isucon
-PASS:=isucon
-ISU1:=isu
-ISU2:=
-ISU3:=
+SSH_USER=ubuntu
+SSH_HOST=isucon-no-command
 
-setup:
-	sudo apt-get install build-essential
-	brew install gcc
-	curl -fsSL https://raw.githubusercontent.com/EkeMinusYou/dotfiles/main/install.sh | /bin/bash
-	fnm use 20
-	brew bundle --file Brewfile
-	$(shell brew --prefix)/opt/fzf/install
-	sudo chsh -s $(shell which zsh) isucon
-	zsh
+setup-files:
+	rsync -az -e ssh setup.sh $(SSH_USER)@$(SSH_HOST):/home/isucon/ --rsync-path="sudo rsync"
+	rsync -az -e ssh Brewfile $(SSH_USER)@$(SSH_HOST):/home/isucon/ --rsync-path="sudo rsync"
+	rsync -az -e ssh Makefile $(SSH_USER)@$(SSH_HOST):/home/isucon/ --rsync-path="sudo rsync"

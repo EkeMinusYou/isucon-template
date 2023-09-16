@@ -1,23 +1,33 @@
+## Required
+
+ssh config
+
+```bash
+Host isucon
+  Hostname ${host}
+  IdentityFile ~/.ssh/isucon.pem
+  User ubuntu
+  RequestTTY yes
+  RemoteCommand sudo -i -u isucon && $SHELL
+
+Host isucon-no-command
+  Hostname ${host}
+  IdentityFile ~/.ssh/isucon.pem
+  User ubuntu
+  RequestTTY yes
+```
+
 ## Setup
 
-ssh & change user
+copy files
+
 
 ```bash
-ssh $(target)
-sudo -i -u $(user)
+make setup-files
 ```
 
-install brew
+ssh
 
 ```bash
-sudo passwd $(user) 
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
-```
-
-copy Makefile and Brewfile
-
-```bash
-rsync -az -e ssh Makefile ${root}@isucon:/home/isucon/ --rsync-path="sudo rsync"
-rsync -az -e ssh Brewfile ${root}@isucon:/home/isucon/ --rsync-path="sudo rsync"
+ssh isucon
 ```
