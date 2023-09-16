@@ -9,7 +9,7 @@ setup:
 	/home/linuxbrew/.linuxbrew/bin/brew shellenv
 	sudo apt-get install build-essential
 	brew install gcc
-	bash -c "$(curl -fsSL https://raw.githubusercontent.com/EkeMinusYou/dotfiles/main/install.sh)"
+	curl -fsSL https://raw.githubusercontent.com/EkeMinusYou/dotfiles/main/install.sh | /bin/bash
 	brew bundle --file Brewfile
 	$(brew --prefix)/opt/fzf/install
 	sudo chsh -s $(shell which zsh) isucon
