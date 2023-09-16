@@ -1,4 +1,5 @@
 brew "neovim"
+brew "zsh"
 brew "fzf"
 brew "go"
 brew "ghq"

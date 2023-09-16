@@ -1,5 +1,8 @@
 USER:=isucon
 PASS:=isucon
+ISU1:=isucon-12-qualify
+ISU2:=
+ISU3:=
 
 setup:
 	sudo -i -u $(USER)
@@ -12,3 +15,5 @@ setup:
 	bash -c "$(curl -fsSL https://raw.githubusercontent.com/EkeMinusYou/dotfiles/main/install.sh)"
 	brew bundle --file Brewfile
 	$(brew --prefix)/opt/fzf/install
+	sudo chsh -s $(shell which zsh) isucon
+	zsh
