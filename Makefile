@@ -1,6 +1,6 @@
 USER:=isucon
 PASS:=isucon
-ISU1:=isucon-12-qualify
+ISU1:=isucon12-qualify
 ISU2:=
 ISU3:=
 
