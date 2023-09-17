@@ -23,7 +23,7 @@ copy files
 
 
 ```bash
-make setup-files
+make setup
 ssh isucon-no-command "/home/isucon/setup.sh"
 ```
 
