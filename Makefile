@@ -18,6 +18,11 @@ setup-mysql:
 	git add .
 	git commit -m "mysqld.cnf"
 
+setup-webapp:
+	rsync -az -e ssh $(SSH_USER)@$(SSH_HOST):/home/$(ISUCON_USER)/webapp/go webapp --rsync-path="sudo rsync"
+	git add .
+	git commit -m "webapp go"
+
 deploy-nginx:
 	rsync -az -e ssh nginx.conf $(SSH_USER)@$(SSH_HOST):/etc/nginx/nginx.conf --rsync-path="sudo rsync"
 	ssh $(SSH_USER)@$(SSH_HOST) "sudo systemctl reload nginx"
