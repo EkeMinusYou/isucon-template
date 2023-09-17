@@ -8,5 +8,6 @@ curl -fsSL https://raw.githubusercontent.com/EkeMinusYou/dotfiles/main/install.s
 brew bundle --file Brewfile
 fnm use 20
 $(brew --prefix)/opt/fzf/install
-sudo chsh -s $(which zsh) isucon
+which zsh | sudo tee -a /etc/shells
+chsh -s $(which zsh) $USER
 zsh
