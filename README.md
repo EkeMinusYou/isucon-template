@@ -24,7 +24,9 @@ copy files
 
 ```bash
 make setup
-ssh isucon-no-command "/home/isucon/setup.sh"
+ssh isucon
+sudo passwd isucon
+./setup.sh
 ```
 
 ssh
