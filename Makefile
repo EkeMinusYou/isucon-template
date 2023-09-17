@@ -19,5 +19,4 @@ deploy-nginx:
 
 deploy-mysql:
 	rsync -az -e ssh mysqld.cnf $(SSH_USER)@$(SSH_HOST):/etc/mysql/mysql.conf.d/mysqld.cnf --rsync-path="sudo rsync"
-	ssh $(SSH_USER)@$(SSH_HOST) "sudo systemctl reload mysql"
 	ssh $(SSH_USER)@$(SSH_HOST) "sudo systemctl restart mysql"
