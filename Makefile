@@ -21,7 +21,7 @@ setup-nginx:
 	git commit -m "nginx.conf"
 
 setup-mysql:
-	rsync -az -e ssh $(SSH_USER)@$(SSH_HOST):/etc/mysql/mysql.conf.d/mysqld.cnf mysqld.cnf
+	rsync -az -e ssh $(SSH_USER)@$(SSH_HOST):/etc/mysql/mysql.conf.d/mysqld.cnf mysql/mysqld.cnf
 	git add .
 	git commit -m "mysqld.cnf"
 
@@ -39,7 +39,7 @@ deploy-nginx:
 	ssh $(SSH_USER)@$(NGINX_HOST) "sudo systemctl restart nginx"
 
 deploy-mysql:
-	rsync -az -e ssh mysqld.cnf $(SSH_USER)@$(MYSQL_HOST):/etc/mysql/mysql.conf.d/mysqld.cnf --rsync-path="sudo rsync"
+	rsync -az -e ssh mysql/mysqld.cnf $(SSH_USER)@$(MYSQL_HOST):/etc/mysql/mysql.conf.d/mysqld.cnf --rsync-path="sudo rsync"
 	ssh $(SSH_USER)@$(MYSQL_HOST) "sudo systemctl restart mysql"
 
 deploy-webapp:
