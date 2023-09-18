@@ -25,6 +25,8 @@ setup-webapp:
 	git add .
 	git commit -m "webapp go"
 
+deploy: deploy-nginx deploy-mysql deploy-webapp
+
 deploy-nginx:
 	rsync -az -e ssh nginx.conf $(SSH_USER)@$(SSH_HOST):/etc/nginx/nginx.conf --rsync-path="sudo rsync"
 	ssh $(SSH_USER)@$(SSH_HOST) "sudo systemctl reload nginx"
