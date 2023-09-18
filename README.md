@@ -34,3 +34,10 @@ ssh
 ```bash
 ssh isucon
 ```
+
+add systemctl webapp sample
+
+```bash
+WorkingDirectory=/home/isucon/webapp/go
+ExecStart=/home/isucon/webapp/go/isuports
+```
