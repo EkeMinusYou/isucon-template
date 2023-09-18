@@ -2,7 +2,7 @@ SSH_USER:=ubuntu
 ISUCON_USER:=isucon
 SSH_HOST:=isucon-no-command
 
-.PHONY: setup deploy-nginx deploy-mysql
+.PHONY: setup setup-nginx setup-mysql setup-webapp deploy-nginx deploy-mysql
 setup:
 	rsync -az -e ssh setup.sh $(SSH_USER)@$(SSH_HOST):/home/$(ISUCON_USER)/ --rsync-path="sudo rsync"
 	rsync -az -e ssh Brewfile $(SSH_USER)@$(SSH_HOST):/home/$(ISUCON_USER)/ --rsync-path="sudo rsync"
