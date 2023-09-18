@@ -37,7 +37,7 @@ deploy-mysql:
 	ssh $(SSH_USER)@$(SSH_HOST) "sudo systemctl restart mysql"
 
 deploy-webapp:
-	go build -buildsvc=false -o webapp/go/isuports ./webapp/go/...
-	rsync -az -e ssh webapp/go/isuports $(SSH_USER)@$(SSH_HOST):/home/$(ISUCON_USER)/webapp/go/isuports --rsync-path="sudo rsync"
+	go build -buildsvc=false -o webapp/go/$(APP_NAME) ./webapp/go/...
+	rsync -az -e ssh webapp/go/$(APP_NAME) $(SSH_USER)@$(SSH_HOST):/home/$(ISUCON_USER)/webapp/go/$(APP_NAME) --rsync-path="sudo rsync"
 	ssh $(SSH_USER)@$(SSH_HOST) "sudo chmod +x /home/$(ISUCON_USER)/webapp/go/$(APP_NAME)"
 	ssh $(SSH_USER)@$(SSH_HOST) "sudo systemctl restart $(APP_NAME)"
