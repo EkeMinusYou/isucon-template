@@ -15,7 +15,8 @@ setup:
 	ssh $(SSH_USER)@$(SSH_HOST) "sudo chmod +x /home/$(ISUCON_USER)/setup.sh"
 
 setup-nginx:
-	rsync -az -e ssh $(SSH_USER)@$(SSH_HOST):/etc/nginx/nginx.conf nginx.conf
+	rsync -az -e ssh $(SSH_USER)@$(SSH_HOST):/etc/nginx/sites-available/$(APP_NAME).conf nginx/sites-available/$(APP_NAME).conf
+	rsync -az -e ssh $(SSH_USER)@$(SSH_HOST):/etc/nginx/nginx.conf nginx/nginx.conf
 	git add .
 	git commit -m "nginx.conf"
 
@@ -32,7 +33,8 @@ setup-webapp:
 deploy: deploy-nginx deploy-mysql deploy-webapp
 
 deploy-nginx:
-	rsync -az -e ssh nginx.conf $(SSH_USER)@$(NGINX_HOST):/etc/nginx/nginx.conf --rsync-path="sudo rsync"
+	rsync -az -e ssh nginx/sites-available/$(APP_NAME).conf $(SSH_USER)@$(NGINX_HOST):/etc/nginx/sites-available/$(APP_NAME).conf --rsync-path="sudo rsync"
+	rsync -az -e ssh nginx/nginx.conf $(SSH_USER)@$(NGINX_HOST):/etc/nginx/nginx.conf --rsync-path="sudo rsync"
 	ssh $(SSH_USER)@$(NGINX_HOST) "sudo systemctl reload nginx"
 	ssh $(SSH_USER)@$(NGINX_HOST) "sudo systemctl restart nginx"
 
