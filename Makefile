@@ -1,6 +1,7 @@
 SSH_USER:=ubuntu
 ISUCON_USER:=isucon
 SSH_HOST:=isucon-no-command
+APP_NAME:=isuports
 
 .PHONY: setup setup-nginx setup-mysql setup-webapp deploy-nginx deploy-mysql
 setup:
@@ -32,3 +33,9 @@ deploy-nginx:
 deploy-mysql:
 	rsync -az -e ssh mysqld.cnf $(SSH_USER)@$(SSH_HOST):/etc/mysql/mysql.conf.d/mysqld.cnf --rsync-path="sudo rsync"
 	ssh $(SSH_USER)@$(SSH_HOST) "sudo systemctl restart mysql"
+
+deploy-webapp:
+	go build -buildsvc=false -o webapp/go/isuports ./webapp/go/...
+	rsync -az -e ssh webapp/go/isuports $(SSH_USER)@$(SSH_HOST):/home/$(ISUCON_USER)/webapp/go/isuports --rsync-path="sudo rsync"
+	ssh $(SSH_USER)@$(SSH_HOST) "sudo chmod +x /home/$(ISUCON_USER)/webapp/go/$(APP_NAME)"
+	ssh $(SSH_USER)@$(SSH_HOST) "sudo systemctl restart $(APP_NAME)"
