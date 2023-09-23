@@ -41,11 +41,10 @@ deploy-nginx:
 	ssh $(SSH_USER)@$(NGINX_HOST) "sudo systemctl restart nginx"
 
 deploy-webapp:
-	rm -f webapp/go/$(APP_NAME)
-	GOOS=linux GOARCH=amd64 make -C webapp/go $(APP_NAME)
-	rsync -az -e ssh webapp/go/$(APP_NAME) $(SSH_USER)@$(WEBAPP_HOST):/home/$(ISUCON_USER)/webapp/go/$(APP_NAME) --rsync-path="sudo rsync"
+	rsync -az -e ssh webapp $(SSH_USER)@$(WEBAPP_HOST):/home/$(ISUCON_USER)/ --rsync-path="sudo rsync" --delete
+	ssh $(SSH_USER)@$(WEBAPP_HOST) "sudo chown -R $(ISUCON_USER):$(ISUCON_USER) /home/$(ISUCON_USER)/webapp"
 	rsync -az -e ssh etc/systemd/system/$(APP_NAME).service $(SSH_USER)@$(WEBAPP_HOST):/etc/systemd/system/ --rsync-path="sudo rsync"
-	ssh $(SSH_USER)@$(WEBAPP_HOST) "sudo chmod +x /home/$(ISUCON_USER)/webapp/go/$(APP_NAME)"
+	ssh $(SSH_USER)@$(WEBAPP_HOST) "sudo -i -u $(ISUCON_USER) /home/linuxbrew/.linuxbrew/bin/zsh -c 'source ~/.zshrc && make -C webapp/go $(APP_NAME)'"
 	ssh $(SSH_USER)@$(WEBAPP_HOST) "sudo systemctl daemon-reload"
 	ssh $(SSH_USER)@$(WEBAPP_HOST) "sudo systemctl stop $(APP_NAME)"
 	ssh $(SSH_USER)@$(WEBAPP_HOST) "sudo systemctl start $(APP_NAME)"
