@@ -29,7 +29,7 @@ copy files
 
 ```bash
 make setup SETUP_HOST=isucon-1
-ssh isucon
+ssh isucon-1
 sudo passwd isucon
 ./setup.sh
 ```
