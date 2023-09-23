@@ -4,8 +4,8 @@ APP_NAME:=isuports
 
 SSH_HOST:=isucon-1
 NGINX_HOST:=isucon-1
-MYSQL_HOST:=isucon-1
 WEBAPP_HOST:=isucon-1
+MYSQL_HOST:=isucon-1
 
 .PHONY: setup setup-nginx setup-mysql setup-webapp deploy-nginx deploy-mysql
 setup:
@@ -38,12 +38,12 @@ deploy-nginx:
 	ssh $(SSH_USER)@$(NGINX_HOST) "sudo systemctl reload nginx"
 	ssh $(SSH_USER)@$(NGINX_HOST) "sudo systemctl restart nginx"
 
-deploy-mysql:
-	rsync -az -e ssh mysql/mysqld.cnf $(SSH_USER)@$(MYSQL_HOST):/etc/mysql/mysql.conf.d/mysqld.cnf --rsync-path="sudo rsync"
-	ssh $(SSH_USER)@$(MYSQL_HOST) "sudo systemctl restart mysql"
-
 deploy-webapp:
 	go build -buildsvc=false -o webapp/go/$(APP_NAME) ./webapp/go/...
 	rsync -az -e ssh webapp/go/$(APP_NAME) $(SSH_USER)@$(WEBAPP_HOST):/home/$(ISUCON_USER)/webapp/go/$(APP_NAME) --rsync-path="sudo rsync"
 	ssh $(SSH_USER)@$(WEBAPP_HOST) "sudo chmod +x /home/$(ISUCON_USER)/webapp/go/$(APP_NAME)"
 	ssh $(SSH_USER)@$(WEBAPP_HOST) "sudo systemctl restart $(APP_NAME)"
+
+deploy-mysql:
+	rsync -az -e ssh mysql/mysqld.cnf $(SSH_USER)@$(MYSQL_HOST):/etc/mysql/mysql.conf.d/mysqld.cnf --rsync-path="sudo rsync"
+	ssh $(SSH_USER)@$(MYSQL_HOST) "sudo systemctl restart mysql"
