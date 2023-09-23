@@ -4,19 +4,19 @@ ssh sample
 
 ```bash
 Host isucon-1
-  Hostname 172.31.41.143
+  Hostname 13.231.219.177
   IdentityFile ~/.ssh/isucon-practice.pem
   User ubuntu
   RequestTTY yes
 
 Host isucon-2
-  Hostname 172.31.44.122
+  Hostname 18.179.30.73
   IdentityFile ~/.ssh/isucon-practice.pem
   User ubuntu
   RequestTTY yes
 
 Host isucon-3
-  Hostname 172.31.32.96
+  Hostname 54.178.138.79
   IdentityFile ~/.ssh/isucon-practice.pem
   User ubuntu
   RequestTTY yes
