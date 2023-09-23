@@ -41,11 +41,14 @@ deploy-nginx:
 	ssh $(SSH_USER)@$(NGINX_HOST) "sudo systemctl restart nginx"
 
 deploy-webapp:
-	go build -buildsvc=false -o webapp/go/$(APP_NAME) ./webapp/go/...
+	rm -f webapp/go/$(APP_NAME)
+	GOOS=linux GOARCH=amd64 make -C webapp/go $(APP_NAME)
 	rsync -az -e ssh webapp/go/$(APP_NAME) $(SSH_USER)@$(WEBAPP_HOST):/home/$(ISUCON_USER)/webapp/go/$(APP_NAME) --rsync-path="sudo rsync"
 	rsync -az -e ssh etc/systemd/system/$(APP_NAME).service $(SSH_USER)@$(WEBAPP_HOST):/etc/systemd/system/ --rsync-path="sudo rsync"
 	ssh $(SSH_USER)@$(WEBAPP_HOST) "sudo chmod +x /home/$(ISUCON_USER)/webapp/go/$(APP_NAME)"
-	ssh $(SSH_USER)@$(WEBAPP_HOST) "sudo systemctl restart $(APP_NAME)"
+	ssh $(SSH_USER)@$(WEBAPP_HOST) "sudo systemctl daemon-reload"
+	ssh $(SSH_USER)@$(WEBAPP_HOST) "sudo systemctl stop $(APP_NAME)"
+	ssh $(SSH_USER)@$(WEBAPP_HOST) "sudo systemctl start $(APP_NAME)"
 
 deploy-mysql:
 	rsync -az -e ssh mysql/ $(SSH_USER)@$(MYSQL_HOST):/etc/mysql/ --rsync-path="sudo rsync"
