@@ -1,18 +1,23 @@
 ## Required
 
-ssh config
+ssh sample
 
 ```bash
-Host isucon
-  Hostname ${host}
-  IdentityFile ~/.ssh/isucon.pem
+Host isucon-1
+  Hostname 172.31.41.143
+  IdentityFile ~/.ssh/isucon-practice.pem
   User ubuntu
   RequestTTY yes
-  RemoteCommand sudo -i -u isucon && $SHELL
 
-Host isucon-no-command
-  Hostname ${host}
-  IdentityFile ~/.ssh/isucon.pem
+Host isucon-2
+  Hostname 172.31.44.122
+  IdentityFile ~/.ssh/isucon-practice.pem
+  User ubuntu
+  RequestTTY yes
+
+Host isucon-3
+  Hostname 172.31.32.96
+  IdentityFile ~/.ssh/isucon-practice.pem
   User ubuntu
   RequestTTY yes
 ```
@@ -29,10 +34,10 @@ sudo passwd isucon
 ./setup.sh
 ```
 
-ssh
+ssh and login
 
 ```bash
-ssh isucon
+ssh isucon-1 "sudo -i -u isucon && $SHELL"
 ```
 
 add systemctl webapp sample

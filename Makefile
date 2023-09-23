@@ -1,11 +1,11 @@
 SSH_USER:=ubuntu
 ISUCON_USER:=isucon
-SSH_HOST:=isucon-no-command
 APP_NAME:=isuports
 
-NGINX_HOST:=isucon-no-command
-MYSQL_HOST:=isucon-no-command
-WEBAPP_HOST:=isucon-no-command
+SSH_HOST:=isucon-1
+NGINX_HOST:=isucon-1
+MYSQL_HOST:=isucon-1
+WEBAPP_HOST:=isucon-1
 
 .PHONY: setup setup-nginx setup-mysql setup-webapp deploy-nginx deploy-mysql
 setup:
