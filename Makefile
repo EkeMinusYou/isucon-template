@@ -3,8 +3,8 @@ ISUCON_USER:=isucon
 APP_NAME:=isuports
 
 NGINX_HOST:=isucon-1
-WEBAPP_HOST:=isucon-1
-MYSQL_HOST:=isucon-1
+WEBAPP_HOST:=isucon-2
+MYSQL_HOST:=isucon-3
 
 .PHONY: setup setup-nginx setup-mysql setup-webapp deploy-nginx deploy-mysql
 setup:
