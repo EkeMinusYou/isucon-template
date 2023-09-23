@@ -17,7 +17,7 @@ endif
 	ssh $(SSH_USER)@$(SETUP_HOST) "sudo chmod +x /home/$(ISUCON_USER)/setup.sh"
 
 setup-nginx:
-	rsync -az -e ssh $(SSH_USER)@$(NGINX_HOST):/etc/nginx/ nginx/
+	rsync -az -e ssh $(SSH_USER)@$(NGINX_HOST):/etc/nginx/ nginx/ --rsync-path="sudo rsync"
 	git add .
 	git commit -m "nginx"
 
@@ -27,7 +27,7 @@ setup-webapp:
 	git commit -m "webapp go"
 
 setup-mysql:
-	rsync -az -e ssh $(SSH_USER)@$(MYSQL_HOST):/etc/mysql/ mysql/
+	rsync -az -e ssh $(SSH_USER)@$(MYSQL_HOST):/etc/mysql/ mysql/ --rsync-path="sudo rsync"
 	git add .
 	git commit -m "mysql"
 
