@@ -2,31 +2,31 @@ SSH_USER:=ubuntu
 ISUCON_USER:=isucon
 APP_NAME:=isuports
 
-SSH_HOST:=isucon-1
+SETUP_HOST:=isucon-1
 NGINX_HOST:=isucon-1
 WEBAPP_HOST:=isucon-1
 MYSQL_HOST:=isucon-1
 
 .PHONY: setup setup-nginx setup-mysql setup-webapp deploy-nginx deploy-mysql
 setup:
-	rsync -az -e ssh setup.sh $(SSH_USER)@$(SSH_HOST):/home/$(ISUCON_USER)/ --rsync-path="sudo rsync"
-	rsync -az -e ssh Brewfile $(SSH_USER)@$(SSH_HOST):/home/$(ISUCON_USER)/ --rsync-path="sudo rsync"
-	rsync -az -e ssh Makefile $(SSH_USER)@$(SSH_HOST):/home/$(ISUCON_USER)/ --rsync-path="sudo rsync"
-	ssh $(SSH_USER)@$(SSH_HOST) "sudo chmod +x /home/$(ISUCON_USER)/setup.sh"
+	rsync -az -e ssh setup.sh $(SSH_USER)@$(SETUP_HOST):/home/$(ISUCON_USER)/ --rsync-path="sudo rsync"
+	rsync -az -e ssh Brewfile $(SSH_USER)@$(SETUP_HOST):/home/$(ISUCON_USER)/ --rsync-path="sudo rsync"
+	rsync -az -e ssh Makefile $(SSH_USER)@$(SETUP_HOST):/home/$(ISUCON_USER)/ --rsync-path="sudo rsync"
+	ssh $(SSH_USER)@$(SETUP_HOST) "sudo chmod +x /home/$(ISUCON_USER)/setup.sh"
 
 setup-nginx:
-	rsync -az -e ssh $(SSH_USER)@$(SSH_HOST):/etc/nginx/sites-available/$(APP_NAME).conf nginx/sites-available/$(APP_NAME).conf
-	rsync -az -e ssh $(SSH_USER)@$(SSH_HOST):/etc/nginx/nginx.conf nginx/nginx.conf
+	rsync -az -e ssh $(SSH_USER)@$(SETUP_HOST):/etc/nginx/sites-available/$(APP_NAME).conf nginx/sites-available/$(APP_NAME).conf
+	rsync -az -e ssh $(SSH_USER)@$(SETUP_HOST):/etc/nginx/nginx.conf nginx/nginx.conf
 	git add .
 	git commit -m "nginx.conf"
 
 setup-mysql:
-	rsync -az -e ssh $(SSH_USER)@$(SSH_HOST):/etc/mysql/mysql.conf.d/mysqld.cnf mysql/mysqld.cnf
+	rsync -az -e ssh $(SSH_USER)@$(SETUP_HOST):/etc/mysql/mysql.conf.d/mysqld.cnf mysql/mysqld.cnf
 	git add .
 	git commit -m "mysqld.cnf"
 
 setup-webapp:
-	rsync -az -e ssh $(SSH_USER)@$(SSH_HOST):/home/$(ISUCON_USER)/webapp/go webapp --rsync-path="sudo rsync"
+	rsync -az -e ssh $(SSH_USER)@$(SETUP_HOST):/home/$(ISUCON_USER)/webapp/go webapp --rsync-path="sudo rsync"
 	git add .
 	git commit -m "webapp go"
 
