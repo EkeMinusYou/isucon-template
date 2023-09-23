@@ -34,8 +34,7 @@ setup-mysql:
 deploy: deploy-nginx deploy-mysql deploy-webapp
 
 deploy-nginx:
-	rsync -az -e ssh nginx/sites-available/$(APP_NAME).conf $(SSH_USER)@$(NGINX_HOST):/etc/nginx/sites-available/$(APP_NAME).conf --rsync-path="sudo rsync"
-	rsync -az -e ssh nginx/nginx.conf $(SSH_USER)@$(NGINX_HOST):/etc/nginx/nginx.conf --rsync-path="sudo rsync"
+	rsync -az -e ssh nginx/ $(SSH_USER)@$(NGINX_HOST):/etc/nginx/ --rsync-path="sudo rsync"
 	ssh $(SSH_USER)@$(NGINX_HOST) "sudo systemctl reload nginx"
 	ssh $(SSH_USER)@$(NGINX_HOST) "sudo systemctl restart nginx"
 
@@ -46,5 +45,5 @@ deploy-webapp:
 	ssh $(SSH_USER)@$(WEBAPP_HOST) "sudo systemctl restart $(APP_NAME)"
 
 deploy-mysql:
-	rsync -az -e ssh mysql/mysqld.cnf $(SSH_USER)@$(MYSQL_HOST):/etc/mysql/mysql.conf.d/mysqld.cnf --rsync-path="sudo rsync"
+	rsync -az -e ssh mysql/ $(SSH_USER)@$(MYSQL_HOST):/etc/mysql/ --rsync-path="sudo rsync"
 	ssh $(SSH_USER)@$(MYSQL_HOST) "sudo systemctl restart mysql"
