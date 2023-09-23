@@ -3,8 +3,8 @@ ISUCON_USER:=isucon
 APP_NAME:=isuports
 
 NGINX_HOST:=isucon-1
-WEBAPP_HOST:=isucon-2
-MYSQL_HOST:=isucon-3
+WEBAPP_HOST:=isucon-1
+MYSQL_HOST:=isucon-1
 
 .PHONY: setup setup-nginx setup-mysql setup-webapp deploy-nginx deploy-mysql
 setup:
@@ -31,7 +31,7 @@ setup-mysql:
 	git add .
 	git commit -m "mysql"
 
-deploy: deploy-nginx deploy-mysql deploy-webapp
+deploy: deploy-nginx deploy-webapp deploy-mysql
 
 deploy-nginx:
 	rsync -az -e ssh nginx/ $(SSH_USER)@$(NGINX_HOST):/etc/nginx/ --rsync-path="sudo rsync"
