@@ -2,13 +2,16 @@ SSH_USER:=ubuntu
 ISUCON_USER:=isucon
 APP_NAME:=isuports
 
-SETUP_HOST:=isucon-1
 NGINX_HOST:=isucon-1
 WEBAPP_HOST:=isucon-1
 MYSQL_HOST:=isucon-1
 
 .PHONY: setup setup-nginx setup-mysql setup-webapp deploy-nginx deploy-mysql
 setup:
+ifndef SETUP_HOST
+	@echo "ERROR: SETUP_HOST is not defined\n"
+	@exit 1
+endif
 	rsync -az -e ssh setup.sh $(SSH_USER)@$(SETUP_HOST):/home/$(ISUCON_USER)/ --rsync-path="sudo rsync"
 	rsync -az -e ssh Brewfile $(SSH_USER)@$(SETUP_HOST):/home/$(ISUCON_USER)/ --rsync-path="sudo rsync"
 	rsync -az -e ssh Makefile $(SSH_USER)@$(SETUP_HOST):/home/$(ISUCON_USER)/ --rsync-path="sudo rsync"
