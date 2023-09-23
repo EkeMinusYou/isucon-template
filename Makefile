@@ -18,20 +18,20 @@ endif
 	ssh $(SSH_USER)@$(SETUP_HOST) "sudo chmod +x /home/$(ISUCON_USER)/setup.sh"
 
 setup-nginx:
-	rsync -az -e ssh $(SSH_USER)@$(SETUP_HOST):/etc/nginx/sites-available/$(APP_NAME).conf nginx/sites-available/$(APP_NAME).conf
-	rsync -az -e ssh $(SSH_USER)@$(SETUP_HOST):/etc/nginx/nginx.conf nginx/nginx.conf
+	rsync -az -e ssh $(SSH_USER)@$(NGINX_HOST):/etc/nginx/sites-available/$(APP_NAME).conf nginx/sites-available/$(APP_NAME).conf
+	rsync -az -e ssh $(SSH_USER)@$(NGINX_HOST):/etc/nginx/nginx.conf nginx/nginx.conf
 	git add .
 	git commit -m "nginx.conf"
 
-setup-mysql:
-	rsync -az -e ssh $(SSH_USER)@$(SETUP_HOST):/etc/mysql/mysql.conf.d/mysqld.cnf mysql/mysqld.cnf
-	git add .
-	git commit -m "mysqld.cnf"
-
 setup-webapp:
-	rsync -az -e ssh $(SSH_USER)@$(SETUP_HOST):/home/$(ISUCON_USER)/webapp/go webapp --rsync-path="sudo rsync"
+	rsync -az -e ssh $(SSH_USER)@$(WEBAPP_HOST):/home/$(ISUCON_USER)/webapp/go webapp --rsync-path="sudo rsync"
 	git add .
 	git commit -m "webapp go"
+
+setup-mysql:
+	rsync -az -e ssh $(SSH_USER)@$(MYSQL_HOST):/etc/mysql/mysql.conf.d/mysqld.cnf mysql/mysqld.cnf
+	git add .
+	git commit -m "mysqld.cnf"
 
 deploy: deploy-nginx deploy-mysql deploy-webapp
 
