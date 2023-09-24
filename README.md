@@ -22,7 +22,7 @@ Host isucon-3
 
 ## Setup
 
-サーバーでShellとNeovim環境をセットアップ
+サーバーでShellとNeovim環境をセットアップ。全てのサーバーで実行する
 
 ```bash
 make setup SETUP_HOST=isucon-1
