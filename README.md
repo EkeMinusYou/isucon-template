@@ -31,6 +31,20 @@ sudo passwd isucon
 ./setup.sh
 ```
 
+Nginx/MySQL/Webappをローカルにコピーして、Git管理にする
+
+Makefileの以下をアプリ名に書換えてから、makeを実行する
+
+```Makefile
+APP_NAME:=isuports
+```
+
+```bash
+make setup-nginx
+make setup-mysql
+make setup-webapp
+```
+
 ## SSH
 
 `~/.ssh/config` のサンプル
@@ -85,4 +99,26 @@ webapp/go配下のビルドするMakefileのサンプル
 ```Makefile
 isuports:
 	go build -o isuports ./...
+```
+
+## Nginxの向き先を変える
+
+`nginx/sites-available/${サービス名}` の以下を書き変える。proxy_passで `127.0.0.1` となっている箇所を、対象のプライベートIPに変更する。
+
+
+```conf
+  location / {
+    try_files $uri /index.html;
+  }
+
+  location ~ ^/(api|initialize) {
+    proxy_set_header Host $host;
+    proxy_read_timeout 600;
+    proxy_pass http://127.0.0.1:3000;
+  }
+
+  location /auth/ {
+    proxy_set_header Host $host;
+    proxy_pass http://127.0.0.1:3001;
+  }
 ```
