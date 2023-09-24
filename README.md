@@ -77,14 +77,14 @@ ssh isucon-1 "sudo -i -u isucon && $SHELL"
 
 ## Docker剥がし
 
-etc/systemd/system/$(サービス名) に以下のように追記する
+`etc/systemd/system/$(サービス名) `に以下のように追記する
 
 ```bash
 WorkingDirectory=/home/isucon/webapp/go
 ExecStart=/home/isucon/webapp/go/isuports
 ```
 
-また、環境変数は以下のように定義する
+また、元々はDockerで定義されていた環境変数は、`etc/sytemd/system/${サービス名}` で以下のように定義する
 
 ```bash
 Environment=ISUCON_DB_HOST=192.168.0.12
