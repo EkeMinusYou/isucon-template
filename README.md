@@ -33,7 +33,7 @@ sudo passwd isucon
 
 Nginx/MySQL/Webappをローカルにコピーして、Git管理にする
 
-Makefileの以下をアプリ名に書換えてから、makeを実行する
+※ Makefileの以下をアプリ名に書換えてから、makeを実行する
 
 ```Makefile
 APP_NAME:=isuports
