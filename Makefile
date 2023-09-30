@@ -39,6 +39,8 @@ deploy-nginx:
 	rsync -az -e ssh nginx/ $(SSH_USER)@$(NGINX_HOST):/etc/nginx/ --rsync-path="sudo rsync"
 	ssh $(SSH_USER)@$(NGINX_HOST) "sudo systemctl reload nginx"
 	ssh $(SSH_USER)@$(NGINX_HOST) "sudo systemctl restart nginx"
+	ssh $(SSH_USER)@$(NGINX_HOST) "sudo mv /var/log/nginx/access.log /var/log/nginx/access.log.`date +%Y%m%d-%H%M%S`"
+	ssh $(SSH_USER)@$(NGINX_HOST) "sudo nginx -s reopen"
 
 deploy-webapp:
 	rsync -az -e ssh webapp $(SSH_USER)@$(WEBAPP_HOST):/home/$(ISUCON_USER)/ --rsync-path="sudo rsync" --delete
