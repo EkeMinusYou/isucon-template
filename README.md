@@ -158,3 +158,41 @@ mysql> SELECT user, host FROM mysql.user;
 +------------------+-----------+
 6 rows in set (0.00 sec)
 ```
+
+## ログと計測の準備
+
+### Nginx
+
+`nginx/nginx.conf` でログ出力を以下のように書き換える
+
+```
+  log_format json escape=json '{"time":"$time_local",'
+                              '"host":"$remote_addr",'
+                              '"forwardedfor":"$http_x_forwarded_for",'
+                              '"req":"$request",'
+                              '"status":"$status",'
+                              '"method":"$request_method",'
+                              '"uri":"$request_uri",'
+                              '"body_bytes":$body_bytes_sent,'
+                              '"referer":"$http_referer",'
+                              '"ua":"$http_user_agent",'
+                              '"request_time":$request_time,'
+                              '"cache":"$upstream_http_x_cache",'
+                              '"runtime":"$upstream_http_x_runtime",'
+                              '"response_time":"$upstream_response_time",'
+                              '"vhost":"$host"}';
+```
+
+```
+access_log /var/log/nginx/access.log json;
+```
+
+### MySQL
+
+`mysql/mysql.conf.d/mysqld.cnf` の以下の部分を有効にする
+
+```
+slow_query_log		= 1
+slow_query_log_file	= /var/log/mysql/mysql-slow.log
+long_query_time = 0
+```
