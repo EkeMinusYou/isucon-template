@@ -6,8 +6,6 @@ sudo apt-get install build-essential
 brew install gcc
 curl -fsSL https://raw.githubusercontent.com/EkeMinusYou/dotfiles/main/install.sh | /bin/bash
 brew bundle --file Brewfile
-fnm install 20
-fnm use 20
 $(brew --prefix)/opt/fzf/install
 which zsh | sudo tee -a /etc/shells
 chsh -s $(which zsh) $USER
