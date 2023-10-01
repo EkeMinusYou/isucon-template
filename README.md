@@ -210,3 +210,17 @@ long_query_time = 0
 
 
 ## ER図を出力
+
+サーバーで以下を実行しtblsをインストールし、ドキュメントを出力する。isuportsの部分は対象のDB名なのでアプリの名称によって、適宜変えること。
+
+```bash
+brew install k1LoW/tap/tbls
+source ~/.zshrc
+tbls doc mysql://isucon:isucon@localhost:3306/isuports ./dbdoc
+```
+
+その後、ローカルで以下を実行して、ローカルにファイルをコピーして、git管理にする
+
+```bash
+rsync -az -e ssh ubuntu@isucon-1:/home/isucon/dbdoc/ dbdoc/ --rsync-path="sudo rsync"
+```
