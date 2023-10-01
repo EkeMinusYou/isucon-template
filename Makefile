@@ -63,6 +63,7 @@ deploy-mysql:
 before-bench:
 	ssh $(SSH_USER)@$(NGINX_HOST) "sudo mv /var/log/nginx/access.log /var/log/nginx/access.log.`date +%Y%m%d-%H%M%S`"
 	ssh $(SSH_USER)@$(NGINX_HOST) "sudo nginx -s reopen"
+	ssh $(SSH_USER)@$(MYSQL_HOST) "sudo mv /var/log/mysql/mysql-slow.log /var/log/mysql/mysql-slow.log.`date +%Y%m%d-%H%M%S`"
 
 .PHONY: after-bench
 after-bench:
