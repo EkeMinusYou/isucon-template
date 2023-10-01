@@ -222,5 +222,6 @@ tbls doc mysql://isucon:isucon@localhost:3306/isuports ./dbdoc
 その後、ローカルで以下を実行して、ローカルにファイルをコピーして、git管理にする
 
 ```bash
+mkdir -p dbdoc
 rsync -az -e ssh ubuntu@isucon-1:/home/isucon/dbdoc/ dbdoc/ --rsync-path="sudo rsync"
 ```
