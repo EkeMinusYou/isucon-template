@@ -68,3 +68,5 @@ before-bench:
 after-bench:
 	mkdir -p alp
 	rsync -az -e ssh $(SSH_USER)@$(NGINX_HOST):/var/log/nginx/ alp/ --rsync-path="sudo rsync"
+	mkdir -p slowquery
+	rsync -az -e ssh $(SSH_USER)@$(MYSQL_HOST):/var/log/mysql/ slowquery/ --rsync-path="sudo rsync"

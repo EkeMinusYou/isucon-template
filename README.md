@@ -26,7 +26,7 @@ Host isucon-3
 
 ```bash
 make setup SETUP_HOST=isucon-1
-ssh isucon-1 "sudo -i -u isucon && $SHELL"
+ssh isucon-1 "sudo -i -u isucon"
 sudo passwd isucon
 ./setup.sh
 ```
