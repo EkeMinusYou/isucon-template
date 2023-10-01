@@ -143,7 +143,7 @@ Environment=ISUCON_DB_NAME=isucon
 
 MySQLのisuconユーザーがlocalhost以外からの接続を受け入れているか確認する。%になっていたらOK
 
-```
+```sql
 mysql -u isucon -p
 mysql> SELECT user, host FROM mysql.user;
 +------------------+-----------+
@@ -159,7 +159,16 @@ mysql> SELECT user, host FROM mysql.user;
 6 rows in set (0.00 sec)
 ```
 
+なっていなかったら、以下のコマンドでユーザーと権限を追加する
+
+```sql
+CREATE USER "isucon"@"%" IDENTIFIED BY "isucon";
+GRANT ALL PRIVILEGES ON *.* TO "isucon"@"%";
+```
+
 ## ログと計測の準備
+
+最終的に元に戻すこと
 
 ### Nginx
 
@@ -196,3 +205,7 @@ slow_query_log		= 1
 slow_query_log_file	= /var/log/mysql/mysql-slow.log
 long_query_time = 0
 ```
+
+### Goのprofile
+
+
