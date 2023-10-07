@@ -64,6 +64,9 @@ before-bench:
 	ssh $(SSH_USER)@$(NGINX_HOST) "sudo mv /var/log/nginx/access.log /var/log/nginx/access.log.`date +%Y%m%d-%H%M%S`"
 	ssh $(SSH_USER)@$(NGINX_HOST) "sudo nginx -s reopen"
 	ssh $(SSH_USER)@$(MYSQL_HOST) "sudo mv /var/log/mysql/mysql-slow.log /var/log/mysql/mysql-slow.log.`date +%Y%m%d-%H%M%S`"
+	ssh $(SSH_USER)@$(MYSQL_HOST) "sudo systemctl restart mysql"
+	[ -e "/profile/cpu.pprof" ] && mv profile/cpu.pprof profile/cpu_`date +%Y%m%d-%H%M%S`.pprof || true
+	[ -e "/profile/cpu.pdf" ] &&	mv profile/cpu.pdf profile/cpu_`date +%Y%m%d-%H%M%S`.pdf || true
 
 .PHONY: after-bench
 after-bench:
@@ -71,3 +74,8 @@ after-bench:
 	rsync -az -e ssh $(SSH_USER)@$(NGINX_HOST):/var/log/nginx/ alp/ --rsync-path="sudo rsync"
 	mkdir -p slowquery
 	rsync -az -e ssh $(SSH_USER)@$(MYSQL_HOST):/var/log/mysql/ slowquery/ --rsync-path="sudo rsync"
+	mkdir -p profile
+	ssh $(SSH_USER)@$(WEBAPP_HOST) "sudo systemctl stop $(APP_NAME)"
+	rsync -az -e ssh $(SSH_USER)@$(WEBAPP_HOST):/home/$(ISUCON_USER)/webapp/go/cpu.pprof profile/ --rsync-path="sudo rsync" 
+	ssh $(SSH_USER)@$(WEBAPP_HOST) "sudo systemctl start $(APP_NAME)"
+	[ -e "/profile/cpu.pdf" ] &&	go tool pprof --pdf profile/cpu.pprof > profile/cpu.pdf || true
