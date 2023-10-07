@@ -65,8 +65,8 @@ before-bench:
 	ssh $(SSH_USER)@$(NGINX_HOST) "sudo nginx -s reopen"
 	ssh $(SSH_USER)@$(MYSQL_HOST) "sudo mv /var/log/mysql/mysql-slow.log /var/log/mysql/mysql-slow.log.`date +%Y%m%d-%H%M%S`"
 	ssh $(SSH_USER)@$(MYSQL_HOST) "sudo systemctl restart mysql"
-	[ -e "/profile/cpu.pprof" ] && mv profile/cpu.pprof profile/cpu_`date +%Y%m%d-%H%M%S`.pprof || true
-	[ -e "/profile/cpu.pdf" ] &&	mv profile/cpu.pdf profile/cpu_`date +%Y%m%d-%H%M%S`.pdf || true
+	[ -e "profile/cpu.pprof" ] && mv profile/cpu.pprof profile/cpu_`date +%Y%m%d-%H%M%S`.pprof || true
+	[ -e "profile/cpu.pdf" ] && mv profile/cpu.pdf profile/cpu_`date +%Y%m%d-%H%M%S`.pdf
 
 .PHONY: after-bench
 after-bench:
@@ -78,4 +78,4 @@ after-bench:
 	ssh $(SSH_USER)@$(WEBAPP_HOST) "sudo systemctl stop $(APP_NAME)"
 	rsync -az -e ssh $(SSH_USER)@$(WEBAPP_HOST):/home/$(ISUCON_USER)/webapp/go/cpu.pprof profile/ --rsync-path="sudo rsync" 
 	ssh $(SSH_USER)@$(WEBAPP_HOST) "sudo systemctl start $(APP_NAME)"
-	[ -e "/profile/cpu.pdf" ] &&	go tool pprof --pdf profile/cpu.pprof > profile/cpu.pdf || true
+	[ -e "profile/cpu.pprof" ] &&	go tool pprof --pdf profile/cpu.pprof > profile/cpu.pdf || true
