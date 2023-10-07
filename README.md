@@ -1,25 +1,3 @@
-## SSH Sample
-
-```bash
-Host isucon-1
-  Hostname 13.231.219.177
-  IdentityFile ~/.ssh/isucon-practice.pem
-  User ubuntu
-  RequestTTY yes
-
-Host isucon-2
-  Hostname 18.179.30.73
-  IdentityFile ~/.ssh/isucon-practice.pem
-  User ubuntu
-  RequestTTY yes
-
-Host isucon-3
-  Hostname 54.178.138.79
-  IdentityFile ~/.ssh/isucon-practice.pem
-  User ubuntu
-  RequestTTY yes
-```
-
 ## Setup
 
 サーバーでShellとNeovim環境をセットアップ。全てのサーバーで実行する
@@ -72,7 +50,7 @@ Host isucon-3
 sshしつつユーザー切り替え
 
 ```bash
-ssh isucon-1 "sudo -i -u isucon && $SHELL"
+ssh isucon-1 "sudo -i -u isucon"
 ```
 
 ## Docker剥がし
