@@ -325,3 +325,27 @@ http {
     proxy_set_header Connection "";
   }
 ```
+
+## mysqld.cnf
+
+スロークエリを有効にする。最後に無効にすること。
+
+```
+slow_query_log		= 1
+slow_query_log_file	= /var/log/mysql/mysql-slow.log
+long_query_time = 0
+```
+
+ディスクイメージをメモリー上にバッファする
+
+```
+innodb_buffer_pool_size = 1GB
+innodb_flush_log_at_trx_commit = 2
+innodb_flush_method = O_DIRECT
+```
+
+isuconでクラスタ構成を使わない場合disable-log-binを1にする
+
+```
+disable-log-bin = 1
+```
