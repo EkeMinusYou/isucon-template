@@ -1,33 +1,10 @@
-## Setup
+# 最初にやること
 
-サーバーでShellとNeovim環境をセットアップ。全てのサーバーで実行する
-
-```bash
-make setup SETUP_HOST=isucon-1
-ssh isucon-1 "sudo -i -u isucon"
-sudo passwd isucon
-./setup.sh
-```
-
-Nginx/MySQL/Webappをローカルにコピーして、Git管理にする
-
-※ Makefileの以下をアプリ名に書換えてから、makeを実行する
-
-```Makefile
-APP_NAME:=isuports
-```
-
-```bash
-make setup-nginx
-make setup-mysql
-make setup-webapp
-```
-
-## SSH
+## SSHの設定
 
 `~/.ssh/config` のサンプル
 
-```bash
+```ssh-config
 Host isucon-1
   Hostname 13.231.219.177
   IdentityFile ~/.ssh/isucon-practice.pem
@@ -52,19 +29,39 @@ sshしつつユーザー切り替え
 ```bash
 ssh isucon-1 "sudo -i -u isucon"
 ```
+## Shell環境を各サーバーにセットアップ
+
+サーバーでShellとNeovim環境をセットアップ。全てのサーバーで実行する
+
+```bash
+make setup-shell SETUP_HOST=isucon-1
+ssh isucon-1 "sudo -i -u isucon"
+sudo passwd isucon
+./setup.sh
+```
+
+## Nginx/MySQL/Webappをローカルにコピーして、Git管理にする
+
+Makefileの以下をアプリ名に書換えてから、makeを実行する
+
+```Makefile
+APP_NAME:=isuports
+```
+
+```bash
+make setup-sysctl
+make setup-nginx
+make setup-mysql
+make setup-webapp
+```
 
 ## Docker剥がし
 
-`etc/systemd/system/$(サービス名) `に以下のように追記する
+`etc/systemd/system/$(サービス名) `に以下のように追記する。Dockerで定義されていた環境変数は、Environmentで定義する。
 
 ```bash
 WorkingDirectory=/home/isucon/webapp/go
 ExecStart=/home/isucon/webapp/go/isuports
-```
-
-また、元々はDockerで定義されていた環境変数は、`etc/sytemd/system/${サービス名}` で以下のように定義する
-
-```bash
 Environment=ISUCON_DB_HOST=192.168.0.12
 Environment=ISUCON_DB_PORT=3306
 Environment=ISUCON_DB_USER=isucon
@@ -78,6 +75,112 @@ webapp/go配下のビルドするMakefileのサンプル
 isuports:
 	go build -o isuports ./...
 ```
+
+## ログと計測の準備
+
+これらの設定を行えば、`make before-bench` をベンチマーク実行前、`make after-bench` をベンチマーク実行後にそれぞれ実行することで、計測結果がそれぞれ以下に格納される。
+
+- alp
+  - nginxのアクセスログ。alpで解析する
+- slowquery
+  - mysqlのslowquery。pt-query-digestなどで解析する
+- profile
+  - golangのprofile。pdfファイルが出力される
+
+**これらの設定は最終的に元に戻すこと**
+
+### Nginxでalp用のログ出力
+
+`nginx/nginx.conf` でログ出力を以下のように書き換える
+
+```nginx
+  log_format json escape=json '{"time":"$time_local",'
+                              '"host":"$remote_addr",'
+                              '"forwardedfor":"$http_x_forwarded_for",'
+                              '"req":"$request",'
+                              '"status":"$status",'
+                              '"method":"$request_method",'
+                              '"uri":"$request_uri",'
+                              '"body_bytes":$body_bytes_sent,'
+                              '"referer":"$http_referer",'
+                              '"ua":"$http_user_agent",'
+                              '"request_time":$request_time,'
+                              '"cache":"$upstream_http_x_cache",'
+                              '"runtime":"$upstream_http_x_runtime",'
+                              '"response_time":"$upstream_response_time",'
+                              '"vhost":"$host"}';
+
+access_log /var/log/nginx/access.log json;
+```
+
+## MySQLのスロークエリ
+
+`mysql/mysql.conf.d/mysqld.cnf` で以下のように書く。
+
+```
+slow_query_log		= 1
+slow_query_log_file	= /var/log/mysql/mysql-slow.log
+long_query_time = 0
+```
+
+## Goのprofile
+
+以下のようにProfileの設定をする。
+
+```go
+package main
+
+import (
+	"flag"
+	"log"
+	"os"
+	"os/signal"
+	"runtime/pprof"
+	"syscall"
+)
+
+var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
+
+func main() {
+	flag.Parse()
+	if *cpuprofile != "" {
+		f, err := os.Create(*cpuprofile)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		err = pprof.StartCPUProfile(f)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		go func() {
+			sig := make(chan os.Signal, 1)
+			signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
+			<-sig
+			pprof.StopCPUProfile()
+			f.Close()
+			os.Exit(0)
+		}()
+	}
+
+	Run()
+}
+```
+
+systemdでファイル名を指定する
+
+```unit
+ExecStart=/home/isucon/webapp/go/isuports -cpuprofile cpu.pprof
+```
+
+pdf出力のためgarphvizをinstall
+
+```bash
+brew install graphviz
+```
+
+# 必要に応じてやること
 
 ## Nginxの向き先を変える
 
@@ -144,92 +247,6 @@ CREATE USER "isucon"@"%" IDENTIFIED BY "isucon";
 GRANT ALL PRIVILEGES ON *.* TO "isucon"@"%";
 ```
 
-## ログと計測の準備
-
-最終的に元に戻すこと
-
-### Nginx
-
-`nginx/nginx.conf` でログ出力を以下のように書き換える
-
-```
-  log_format json escape=json '{"time":"$time_local",'
-                              '"host":"$remote_addr",'
-                              '"forwardedfor":"$http_x_forwarded_for",'
-                              '"req":"$request",'
-                              '"status":"$status",'
-                              '"method":"$request_method",'
-                              '"uri":"$request_uri",'
-                              '"body_bytes":$body_bytes_sent,'
-                              '"referer":"$http_referer",'
-                              '"ua":"$http_user_agent",'
-                              '"request_time":$request_time,'
-                              '"cache":"$upstream_http_x_cache",'
-                              '"runtime":"$upstream_http_x_runtime",'
-                              '"response_time":"$upstream_response_time",'
-                              '"vhost":"$host"}';
-```
-
-```
-access_log /var/log/nginx/access.log json;
-```
-
-### Goのprofile
-
-以下のようにProfileの設定をする。
-
-```go
-package main
-
-import (
-	"flag"
-	"log"
-	"os"
-	"os/signal"
-	"runtime/pprof"
-	"syscall"
-)
-
-var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
-
-func main() {
-	flag.Parse()
-	if *cpuprofile != "" {
-		f, err := os.Create(*cpuprofile)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		err = pprof.StartCPUProfile(f)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		go func() {
-			sig := make(chan os.Signal, 1)
-			signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
-			<-sig
-			pprof.StopCPUProfile()
-			f.Close()
-			os.Exit(0)
-		}()
-	}
-
-	Run()
-}
-```
-
-systemdでファイル名を指定する
-
-```
-ExecStart=/home/isucon/webapp/go/isuports -cpuprofile cpu.pprof
-```
-
-pdf出力のためgarphvizをinstall
-
-```bash
-brew install graphviz
-```
 
 ## pgoを有効にする
 
@@ -257,6 +274,8 @@ tbls doc mysql://isucon:isucon@localhost:3306/isuports ./dbdoc
 mkdir -p dbdoc
 rsync -az -e ssh ubuntu@isucon-1:/home/isucon/dbdoc/ dbdoc/ --rsync-path="sudo rsync"
 ```
+
+# 秘伝のタレ
 
 ## nginx.conf
 
@@ -327,14 +346,6 @@ http {
 ```
 
 ## mysqld.cnf
-
-スロークエリを有効にする。最後に無効にすること。
-
-```
-slow_query_log		= 1
-slow_query_log_file	= /var/log/mysql/mysql-slow.log
-long_query_time = 0
-```
 
 ディスクイメージをメモリー上にバッファする
 

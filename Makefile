@@ -3,11 +3,11 @@ ISUCON_USER:=isucon
 APP_NAME:=isuports
 
 NGINX_HOST:=isucon-1
-WEBAPP_HOST:=isucon-2
-MYSQL_HOST:=isucon-3
+WEBAPP_HOST:=isucon-1
+MYSQL_HOST:=isucon-1
 
-.PHONY: setup
-setup:
+.PHONY: setup-shell
+setup-shell:
 ifndef SETUP_HOST
 	@echo "ERROR: SETUP_HOST is not defined\n"
 	@exit 1
@@ -15,6 +15,9 @@ endif
 	rsync -az -e ssh setup.sh $(SSH_USER)@$(SETUP_HOST):/home/$(ISUCON_USER)/ --rsync-path="sudo rsync"
 	rsync -az -e ssh Brewfile $(SSH_USER)@$(SETUP_HOST):/home/$(ISUCON_USER)/ --rsync-path="sudo rsync"
 	ssh $(SSH_USER)@$(SETUP_HOST) "sudo chmod +x /home/$(ISUCON_USER)/setup.sh"
+
+.PHONY: setup
+setup: setup-sysctl setup-nginx setup-webapp setup-mysql
 
 .PHONY: setup-sysctl
 setup-sysctl:
@@ -88,7 +91,7 @@ before-bench:
 	ssh $(SSH_USER)@$(MYSQL_HOST) "sudo mv /var/log/mysql/mysql-slow.log /var/log/mysql/mysql-slow.log.`date +%Y%m%d-%H%M%S`"
 	ssh $(SSH_USER)@$(MYSQL_HOST) "sudo systemctl restart mysql"
 	[ -e "profile/cpu.pprof" ] && mv profile/cpu.pprof profile/cpu_`date +%Y%m%d-%H%M%S`.pprof || true
-	[ -e "profile/cpu.pdf" ] && mv profile/cpu.pdf profile/cpu_`date +%Y%m%d-%H%M%S`.pdf
+	[ -e "profile/cpu.pdf" ] && mv profile/cpu.pdf profile/cpu_`date +%Y%m%d-%H%M%S`.pdf || true
 
 .PHONY: after-bench
 after-bench:
@@ -98,6 +101,6 @@ after-bench:
 	rsync -az -e ssh $(SSH_USER)@$(MYSQL_HOST):/var/log/mysql/ slowquery/ --rsync-path="sudo rsync"
 	mkdir -p profile
 	ssh $(SSH_USER)@$(WEBAPP_HOST) "sudo systemctl stop $(APP_NAME)"
-	rsync -az -e ssh $(SSH_USER)@$(WEBAPP_HOST):/home/$(ISUCON_USER)/webapp/go/cpu.pprof profile/ --rsync-path="sudo rsync" 
+	rsync -az -e ssh $(SSH_USER)@$(WEBAPP_HOST):/home/$(ISUCON_USER)/webapp/go/cpu.pprof profile/ --rsync-path="sudo rsync"  || true
 	ssh $(SSH_USER)@$(WEBAPP_HOST) "sudo systemctl start $(APP_NAME)"
 	[ -e "profile/cpu.pprof" ] &&	go tool pprof --pdf profile/cpu.pprof > profile/cpu.pdf || true
