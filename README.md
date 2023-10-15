@@ -351,7 +351,7 @@ LimitNOFILE=1006500
 ```
 ## カーネルパラメーター
 
-`etc/systemd/sysctl.conf` で以下を書く
+`etc/systemd/sysctl.conf` で以下を書いて、`make deploy-sysctl` で全サーバーに適用
 
 ```
 net.core.somaxconn = 8192
