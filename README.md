@@ -26,14 +26,14 @@ Host isucon-3
 
 sshしつつユーザー切り替え
 
-```bash
+```shell
 ssh isucon-1 "sudo -i -u isucon"
 ```
 ## Shell環境を各サーバーにセットアップ
 
 サーバーでShellとNeovim環境をセットアップ。全てのサーバーで実行する
 
-```bash
+```shell
 make setup-shell SETUP_HOST=isucon-1
 ssh isucon-1 "sudo -i -u isucon"
 sudo passwd isucon
@@ -48,7 +48,7 @@ Makefileの以下をアプリ名に書換えてから、makeを実行する
 APP_NAME:=isuports
 ```
 
-```bash
+```shell
 make setup-sysctl
 make setup-nginx
 make setup-mysql
@@ -175,7 +175,7 @@ ExecStart=/home/isucon/webapp/go/isuports -cpuprofile cpu.pprof
 
 pdf出力のためgarphvizをinstall
 
-```bash
+```shell
 brew install graphviz
 ```
 
@@ -260,7 +260,7 @@ isuports:
 
 サーバーで以下を実行しtblsをインストールし、ドキュメントを出力する。isuportsの部分は対象のDB名なのでアプリの名称によって、適宜変えること。
 
-```bash
+```shell
 brew install k1LoW/tap/tbls
 source ~/.zshrc
 tbls doc mysql://isucon:isucon@localhost:3306/isuports ./dbdoc
@@ -268,7 +268,7 @@ tbls doc mysql://isucon:isucon@localhost:3306/isuports ./dbdoc
 
 その後、ローカルで以下を実行して、ローカルにファイルをコピーして、git管理にする
 
-```bash
+```shell
 mkdir -p dbdoc
 rsync -az -e ssh ubuntu@isucon-1:/home/isucon/dbdoc/ dbdoc/ --rsync-path="sudo rsync"
 ```
