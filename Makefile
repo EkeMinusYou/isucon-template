@@ -33,6 +33,9 @@ setup-webapp:
 .PHONY: setup-mysql
 setup-mysql:
 	rsync -az -e ssh $(SSH_USER)@$(MYSQL_HOST):/etc/mysql/ mysql/ --rsync-path="sudo rsync"
+	mkdir -p etc/systemd/system/mysql.service.d
+	ssh $(SSH_USER)@$(MYSQL_HOST) "suco touch /etc/systemd/system/mysql.service.d/limits.conf"
+	rsync -az -e ssh $(SSH_USER)@$(MYSQL_HOST):/etc/systemd/system/mysql.service.d/limits.conf etc/systemd/system/mysql.service.d/ --rsync-path="sudo rsync"
 	git add .
 	git commit -m "mysql"
 
@@ -57,6 +60,7 @@ deploy-webapp:
 .PHONY: deploy-mysql
 deploy-mysql:
 	rsync -az -e ssh mysql/ $(SSH_USER)@$(MYSQL_HOST):/etc/mysql/ --rsync-path="sudo rsync"
+	rsync -az -e ssh etc/systemd/system/mysql.service.d/limits.conf $(SSH_USER)@$(MYSQL_HOST):/etc/systemd/system/mysql.service.d/ --rsync-path="sudo rsync"
 	ssh $(SSH_USER)@$(MYSQL_HOST) "sudo systemctl restart mysql"
 
 .PHONY: before-bench
