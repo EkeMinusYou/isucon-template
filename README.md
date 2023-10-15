@@ -59,7 +59,7 @@ make setup-webapp
 
 `etc/systemd/system/$(サービス名) `に以下のように追記する。Dockerで定義されていた環境変数は、Environmentで定義する。
 
-```bash
+```ini
 WorkingDirectory=/home/isucon/webapp/go
 ExecStart=/home/isucon/webapp/go/isuports
 Environment=ISUCON_DB_HOST=192.168.0.12
