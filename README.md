@@ -257,3 +257,71 @@ tbls doc mysql://isucon:isucon@localhost:3306/isuports ./dbdoc
 mkdir -p dbdoc
 rsync -az -e ssh ubuntu@isucon-1:/home/isucon/dbdoc/ dbdoc/ --rsync-path="sudo rsync"
 ```
+
+## nginx.conf
+
+worker_rlimit_nofileはworker_connectionsの4倍程度で設定する
+
+```nginx
+worker_rlimit_nofile  4096;
+events {
+  worker_connections 1024;
+}
+```
+
+alp用のログ設定
+
+```nginx
+http {
+  log_format json escape=json '{"time":"$time_local",'
+                              '"host":"$remote_addr",'
+                              '"forwardedfor":"$http_x_forwarded_for",'
+                              '"req":"$request",'
+                              '"status":"$status",'
+                              '"method":"$request_method",'
+                              '"uri":"$request_uri",'
+                              '"body_bytes":$body_bytes_sent,'
+                              '"referer":"$http_referer",'
+                              '"ua":"$http_user_agent",'
+                              '"request_time":$request_time,'
+                              '"cache":"$upstream_http_x_cache",'
+                              '"runtime":"$upstream_http_x_runtime",'
+                              '"response_time":"$upstream_response_time",'
+                              '"vhost":"$host"}';
+
+  access_log /var/log/nginx/access.log json;
+  error_log /var/log/nginx/error.log;
+}
+```
+
+基本設定
+
+```nginx
+http {
+  sendfile    on;
+  tcp_nopush  on;
+  tcp_nodelay on;
+  types_hash_max_size 2048;
+  server_tokens    off;
+}
+```
+
+nginxとupstreamのkeepalive設定。app側も対応必要
+
+```nginx
+http {
+  upstream app {
+    server 192.100.0.1:5000;
+    keepalive 60;
+  }
+  
+  location /api/ {
+    proxy_set_header Host $host;
+    proxy_read_timeout 600;
+    proxy_pass http://app;
+    
+    # この二つの設定はkeepaliveに必須
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+  }
+```
