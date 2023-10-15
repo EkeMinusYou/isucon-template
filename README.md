@@ -231,6 +231,16 @@ pdf出力のためgarphvizをinstall
 brew install graphviz
 ```
 
+## pgoを有効にする
+
+以下のようにmake targetを書き換える
+
+```makefile
+isuports:
+	cp cpu.pprof default.pgo || true
+	go build -o isuports ./... -pgo=auto
+```
+
 ## ER図を出力
 
 サーバーで以下を実行しtblsをインストールし、ドキュメントを出力する。isuportsの部分は対象のDB名なのでアプリの名称によって、適宜変えること。
