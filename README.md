@@ -174,16 +174,6 @@ GRANT ALL PRIVILEGES ON *.* TO "isucon"@"%";
 access_log /var/log/nginx/access.log json;
 ```
 
-### MySQL
-
-`mysql/mysql.conf.d/mysqld.cnf` の以下の部分を有効にする
-
-```
-slow_query_log		= 1
-slow_query_log_file	= /var/log/mysql/mysql-slow.log
-long_query_time = 0
-```
-
 ### Goのprofile
 
 以下のようにProfileの設定をする。
@@ -314,12 +304,12 @@ http {
     server 192.100.0.1:5000;
     keepalive 60;
   }
-  
+
   location /api/ {
     proxy_set_header Host $host;
     proxy_read_timeout 600;
     proxy_pass http://app;
-    
+
     # この二つの設定はkeepaliveに必須
     proxy_http_version 1.1;
     proxy_set_header Connection "";
@@ -348,4 +338,22 @@ isuconでクラスタ構成を使わない場合disable-log-binを1にする
 
 ```
 disable-log-bin = 1
+```
+
+## MySQLのLimitnofileを増やす
+
+
+`etc/systemd/system/mysql.service.d/limits.conf` で以下のように書いて、`make deploy-mysql`
+
+```bash
+[Service]
+LimitNOFILE=1006500
+```
+## カーネルパラメーター
+
+`etc/systemd/sysctl.conf` で以下を書く
+
+```
+net.core.somaxconn = 8192
+net.ipv4.ip_local_port_range = 10000    60999
 ```

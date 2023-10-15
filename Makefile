@@ -16,6 +16,13 @@ endif
 	rsync -az -e ssh Brewfile $(SSH_USER)@$(SETUP_HOST):/home/$(ISUCON_USER)/ --rsync-path="sudo rsync"
 	ssh $(SSH_USER)@$(SETUP_HOST) "sudo chmod +x /home/$(ISUCON_USER)/setup.sh"
 
+.PHONY: setup-sysctl
+setup-sysctl:
+	mkdir -p etc
+	rsync -az -e ssh $(SSH_USER)@$(NGINX_HOST):/etc/sysctl.conf etc/ --rsync-path="sudo rsync"
+	git add .
+	git commit -m "sysctl"
+
 .PHONY: setup-nginx
 setup-nginx:
 	rsync -az -e ssh $(SSH_USER)@$(NGINX_HOST):/etc/nginx/ nginx/ --rsync-path="sudo rsync"
@@ -34,13 +41,23 @@ setup-webapp:
 setup-mysql:
 	rsync -az -e ssh $(SSH_USER)@$(MYSQL_HOST):/etc/mysql/ mysql/ --rsync-path="sudo rsync"
 	mkdir -p etc/systemd/system/mysql.service.d
-	ssh $(SSH_USER)@$(MYSQL_HOST) "suco touch /etc/systemd/system/mysql.service.d/limits.conf"
+	ssh $(SSH_USER)@$(MYSQL_HOST) "sudo mkdir -p /etc/systemd/system/mysql.service.d"
+	ssh $(SSH_USER)@$(MYSQL_HOST) "sudo touch /etc/systemd/system/mysql.service.d/limits.conf"
 	rsync -az -e ssh $(SSH_USER)@$(MYSQL_HOST):/etc/systemd/system/mysql.service.d/limits.conf etc/systemd/system/mysql.service.d/ --rsync-path="sudo rsync"
 	git add .
 	git commit -m "mysql"
 
 .PHONY: deploy
-deploy: deploy-nginx deploy-webapp deploy-mysql
+deploy: deploy-sysctl deploy-nginx deploy-webapp deploy-mysql
+
+.PHONY: deploy-sysctl
+deploy-sysctl:
+	rsync -az -e ssh etc/sysctl.conf $(SSH_USER)@$(NGINX_HOST):/etc/ --rsync-path="sudo rsync"
+	ssh $(SSH_USER)@$(NGINX_HOST) "sudo sysctl -p"
+	rsync -az -e ssh etc/sysctl.conf $(SSH_USER)@$(WEBAPP_HOST):/etc/ --rsync-path="sudo rsync"
+	ssh $(SSH_USER)@$(WEBAPP_HOST) "sudo sysctl -p"
+	rsync -az -e ssh etc/sysctl.conf $(SSH_USER)@$(MYSQL_HOST):/etc/ --rsync-path="sudo rsync"
+	ssh $(SSH_USER)@$(MYSQL_HOST) "sudo sysctl -p"
 
 .PHONY: deploy-nginx
 deploy-nginx:
@@ -61,6 +78,7 @@ deploy-webapp:
 deploy-mysql:
 	rsync -az -e ssh mysql/ $(SSH_USER)@$(MYSQL_HOST):/etc/mysql/ --rsync-path="sudo rsync"
 	rsync -az -e ssh etc/systemd/system/mysql.service.d/limits.conf $(SSH_USER)@$(MYSQL_HOST):/etc/systemd/system/mysql.service.d/ --rsync-path="sudo rsync"
+	ssh $(SSH_USER)@$(MYSQL_HOST) "sudo systemctl daemon-reload"
 	ssh $(SSH_USER)@$(MYSQL_HOST) "sudo systemctl restart mysql"
 
 .PHONY: before-bench
