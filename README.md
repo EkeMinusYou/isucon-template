@@ -78,6 +78,8 @@ isuports:
 
 ## ログと計測の準備
 
+**これらの設定は最終的に元に戻すこと**
+
 これらの設定を行えば、`make before-bench` をベンチマーク実行前、`make after-bench` をベンチマーク実行後にそれぞれ実行することで、計測結果がそれぞれ以下に格納される。
 
 - alp
@@ -86,8 +88,6 @@ isuports:
   - mysqlのslowquery。pt-query-digestなどで解析する
 - profile
   - golangのprofile。pdfファイルが出力される
-
-**これらの設定は最終的に元に戻すこと**
 
 ### Nginxでalp用のログ出力
 
@@ -117,7 +117,7 @@ access_log /var/log/nginx/access.log json;
 
 `mysql/mysql.conf.d/mysqld.cnf` で以下のように書く。
 
-```
+```ini
 slow_query_log		= 1
 slow_query_log_file	= /var/log/mysql/mysql-slow.log
 long_query_time = 0
@@ -138,7 +138,6 @@ import (
 	"runtime/pprof"
 	"syscall"
 )
-
 var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
 
 func main() {
@@ -170,7 +169,7 @@ func main() {
 
 systemdでファイル名を指定する
 
-```unit
+```ini
 ExecStart=/home/isucon/webapp/go/isuports -cpuprofile cpu.pprof
 ```
 
@@ -208,13 +207,13 @@ brew install graphviz
 
 対象のサーバーの`mysql/mysql.conf.d/mysqld.confのbind-address`を無効にする
 
-```
+```ini
 # bind-address		= 127.0.0.1
 ```
 
 アプリのsystemdの設定で環境変数を対象のサーバーのIPアドレスに置換える
 
-```
+```ini
 Environment=ISUCON_DB_HOST=172.31.32.96
 Environment=ISUCON_DB_PORT=3306
 Environment=ISUCON_DB_USER=isucon
@@ -247,7 +246,6 @@ CREATE USER "isucon"@"%" IDENTIFIED BY "isucon";
 GRANT ALL PRIVILEGES ON *.* TO "isucon"@"%";
 ```
 
-
 ## pgoを有効にする
 
 以下のようにmake targetを書き換える
@@ -279,7 +277,7 @@ rsync -az -e ssh ubuntu@isucon-1:/home/isucon/dbdoc/ dbdoc/ --rsync-path="sudo r
 
 ## nginx.conf
 
-worker_rlimit_nofileはworker_connectionsの4倍程度で設定する
+`worker_rlimit_nofile`は`worker_connections`の4倍程度で設定する
 
 ```nginx
 worker_rlimit_nofile  4096;
@@ -349,7 +347,7 @@ http {
 
 ディスクイメージをメモリー上にバッファする
 
-```
+```ini
 innodb_buffer_pool_size = 1GB
 innodb_flush_log_at_trx_commit = 2
 innodb_flush_method = O_DIRECT
@@ -357,7 +355,7 @@ innodb_flush_method = O_DIRECT
 
 isuconでクラスタ構成を使わない場合disable-log-binを1にする
 
-```
+```ini
 disable-log-bin = 1
 ```
 
@@ -366,7 +364,7 @@ disable-log-bin = 1
 
 `etc/systemd/system/mysql.service.d/limits.conf` で以下のように書いて、`make deploy-mysql`
 
-```bash
+```ini
 [Service]
 LimitNOFILE=1006500
 ```
@@ -374,7 +372,7 @@ LimitNOFILE=1006500
 
 `etc/systemd/sysctl.conf` で以下を書いて、`make deploy-sysctl` で全サーバーに適用
 
-```
+```ini
 net.core.somaxconn = 8192
 net.ipv4.ip_local_port_range = 10000    60999
 ```
