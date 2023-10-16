@@ -114,7 +114,7 @@ http {
   access_log /var/log/nginx/access.log json;
 ```
 
-## MySQLのスロークエリ
+### MySQLのスロークエリ
 
 `mysql/mysql.conf.d/mysqld.cnf` で以下のように書く。
 
@@ -124,7 +124,7 @@ slow_query_log_file	= /var/log/mysql/mysql-slow.log
 long_query_time = 0
 ```
 
-## Goのprofile
+### Goのprofile
 
 以下のようにProfileの設定をする。
 
@@ -347,7 +347,7 @@ LimitNOFILE=1006500
 ```
 ## カーネルパラメーター
 
-`etc/systemd/sysctl.conf` で以下を書いて、`make deploy-sysctl` で全サーバーに適用
+`etc/systemd/sysctl.conf` で以下を書いて、`make deploy-sysctl` を実行で全サーバーに適用
 
 ```ini
 net.core.somaxconn = 8192
