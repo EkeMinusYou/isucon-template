@@ -264,7 +264,7 @@ isuports:
 ```shell
 brew install k1LoW/tap/tbls
 source ~/.zshrc
-tbls doc mysql://isucon:isucon@localhost:3306/isuports ./dbdoc
+tbls doc mysql://${USER}:${PASS}@localhost:3306/isuports ./dbdoc
 ```
 
 その後、ローカルで以下を実行して、ローカルにファイルをコピーして、git管理にする
