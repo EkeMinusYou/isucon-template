@@ -274,6 +274,49 @@ mkdir -p dbdoc
 rsync -az -e ssh ubuntu@isucon-1:/home/isucon/dbdoc/ dbdoc/ --rsync-path="sudo rsync"
 ```
 
+## Unix Domain Socket
+
+nginx.confで以下のように設定
+
+```nginx
+upstream webapp {
+  server unix:/tmp/webapp.sock;
+}
+
+server {
+  location ~ ^/(api|initialize) {
+    proxy_set_header Host $host;
+    proxy_read_timeout 600;
+    proxy_pass http://webapp;
+  }
+```
+
+Go言語で以下のように書く
+
+```go
+socketFile := "/tmp/webapp.sock"
+if _, err := os.Stat(socketFile); err == nil {
+    os.Remove(socketFile)
+}
+
+listener, err := net.Listen("unix", socketFile)
+if err != nil {
+    e.Logger.Fatalf("failed to listen: %v", err)
+    return
+}
+err = os.Chmod(socketFile, 0777)
+if err != nil {
+    e.Logger.Fatalf("failed to chmod: %v", err)
+    return
+}
+e.Listener = listener
+
+server := new(http.Server)
+if err := e.StartServer(server); err != nil {
+    e.Logger.Fatalf("failed to serve: %v", err)
+}
+```
+
 # 秘伝のタレ
 
 ## nginx.conf
