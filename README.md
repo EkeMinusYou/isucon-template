@@ -180,6 +180,12 @@ pdf出力のためgarphvizをinstall
 brew install graphviz
 ```
 
+また、以下でinteractiveに解析することも出来る
+
+```bash
+go tool pprof -source_path $PWD/webapp/go profile/cpu.pprof
+```
+
 # 必要に応じてやること
 
 ## Nginxの向き先を変える
