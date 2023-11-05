@@ -349,7 +349,7 @@ http {
 }
 ```
 
-nginxとupstreamのkeepalive設定。app側も対応必要
+nginxとupstreamのkeepalive設定。app側も対応必要（Go言語ならデフォルトでOK）
 
 ```nginx
 http {
@@ -367,6 +367,15 @@ http {
     proxy_http_version 1.1;
     proxy_set_header Connection "";
   }
+```
+
+multi_accept_onにしておく
+
+```nginx
+events {
+	worker_connections 2304;
+	multi_accept on;
+}
 ```
 
 ## mysqld.cnf
@@ -399,6 +408,10 @@ LimitNOFILE=1006500
 `etc/systemd/sysctl.conf` で以下を書いて、`make deploy-sysctl` を実行で全サーバーに適用
 
 ```ini
-net.core.somaxconn = 8192
-net.ipv4.ip_local_port_range = 10000    60999
+net.core.somaxconn=65535
+net.ipv4.tcp_max_syn_backlog=65535
+net.ipv4.ip_local_port_range=10000 60999
+net.ipv4.tcp_tw_reuse=1
+net.core.rmem_max=16777216
+net.core.wmem_max=16777216
 ```
