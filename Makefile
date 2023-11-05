@@ -105,4 +105,3 @@ after-bench:
 	ssh $(SSH_USER)@$(WEBAPP_HOST) "sudo systemctl stop $(APP_NAME)"
 	rsync -az -e ssh $(SSH_USER)@$(WEBAPP_HOST):/home/$(ISUCON_USER)/webapp/go/cpu.pprof profile/ --rsync-path="sudo rsync"  || true
 	ssh $(SSH_USER)@$(WEBAPP_HOST) "sudo systemctl start $(APP_NAME)"
-	[ -e "profile/cpu.pprof" ] &&	go tool pprof --pdf profile/cpu.pprof > profile/cpu.pdf || true
