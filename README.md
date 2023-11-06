@@ -402,7 +402,6 @@ MySQLの場合は、`etc/systemd/system/mysql.service.d/limits.conf` で以下�
 ```ini
 [Service]
 LimitNOFILE=1006500
-LimitNPROC=1006500
 ```
 ## カーネルパラメーター
 
