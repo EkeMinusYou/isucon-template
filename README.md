@@ -394,14 +394,15 @@ isuconでクラスタ構成を使わない場合disable-log-binを1にする
 disable-log-bin = 1
 ```
 
-## MySQLのLimitnofileを増やす
+## ファイルディスクリプタの上限を増やす
 
 
-`etc/systemd/system/mysql.service.d/limits.conf` で以下のように書いて、`make deploy-mysql`
+MySQLの場合は、`etc/systemd/system/mysql.service.d/limits.conf` で以下のように書いて、`make deploy-mysql`
 
 ```ini
 [Service]
 LimitNOFILE=1006500
+LimitNPROC=1006500
 ```
 ## カーネルパラメーター
 
