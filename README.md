@@ -260,7 +260,7 @@ GRANT ALL PRIVILEGES ON *.* TO "isucon"@"%";
 ```makefile
 isuports:
 	cp cpu.pprof default.pgo || true
-	go build -o isuports ./... -pgo=auto
+	go build -o isuports -pgo=auto ./... 
 ```
 
 ## ER図を出力
