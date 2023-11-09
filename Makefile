@@ -105,3 +105,13 @@ after-bench:
 	ssh $(SSH_USER)@$(WEBAPP_HOST) "sudo systemctl stop $(APP_NAME)"
 	rsync -az -e ssh $(SSH_USER)@$(WEBAPP_HOST):/home/$(ISUCON_USER)/webapp/go/cpu.pprof profile/ --rsync-path="sudo rsync"  || true
 	ssh $(SSH_USER)@$(WEBAPP_HOST) "sudo systemctl start $(APP_NAME)"
+
+.PHONY: clear-cache
+clear-cache:
+	ssh $(SSH_USER)@$(MYSQL_HOST) "sudo systemctl stop mysql"
+	ssh $(SSH_USER)@$(MYSQL_HOST) "sudo rm -f /var/log/mysql/*"
+	ssh $(SSH_USER)@$(MYSQL_HOST) "sudo systemctl start mysql"
+	ssh $(SSH_USER)@$(NGINX_HOST) "sudo systemctl stop nginx"
+	ssh $(SSH_USER)@$(NGINX_HOST) "sudo rm -f /var/log/nginx/*"
+	ssh $(SSH_USER)@$(NGINX_HOST) "sudo systemctl start nginx"
+	ssh $(SSH_USER)@$(WEBAPP_HOST) "sudo -i -u $(ISUCON_USER) /home/linuxbrew/.linuxbrew/bin/zsh -c 'source ~/.zshrc && go clean -cache -testcache'"
