@@ -394,6 +394,16 @@ isuconでクラスタ構成を使わない場合disable-log-binを1にする
 disable-log-bin = 1
 ```
 
+接続数を上げる
+
+```ini
+max_connections=10000
+```
+
+```go
+adminDB.SetMaxOpenConns(50)
+```
+
 ## ファイルディスクリプタの上限を増やす
 
 
