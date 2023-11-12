@@ -10,18 +10,21 @@ Host isucon-1
   IdentityFile ~/.ssh/isucon-practice.pem
   User ubuntu
   RequestTTY yes
+  StrictHostKeyChecking no
 
 Host isucon-2
   Hostname 18.179.30.73
   IdentityFile ~/.ssh/isucon-practice.pem
   User ubuntu
   RequestTTY yes
+  StrictHostKeyChecking no
 
 Host isucon-3
   Hostname 54.178.138.79
   IdentityFile ~/.ssh/isucon-practice.pem
   User ubuntu
   RequestTTY yes
+  StrictHostKeyChecking no
 ```
 
 sshしつつユーザー切り替え
