@@ -149,7 +149,6 @@ import (
 	"os"
 	"os/signal"
 	"runtime/pprof"
-	"sync"
 	"syscall"
 )
 
@@ -157,8 +156,6 @@ var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
 
 func main() {
 	flag.Parse()
-
-	var wg sync.WaitGroup
 
 	if *cpuprofile != "" {
 		f, err := os.Create(*cpuprofile)
@@ -171,18 +168,17 @@ func main() {
 			log.Fatal(err)
 		}
 
-		wg.Add(1)
 		go func() {
 			sig := make(chan os.Signal, 1)
 			signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
 			<-sig
 			pprof.StopCPUProfile()
 			f.Close()
+			os.Exit(0)
 		}()
 	}
 
 	Run()
-	wg.Wait()
 }
 ```
 
