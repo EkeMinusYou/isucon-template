@@ -34,7 +34,7 @@ setup-nginx:
 
 .PHONY: setup-webapp
 setup-webapp:
-	rsync -az -e ssh $(SSH_USER)@$(WEBAPP_HOST):/home/$(ISUCON_USER)/webapp/ webapp --rsync-path="sudo rsync"
+	rsync -v --progress -az -e ssh $(SSH_USER)@$(WEBAPP_HOST):/home/$(ISUCON_USER)/webapp/ webapp --rsync-path="sudo rsync"
 	mkdir -p etc/systemd/system
 	rsync -az -e ssh $(SSH_USER)@$(WEBAPP_HOST):/etc/systemd/system/$(APP_NAME).service etc/systemd/system/ --rsync-path="sudo rsync"
 	git add .
