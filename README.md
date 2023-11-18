@@ -43,6 +43,15 @@ sudo passwd isucon
 ./setup.sh
 ```
 
+## Goのビルドのセットアップ
+
+Makefileでbuildのターゲットを準備すること
+
+```makefile
+build:
+	go build -o isuconquest ./... 
+```
+
 ## Nginx/MySQL/Webappをローカルにコピーして、Git管理にする
 
 Makefileの以下をアプリ名に書換えてから、makeを実行する
