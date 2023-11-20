@@ -367,8 +367,8 @@ nginxとupstreamのkeepalive設定。app側も対応必要（Go言語ならデ�
 
 ```nginx
 upstream app {
-    server 192.100.0.1:5000;
-    keepalive 60;
+  server 192.100.0.1:5000;
+  keepalive 60;
 }
 
 server {
