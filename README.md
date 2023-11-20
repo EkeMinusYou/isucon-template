@@ -366,12 +366,12 @@ http {
 nginxとupstreamのkeepalive設定。app側も対応必要（Go言語ならデフォルトでOK）
 
 ```nginx
-http {
-  upstream app {
+upstream app {
     server 192.100.0.1:5000;
     keepalive 60;
-  }
+}
 
+server {
   location /api/ {
     proxy_set_header Host $host;
     proxy_read_timeout 600;
@@ -381,6 +381,7 @@ http {
     proxy_http_version 1.1;
     proxy_set_header Connection "";
   }
+}
 ```
 
 multi_accept_onにしておく
