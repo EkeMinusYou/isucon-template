@@ -90,18 +90,17 @@ before-bench:
 	ssh $(SSH_USER)@$(NGINX_HOST) "sudo nginx -s reopen"
 	ssh $(SSH_USER)@$(MYSQL_HOST) "sudo mv /var/log/mysql/mysql-slow.log /var/log/mysql/mysql-slow.log.`date +%Y%m%d-%H%M%S`"
 	ssh $(SSH_USER)@$(MYSQL_HOST) "sudo systemctl restart mysql"
-	[ -e "slowquery/pt-query-digest.log" ] && mv slowquery/pt-query-digest.log slowquery/pt-query-digest_`date +%Y%m%d-%H%M%S`.log || true
-	[ -e "profile/cpu.pprof" ] && mv profile/cpu.pprof profile/cpu_`date +%Y%m%d-%H%M%S`.pprof || true
-	[ -e "profile/cpu.pdf" ] && mv profile/cpu.pdf profile/cpu_`date +%Y%m%d-%H%M%S`.pdf || true
 
 .PHONY: after-bench
 after-bench:
 	mkdir -p alp
 	rsync -az -e ssh $(SSH_USER)@$(NGINX_HOST):/var/log/nginx/ alp/ --rsync-path="sudo rsync"
 	mkdir -p slowquery
+	[ -e "slowquery/pt-query-digest.log" ] && mv slowquery/pt-query-digest.log slowquery/pt-query-digest_`date +%Y%m%d-%H%M%S`.log || true
 	rsync -az -e ssh $(SSH_USER)@$(MYSQL_HOST):/var/log/mysql/ slowquery/log/ --rsync-path="sudo rsync"
 	pt-query-digest slowquery/log/mysql-slow.log > slowquery/pt-query-digest.log
 	mkdir -p profile
+	[ -e "profile/cpu.pprof" ] && mv profile/cpu.pprof profile/cpu_`date +%Y%m%d-%H%M%S`.pprof || true
 	ssh $(SSH_USER)@$(WEBAPP_HOST) "sudo systemctl stop $(APP_NAME)"
 	rsync -az -e ssh $(SSH_USER)@$(WEBAPP_HOST):/home/$(ISUCON_USER)/webapp/go/cpu.pprof profile/ --rsync-path="sudo rsync"  || true
 	ssh $(SSH_USER)@$(WEBAPP_HOST) "sudo systemctl start $(APP_NAME)"
