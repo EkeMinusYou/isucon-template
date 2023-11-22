@@ -200,6 +200,73 @@ brew install graphviz
 go tool pprof -source_path $PWD/webapp/go profile/cpu.pprof
 ```
 
+fgpprofでI/O含めた結果を見る場合
+
+```go
+package main
+
+import (
+	"flag"
+	"log"
+	"os"
+	"os/signal"
+	"runtime/pprof"
+	"syscall"
+
+	"github.com/felixge/fgprof"
+)
+
+var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
+var fcpuprofile = flag.String("fcpuprofile", "", "write fgprof cpu profile to file")
+
+func main() {
+	flag.Parse()
+
+	if *cpuprofile != "" {
+		cpu, err := os.Create(*cpuprofile)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		var fcpu *os.File
+		var stop func() error
+		if *fcpuprofile != "" {
+			fcpu, err = os.Create(*fcpuprofile)
+			if err != nil {
+				log.Fatal(err)
+			}
+			stop = fgprof.Start(fcpu, fgprof.FormatPprof)
+			if err != nil {
+				log.Fatal(err)
+			}
+		}
+
+		err = pprof.StartCPUProfile(cpu)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		go func() {
+			sig := make(chan os.Signal, 1)
+			signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
+			<-sig
+
+			pprof.StopCPUProfile()
+			cpu.Close()
+
+			if stop != nil {
+				stop()
+				fcpu.Close()
+			}
+
+			os.Exit(0)
+		}()
+	}
+
+	Run()
+}
+```
+
 # 必要に応じてやること
 
 ## Nginxの向き先を変える
