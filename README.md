@@ -376,6 +376,12 @@ mkdir -p dbdoc
 rsync -az -e ssh ubuntu@isucon-1:/home/isucon/dbdoc/ dbdoc/ --rsync-path="sudo rsync"
 ```
 
+また以下でテーブルのメタ情報がわかる
+
+```sql
+mysql> select table_name, engine, table_rows, avg_row_length from information_schema.tables where table_schema = 'isucon';
+```
+
 ## Unix Domain Socket
 
 nginx.confで以下のように設定
