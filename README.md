@@ -522,3 +522,24 @@ net.ipv4.tcp_tw_reuse=1
 net.core.rmem_max=16777216
 net.core.wmem_max=16777216
 ```
+
+## bulk upsertのqueryを作成
+
+sqlxが対応していないため、ベタにqueryを作成するやり方
+
+```go
+func BulkUpsertUserItems(db *sqlx.Tx, userItems []*UserItem) (string, error) {
+	values := []string{}
+	for _, item := range userItems {
+		values = append(values, fmt.Sprintf("(%d, %d, %d, %d, %d, %d, %d)", item.ID, item.UserID, item.ItemID, item.ItemType, item.Amount, item.CreatedAt, item.UpdatedAt))
+	}
+	query := fmt.Sprintf("INSERT INTO %s (%s) VALUES %s ON DUPLICATE KEY UPDATE %s",
+		"user_items",
+		"id, user_id, item_id, item_type, amount, created_at, updated_at",
+		strings.Join(values, ", "),
+		"amount = VALUES(amount), updated_at = VALUES(updated_at)",
+	)
+
+	return query, nil
+}
+```
