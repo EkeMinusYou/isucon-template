@@ -1,0 +1,5 @@
+output: count,method,uri,2xx,3xx,4xx,5xx,max,avg,sum,p90
+sort: sum
+reverse: true
+limit: 65536
+matching_groups:
