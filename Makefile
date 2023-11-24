@@ -50,6 +50,15 @@ setup-mysql:
 	git add .
 	git commit -m "mysql"
 
+.PHONY: setup-google-service-account
+setup-google-service-account:
+	ssh $(SSH_USER)@$(WEBAPP_HOST) "sudo mkdir -p /home/$(ISUCON_USER)/.config/gcloud"
+	rsync -az -e ssh application_default_credentials.json $(SSH_USER)@$(WEBAPP_HOST):/home/$(ISUCON_USER)/.config/gcloud/application_default_credentials.json --rsync-path="sudo rsync"
+	ssh $(SSH_USER)@$(MYSQL_HOST) "sudo mkdir -p /home/$(ISUCON_USER)/.config/gcloud"
+	rsync -az -e ssh application_default_credentials.json $(SSH_USER)@$(MYSQL_HOST):/home/$(ISUCON_USER)/.config/gcloud/application_default_credentials.json --rsync-path="sudo rsync"
+	ssh $(SSH_USER)@$(NGINX_HOST) "sudo mkdir -p /home/$(ISUCON_USER)/.config/gcloud"
+	rsync -az -e ssh application_default_credentials.json $(SSH_USER)@$(NGINX_HOST):/home/$(ISUCON_USER)/.config/gcloud/application_default_credentials.json --rsync-path="sudo rsync"
+
 .PHONY: deploy
 deploy: deploy-sysctl deploy-nginx deploy-webapp deploy-mysql
 
