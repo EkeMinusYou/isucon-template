@@ -49,7 +49,6 @@ description: ISUCONの公式仕様、コード、設定、保存済みRUNを横�
 - Hypothesis: Objectiveへ効く因果と期待する方向
 - Change boundary: `pending`でもよいが、想定する採否境界を示す
 - Verification: 既存の標準Evidenceで何を確認するか
-- Fingerprint: target、mechanism、premiseを識別できる値
 
 候補単位で起票し、レポート一枚を一カードにしない。現行で解消済み、仕様上必須、効果方向を説明不能、完全重複の案は起票せず理由をレポートへ残す。
 

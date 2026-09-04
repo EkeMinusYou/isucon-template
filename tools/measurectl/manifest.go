@@ -75,13 +75,12 @@ type BacklogSnapshot struct {
 }
 
 type AppliedSnapshotCard struct {
-	ID            string `json:"id"`
-	Status        string `json:"status"`
-	Version       int    `json:"version"`
-	Title         string `json:"title"`
-	Fingerprint   string `json:"fingerprint"`
-	TreatmentHash string `json:"treatment_hash"`
-	DecisionHash  string `json:"decision_hash"`
+	ID                 string `json:"id"`
+	Status             string `json:"status"`
+	Version            int    `json:"version"`
+	Title              string `json:"title"`
+	ChangeBoundaryHash string `json:"change_boundary_hash"`
+	DecisionHash       string `json:"decision_hash"`
 }
 
 // Roles はその走行時点のホスト役割。構成をまたぐ RUN 比較で必要になる。
@@ -179,14 +178,14 @@ func runManifestBegin(args []string) error {
 	if err := json.Unmarshal(body, &snapshot); err != nil {
 		return fmt.Errorf("APPLIED snapshotが不正です: %w", err)
 	}
-	if snapshot.Status != "ok" || snapshot.SchemaVersion != 2 {
+	if snapshot.Status != "ok" || snapshot.SchemaVersion != 3 {
 		return fmt.Errorf("APPLIED snapshotを利用できません: status=%q schema_version=%d", snapshot.Status, snapshot.SchemaVersion)
 	}
 	if snapshot.Cards == nil {
 		snapshot.Cards = []AppliedSnapshotCard{}
 	}
 	for _, card := range snapshot.Cards {
-		if card.ID == "" || card.Status != "APPLIED" || card.TreatmentHash == "" || card.DecisionHash == "" {
+		if card.ID == "" || card.Status != "APPLIED" || card.ChangeBoundaryHash == "" || card.DecisionHash == "" {
 			return fmt.Errorf("APPLIED snapshotのカードが不正です: id=%q status=%q", card.ID, card.Status)
 		}
 	}
@@ -260,7 +259,7 @@ func runManifestFinalize(args []string) error {
 	if m.SchemaVersion != 4 || (m.Phase != "started" && m.Phase != "finalized") {
 		return fmt.Errorf("run.jsonはmanifest beginで作成されたものではありません")
 	}
-	if m.BacklogSnapshot.Status != "ok" || m.BacklogSnapshot.SchemaVersion != 2 {
+	if m.BacklogSnapshot.Status != "ok" || m.BacklogSnapshot.SchemaVersion != 3 {
 		return fmt.Errorf("run.jsonに利用可能なAPPLIED snapshotがありません")
 	}
 	if *score != "" {
@@ -580,10 +579,10 @@ func compareManifest(target Manifest, compareRunDir string, allowedCards, allowe
 	} else if !target.Preflight.CollectorClean {
 		addReason("target RUN did not pass the collector-clean gate")
 	}
-	if control.BacklogSnapshot.Status != "ok" || control.BacklogSnapshot.SchemaVersion != 2 {
+	if control.BacklogSnapshot.Status != "ok" || control.BacklogSnapshot.SchemaVersion != 3 {
 		addReason("control RUN has no current APPLIED snapshot")
 	}
-	if target.BacklogSnapshot.Status != "ok" || target.BacklogSnapshot.SchemaVersion != 2 {
+	if target.BacklogSnapshot.Status != "ok" || target.BacklogSnapshot.SchemaVersion != 3 {
 		addReason("target RUN has no current APPLIED snapshot")
 	}
 	if len(control.Artifacts) == 0 {
@@ -657,8 +656,8 @@ func compareManifest(target Manifest, compareRunDir string, allowedCards, allowe
 	for _, id := range allowedCards {
 		allowedCardSet[strings.ToUpper(strings.TrimSpace(id))] = true
 	}
-	targetCards := snapshotCardHashes(target.BacklogSnapshot.Cards)
-	controlCards := snapshotCardHashes(control.BacklogSnapshot.Cards)
+	targetCards := snapshotCardChangeBoundaryHashes(target.BacklogSnapshot.Cards)
+	controlCards := snapshotCardChangeBoundaryHashes(control.BacklogSnapshot.Cards)
 	allCardIDs := map[string]bool{}
 	for id := range targetCards {
 		allCardIDs[id] = true
@@ -712,10 +711,10 @@ func roleValues(roles Roles) map[string]string {
 	}
 }
 
-func snapshotCardHashes(cards []AppliedSnapshotCard) map[string]string {
+func snapshotCardChangeBoundaryHashes(cards []AppliedSnapshotCard) map[string]string {
 	result := map[string]string{}
 	for _, card := range cards {
-		result[strings.ToUpper(card.ID)] = card.TreatmentHash
+		result[strings.ToUpper(card.ID)] = card.ChangeBoundaryHash
 	}
 	return result
 }

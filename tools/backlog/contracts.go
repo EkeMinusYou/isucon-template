@@ -121,13 +121,13 @@ func constraintDefinitionHash(constraint Constraint) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-func cardAssessmentTreatmentHash(card Card) string {
-	return cardTreatmentHash(card)
+func cardAssessmentChangeBoundaryHash(card Card) string {
+	return cardChangeBoundaryHash(card)
 }
 
 func getPerformanceResidualAssessmentFrom(q queryer, constraint Constraint, card Card) (PerformanceResidualAssessment, error) {
-	var raw, constraintHash, treatmentHash string
-	if err := q.QueryRow(`SELECT assessment_json, constraint_definition_hash, card_treatment_hash FROM constraint_intervention_assessments WHERE constraint_id = ? AND card_id = ?`, constraint.ID, card.ID).Scan(&raw, &constraintHash, &treatmentHash); err != nil {
+	var raw, constraintHash, changeBoundaryHash string
+	if err := q.QueryRow(`SELECT assessment_json, constraint_definition_hash, card_change_boundary_hash FROM constraint_intervention_assessments WHERE constraint_id = ? AND card_id = ?`, constraint.ID, card.ID).Scan(&raw, &constraintHash, &changeBoundaryHash); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return PerformanceResidualAssessment{}, fmt.Errorf("card %s requires a structured constraint candidate assessment before linking to %s", card.ID, constraint.ID)
 		}
@@ -136,8 +136,8 @@ func getPerformanceResidualAssessmentFrom(q queryer, constraint Constraint, card
 	if constraintHash != constraintDefinitionHash(constraint) {
 		return PerformanceResidualAssessment{}, fmt.Errorf("assessment for %s -> %s is stale because the constraint definition changed", constraint.ID, card.ID)
 	}
-	if treatmentHash != cardAssessmentTreatmentHash(card) {
-		return PerformanceResidualAssessment{}, fmt.Errorf("assessment for %s -> %s is stale because the card fingerprint or change boundary changed", constraint.ID, card.ID)
+	if changeBoundaryHash != cardAssessmentChangeBoundaryHash(card) {
+		return PerformanceResidualAssessment{}, fmt.Errorf("assessment for %s -> %s is stale because the card change boundary changed", constraint.ID, card.ID)
 	}
 	assessment, _, err := parsePerformanceResidualAssessment(raw)
 	return assessment, err
@@ -187,11 +187,11 @@ func (s *Store) setConstraintInterventionAssessment(constraintID, cardID, raw st
 		tx.Rollback()
 		return errors.New("a MITIGATES relation must retain an assessment that does not satisfy the resolution threshold")
 	}
-	if _, err := tx.Exec(`INSERT INTO constraint_intervention_assessments(card_id, constraint_id, assessment_json, constraint_definition_hash, card_treatment_hash, updated, updated_by)
+	if _, err := tx.Exec(`INSERT INTO constraint_intervention_assessments(card_id, constraint_id, assessment_json, constraint_definition_hash, card_change_boundary_hash, updated, updated_by)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(card_id, constraint_id) DO UPDATE SET assessment_json=excluded.assessment_json, constraint_definition_hash=excluded.constraint_definition_hash,
-		card_treatment_hash=excluded.card_treatment_hash, updated=excluded.updated, updated_by=excluded.updated_by`,
-		cardID, constraintID, canonical, constraintDefinitionHash(constraint), cardAssessmentTreatmentHash(card), now(), options.Actor); err != nil {
+		card_change_boundary_hash=excluded.card_change_boundary_hash, updated=excluded.updated, updated_by=excluded.updated_by`,
+		cardID, constraintID, canonical, constraintDefinitionHash(constraint), cardAssessmentChangeBoundaryHash(card), now(), options.Actor); err != nil {
 		tx.Rollback()
 		return err
 	}

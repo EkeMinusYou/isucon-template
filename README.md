@@ -187,6 +187,9 @@ task q -- "select run_id, score from runs order by score desc"
 task dashboard
 ```
 
+dashboardでは収集済みのfgprofに加え、GoのCPU・heap・allocs・goroutine profileを
+種別・ホスト別に切り替え、関数ランキングとコールグラフで確認できます。コールグラフ表示にはGraphvizが必要です。
+
 分析は最新RUNだけを眺めず、役割・source・APPLIED snapshot・計測窓が比較可能なRUNを選びます。
 CPU実仕事、I/O、lock/queue wait、DB query time、HTTP response timeを分け、変更境界が削減できる量を見積もります。
 

@@ -17,7 +17,7 @@ task backlog -- validate
 
 - Objective is a continuing result criterion: `SATISFY`, `MAXIMIZE`, or `MINIMIZE`.
 - Constraint is an observed fact currently limiting an ACTIVE Objective.
-- Intervention is a B-xxx or B-xxxx card: one adoption, application, and rollback boundary. IDs use at least three digits and support four digits.
+- Intervention is a B-xxx or B-xxxx card: one adoption, application, and rollback boundary. The card ID is its stable identity; Intervention has no separate Fingerprint. IDs use at least three digits and support four digits.
 - Evidence includes official documents, code, configuration, RUNs, logs, and profiles. It is not a card kind.
 
 There is no card `kind` and no measurement-card lifecycle. All cards are Interventions. Existing standard measurement infrastructure remains available as Evidence infrastructure.
@@ -53,8 +53,6 @@ task backlog -- constraint link A-008 --card B-700 --role MITIGATES \
   --expect-constraint-version 0 --actor skill:isucon-investigate --reason "positive partial reduction"
 ```
 
-`anchor` remains a temporary command alias for existing automation, but public documentation and output use Constraint.
-
 The performance residual assessment stores only a shared axis, current value and snapshot, expected reduction, added cost, and threshold. The CLI derives the predicted residual and whether it resolves the Constraint. See [examples/constraint-assessment.json](examples/constraint-assessment.json).
 
 ## Intervention lifecycle
@@ -73,15 +71,15 @@ INVESTIGATE -> BLOCKED | REJECTED
 
 Unknown effect magnitude, absence of a current Constraint, or lack of a direct metric does not by itself prevent READY. A proposal that can only say “change it and inspect score” remains INVESTIGATE.
 
-New cards always start as INVESTIGATE. The CLI permits READY only when the four sections above and `Fingerprint` are non-empty, an ACTIVE Objective is linked, and every BLOCKING dependency is satisfied. It deliberately does not grade prose, require a known effect size, or block READY on ORDERING dependencies. `READY -> DOING` sets Owner atomically. Targeted writes require `--expect-card-version`; Constraint and Objective writes use their own version checks. Dependencies always specify `required-status` and `mode` explicitly.
+New cards always start as INVESTIGATE. The CLI permits READY only when the four sections above are non-empty, an ACTIVE Objective is linked, and every BLOCKING dependency is satisfied. It deliberately does not grade prose, require a known effect size, or block READY on ORDERING dependencies. `READY -> DOING` sets Owner atomically. Targeted writes require `--expect-card-version`; Constraint and Objective writes use their own version checks. Dependencies always specify `required-status` and `mode` explicitly.
 
-After a successful manual benchmark, use `task pass` or `task pass -- B-001,B-002`. The RUN must be finalized, have `passed=true`, and have a known score. If a control RUN was declared, its final comparison status must be `compatible`; the recorded delta uses that control rather than the previous TSV row. `task pass FORCE=true` overrides only the pass, known-score, and comparison-compatibility gates; finalization, a usable APPLIED snapshot, and an unchanged treatment remain mandatory. Forced adoption is recorded in History.
+After a successful manual benchmark, use `task pass` or `task pass -- B-001,B-002`. The RUN must be finalized, have `passed=true`, and have a known score. If a control RUN was declared, its final comparison status must be `compatible`; the recorded delta uses that control rather than the previous TSV row. `task pass FORCE=true` overrides only the pass, known-score, and comparison-compatibility gates; finalization, a usable APPLIED snapshot, and an unchanged Change boundary declaration remain mandatory. Forced adoption is recorded in History.
 
-Each pass writes one immutable `adoption_events` row and its `adoption_event_cards` rows in the same SQLite transaction as every card promotion. The event snapshots score, pass state, declared control, delta, manifest hash, and backlog revision from `run.json`. `runs/outcomes.tsv` is an atomically regenerated projection, not a source of truth.
+Each pass writes one immutable `adoption_events` row and its `adoption_event_cards` rows in the same SQLite transaction as every card promotion. The event snapshots score, pass state, declared control, delta, manifest hash, and backlog revision from `run.json`; each card row retains its `change_boundary_hash`. `runs/outcomes.tsv` is an atomically regenerated projection, not a source of truth.
 
-APPLIED snapshot schema version 2 stores two deliberately small hashes. `treatment_hash` contains only `Fingerprint` and `Change boundary`; it is the hard compatibility gate for RUN comparison and adoption. `decision_hash` contains `Hypothesis`, `Verification`, and `Safety`; changing it produces a review warning but does not make an otherwise identical implementation incompatible or block adoption. Title, priority, owner, run links, Objective/Constraint relations, Observation, Unknowns, Result, and History are outside both hashes. Line-ending/trailing-space changes and equivalent JSON formatting are normalized. Benchmark and Evidence commands accept only version 2 snapshots.
+APPLIED snapshot schema version 3 stores two deliberately small hashes. `change_boundary_hash` contains only the normalized `Change boundary`; it detects whether that declaration changed between snapshot capture and comparison or adoption. It does not prove that deployed code matches the declaration or that two differently worded declarations are semantically equivalent. `decision_hash` contains `Hypothesis`, `Verification`, and `Safety`; changing it produces a review warning but does not make an unchanged Change boundary incompatible or block adoption. Title, priority, owner, run links, Objective/Constraint relations, Observation, Unknowns, Result, and History are outside both hashes. Line-ending/trailing-space changes and equivalent JSON formatting are normalized. Benchmark and Evidence commands accept only version 3 snapshots.
 
-The performance residual assessment uses the same treatment hash: `Fingerprint` and `Change boundary`. Editing Hypothesis, Verification, or Safety does not force that calculation to be repeated.
+The performance residual assessment stores the same `change_boundary_hash`. Editing Hypothesis, Verification, or Safety does not force that calculation to be repeated; editing the declared Change boundary does.
 
 To inspect evidence, the CLI selects the newest finalized RUN whose APPLIED snapshot actually contains the card. Use `--run` to select one explicitly. Endpoint, TSV, and profile comparisons use only the control RUN declared compatible by that target manifest; they never fall back to an unrelated previous RUN.
 

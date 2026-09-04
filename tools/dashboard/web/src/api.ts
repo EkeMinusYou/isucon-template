@@ -4,6 +4,7 @@ export type RunInfo = {
   has_slowquery: boolean
   has_metrics: boolean
   has_fgprof: boolean
+  has_pprof: boolean
 }
 
 export type ScoreEntry = {
@@ -168,6 +169,33 @@ export type FgprofResponse = {
   run_id: string
   available: boolean
   profiles: FgprofProfile[]
+}
+
+export type GoPprofKind = 'cpu' | 'heap' | 'allocs' | 'goroutine'
+
+export type GoPprofFunction = {
+  name: string
+  flat: number
+  flat_pct: number
+  cum: number
+  cum_pct: number
+}
+
+export type GoPprofProfile = {
+  kind: GoPprofKind
+  host: string
+  source: string
+  sample_type: string
+  sample_unit: string
+  duration_sec: number
+  total: number
+  functions: GoPprofFunction[]
+}
+
+export type GoPprofResponse = {
+  run_id: string
+  available: boolean
+  profiles: GoPprofProfile[]
 }
 
 export type MysqlPoint = {
@@ -411,7 +439,6 @@ export type BacklogCardDetail = {
   source_runs: string
   compare_run: string
   observed_runs: string
-  fingerprint: string
   updated: string
   updated_by: string
   sections: BacklogSection[]
@@ -458,6 +485,10 @@ export const api = {
     getJSON<FgprofResponse>(`/api/runs/${encodeURIComponent(runId)}/fgprof`),
   fgprofGraph: (runId: string, host: string) =>
     `/api/runs/${encodeURIComponent(runId)}/fgprof/${encodeURIComponent(host)}/graph.svg`,
+  pprof: (runId: string) =>
+    getJSON<GoPprofResponse>(`/api/runs/${encodeURIComponent(runId)}/pprof`),
+  pprofGraph: (runId: string, kind: GoPprofKind, host: string) =>
+    `/api/runs/${encodeURIComponent(runId)}/pprof/${encodeURIComponent(kind)}/${encodeURIComponent(host)}/graph.svg`,
   timeline: (runId: string) =>
     getJSON<TimelineResponse>(`/api/runs/${encodeURIComponent(runId)}/timeline`),
   mysql: (runId: string) => getJSON<MysqlResponse>(`/api/runs/${encodeURIComponent(runId)}/mysql`),

@@ -15,7 +15,7 @@ func TestHandleUserTransitions(t *testing.T) {
 	if err := os.MkdirAll(runDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	body := `{"schema_version":2,"identity_field":"session_id","ordering":"request_start_time","scenario_grouping":"exact set","summary":{"input_files":2,"sessions":3,"transitions":4,"scenario_groups":1,"scenarios_emitted":1},"edges":[{"from_method":"GET","from_route":"/api/a","to_method":"POST","to_route":"/api/b","transitions":4,"sessions":3}],"scenarios":[{"id":"scenario-test","signature":["GET /api/a","POST /api/b"],"sessions":3,"requests":7,"transitions":4,"nodes":[{"method":"GET","route":"/api/a","requests":3,"sessions":3,"first_sessions":3,"last_sessions":0}],"edges":[{"from_method":"GET","from_route":"/api/a","to_method":"POST","to_route":"/api/b","transitions":4,"sessions":3}]}]}`
+	body := `{"schema_version":3,"identity_field":"session_id","ordering":"request_start_time","scenario_grouping":"exact set","summary":{"input_files":2,"sessions":3,"transitions":4,"scenario_groups":1,"scenarios_emitted":1},"edges":[{"from_method":"GET","from_route":"/api/a","to_method":"POST","to_route":"/api/b","transitions":4,"sessions":3}],"scenarios":[{"id":"scenario-test","signature":["GET /api/a","POST /api/b"],"sessions":3,"requests":7,"transitions":4,"nodes":[{"method":"GET","route":"/api/a","requests":3,"sessions":3,"first_sessions":3,"last_sessions":0}],"edges":[{"from_method":"GET","from_route":"/api/a","to_method":"POST","to_route":"/api/b","transitions":4,"sessions":3}]}]}`
 	if err := os.WriteFile(filepath.Join(runDir, "user-transitions.json"), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -58,5 +58,16 @@ func TestHandleUserTransitionsUnavailable(t *testing.T) {
 	}
 	if got.Available || got.Edges == nil {
 		t.Fatalf("unexpected unavailable response: %#v", got)
+	}
+}
+
+func TestParseUserTransitionsRejectsOldSchema(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "user-transitions.json")
+	body := `{"schema_version":2,"summary":{"input_files":1},"edges":[],"scenarios":[]}`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := parseUserTransitions(path); err == nil {
+		t.Fatal("old schema was accepted")
 	}
 }

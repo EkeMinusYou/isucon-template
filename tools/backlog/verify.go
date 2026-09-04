@@ -261,8 +261,8 @@ func buildVerificationSummary(root string, card Card, target verifyManifest, man
 		summary.Warnings = append(summary.Warnings, "カード状態はAPPLIED/VALIDATEDではありません: "+card.Status)
 	}
 	if snapshotCard, ok := appliedSnapshotCard(target.BacklogSnapshot, card.ID); ok {
-		if snapshotCard.TreatmentHash != cardTreatmentHash(card) {
-			summary.Warnings = append(summary.Warnings, "現在の実装対象は対象RUNのsnapshotから変更されています")
+		if snapshotCard.ChangeBoundaryHash != cardChangeBoundaryHash(card) {
+			summary.Warnings = append(summary.Warnings, "現在のChange boundaryは対象RUNのsnapshotから変更されています")
 		}
 		if snapshotCard.DecisionHash != cardDecisionHash(card) {
 			summary.Warnings = append(summary.Warnings, "現在の仮説・検証・安全条件は対象RUNのsnapshotから変更されています")
@@ -332,7 +332,7 @@ func parseVerificationContract(body string) (verificationContract, error) {
 }
 
 func appliedSnapshotCard(snapshot AppliedSnapshot, cardID string) (AppliedSnapshotCard, bool) {
-	if snapshot.Status != "ok" || snapshot.SchemaVersion != 2 {
+	if snapshot.Status != "ok" || snapshot.SchemaVersion != 3 {
 		return AppliedSnapshotCard{}, false
 	}
 	for _, card := range snapshot.Cards {

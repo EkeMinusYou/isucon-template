@@ -27,7 +27,7 @@ type AdoptionEvent struct {
 	SnapshotRevision int
 }
 
-func (s *Store) adoptCardsMatching(ids []string, treatmentHashes map[string]string, event AdoptionEvent, reason string) ([]Card, error) {
+func (s *Store) adoptCardsMatching(ids []string, changeBoundaryHashes map[string]string, event AdoptionEvent, reason string) ([]Card, error) {
 	if err := ensureReason(event.Actor, reason); err != nil {
 		return nil, err
 	}
@@ -83,8 +83,8 @@ func (s *Store) adoptCardsMatching(ids []string, treatmentHashes map[string]stri
 		if card.Status != "APPLIED" {
 			return rollback(fmt.Errorf("card %s has status %s; expected APPLIED", id, card.Status))
 		}
-		if treatmentHashes[id] != cardTreatmentHash(card) {
-			return rollback(fmt.Errorf("card %s treatment differs from the evidence RUN snapshot", id))
+		if changeBoundaryHashes[id] != cardChangeBoundaryHash(card) {
+			return rollback(fmt.Errorf("card %s change boundary differs from the evidence RUN snapshot", id))
 		}
 		requested = append(requested, card)
 	}
@@ -122,8 +122,8 @@ func (s *Store) adoptCardsMatching(ids []string, treatmentHashes map[string]stri
 			origin = card.History[0].Actor
 		}
 		if _, err := tx.Exec(`INSERT INTO adoption_event_cards(
-            adoption_event_id, card_id, origin, fingerprint, treatment_hash
-        ) VALUES (?, ?, ?, ?, ?)`, eventID, card.ID, origin, card.Fingerprint, treatmentHashes[card.ID]); err != nil {
+			adoption_event_id, card_id, origin, change_boundary_hash
+		) VALUES (?, ?, ?, ?)`, eventID, card.ID, origin, changeBoundaryHashes[card.ID]); err != nil {
 			return rollback(err)
 		}
 		newlyWoke, err := wakeDependentsTx(tx, card.ID, event.Actor)
@@ -164,7 +164,7 @@ func nullableBool(value *bool) any {
 
 func (s *Store) writeOutcomes(path string) error {
 	rows, err := s.db.Query(`SELECT
-        e.adopted_at, c.card_id, c.origin, c.fingerprint, e.run_id, e.score,
+		e.adopted_at, c.card_id, c.origin, c.change_boundary_hash, e.run_id, e.score,
         e.comparison_run_id, e.comparison_score, e.delta,
         (SELECT COUNT(*) FROM adoption_event_cards counted WHERE counted.adoption_event_id = e.id),
         e.comparison_status, e.forced
@@ -186,22 +186,22 @@ func (s *Store) writeOutcomes(path string) error {
 	tmpPath := tmp.Name()
 	defer os.Remove(tmpPath)
 	w := bufio.NewWriter(tmp)
-	if _, err := fmt.Fprintln(w, "promoted_at\tcard_id\torigin\tfingerprint\trun_id\tscore\tcomparison_run_id\tcomparison_score\tdelta\tcards_in_pass\tcomparison_status\tforced"); err != nil {
+	if _, err := fmt.Fprintln(w, "promoted_at\tcard_id\torigin\tchange_boundary_hash\trun_id\tscore\tcomparison_run_id\tcomparison_score\tdelta\tcards_in_pass\tcomparison_status\tforced"); err != nil {
 		_ = tmp.Close()
 		return err
 	}
 	for rows.Next() {
-		var adoptedAt, cardID, origin, fingerprint, runID, comparisonRunID, comparisonStatus string
+		var adoptedAt, cardID, origin, changeBoundaryHash, runID, comparisonRunID, comparisonStatus string
 		var score, comparisonScore, delta sql.NullInt64
 		var count int
 		var forced bool
-		if err := rows.Scan(&adoptedAt, &cardID, &origin, &fingerprint, &runID, &score,
+		if err := rows.Scan(&adoptedAt, &cardID, &origin, &changeBoundaryHash, &runID, &score,
 			&comparisonRunID, &comparisonScore, &delta, &count, &comparisonStatus, &forced); err != nil {
 			_ = tmp.Close()
 			return err
 		}
 		fields := []string{
-			adoptedAt, cardID, origin, fingerprint, runID, formatNullInt64(score),
+			adoptedAt, cardID, origin, changeBoundaryHash, runID, formatNullInt64(score),
 			valueOr(comparisonRunID, "none"), formatNullInt64(comparisonScore), formatNullInt64(delta),
 			strconv.Itoa(count), comparisonStatus, strconv.FormatBool(forced),
 		}

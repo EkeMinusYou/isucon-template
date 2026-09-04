@@ -49,7 +49,9 @@ Interventionとのrelationは次の二つ。
 3. `Verification`: 何を観測し、どの結果で採用・修正・棄却するか
 4. `Safety`: guardrail、停止条件、rollback
 
-CLIはREADY化の際に、この4セクション、`Fingerprint`、ACTIVE Objective relation、未充足BLOCKING dependencyがないことだけを機械検査する。文章量や効果量は検査しない。新規カードはINVESTIGATEで起票し、4点を一度の`resolve`で確定する。
+CLIはREADY化の際に、この4セクション、ACTIVE Objective relation、未充足BLOCKING dependencyがないことだけを機械検査する。文章量や効果量は検査しない。新規カードはINVESTIGATEで起票し、4点を一度の`resolve`で確定する。
+
+APPLIED snapshotの`change_boundary_hash`は、RUN取得後にChange boundaryの宣言が書き換わっていないことだけを検査する。実際にdeployされた実装との一致や文章の意味的同値性を証明するものとして扱わない。
 
 効果量が未知でも、方向・安全性・rollbackを説明できればREADYにできる。実際の挙動を変える実験も通常のInterventionとして扱う。
 

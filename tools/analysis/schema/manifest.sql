@@ -63,10 +63,9 @@ select
     json_extract_string(c.value, '$.status')                             as status,
     try_cast(json_extract_string(c.value, '$.version') as integer)       as card_version,
     json_extract_string(c.value, '$.title')                              as title,
-    json_extract_string(c.value, '$.fingerprint')                        as fingerprint,
-    json_extract_string(c.value, '$.treatment_hash')                     as treatment_hash,
+    json_extract_string(c.value, '$.change_boundary_hash')               as change_boundary_hash,
     json_extract_string(c.value, '$.decision_hash')                      as decision_hash
 from read_text(getvariable('run_glob') || '/run.json') r,
      json_each(coalesce(json_extract(r.content, '$.backlog_snapshot.cards'), json('[]'))) c
 where try_cast(json_extract_string(r.content, '$.schema_version') as integer) = 4
-  and try_cast(json_extract_string(r.content, '$.backlog_snapshot.schema_version') as integer) = 2;
+  and try_cast(json_extract_string(r.content, '$.backlog_snapshot.schema_version') as integer) = 3;

@@ -66,7 +66,7 @@ func main() {
 		runUpdate(config, commandArgs)
 	case "resolve":
 		runResolve(config, commandArgs)
-	case "transition", "close":
+	case "transition":
 		runTransition(config, commandArgs)
 	case "history":
 		runHistory(config, commandArgs)
@@ -74,7 +74,7 @@ func main() {
 		runDependency(config, commandArgs)
 	case "objective":
 		runObjective(config, commandArgs)
-	case "constraint", "anchor":
+	case "constraint":
 		runConstraint(config, commandArgs)
 	case "pass":
 		runPass(config, commandArgs)
@@ -149,13 +149,13 @@ func parseGlobal(args []string) (cliConfig, []string, error) {
 
 func mutatesBacklog(command string, args []string) bool {
 	switch command {
-	case "init", "add", "update", "resolve", "transition", "close", "history", "pass":
+	case "init", "add", "update", "resolve", "transition", "history", "pass":
 		return true
 	case "objective":
 		return len(args) > 0 && args[0] != "list" && args[0] != "show"
 	case "dependency":
 		return len(args) > 0 && (args[0] == "add" || args[0] == "remove")
-	case "constraint", "anchor":
+	case "constraint":
 		return len(args) > 0 && args[0] != "list" && args[0] != "show"
 	default:
 		return false
@@ -458,7 +458,7 @@ type fieldFlagSet struct{ values map[string]*string }
 
 func cardValueFlags() map[string]bool {
 	result := map[string]bool{"actor": true, "reason": true, "expect-card-version": true}
-	for _, key := range []string{"status", "title", "priority", "owner", "area", "source-runs", "compare-run", "observed-runs", "fingerprint", "updated", "updated-by"} {
+	for _, key := range []string{"status", "title", "priority", "owner", "area", "source-runs", "compare-run", "observed-runs", "updated", "updated-by"} {
 		result[key] = true
 	}
 	return result
@@ -466,7 +466,7 @@ func cardValueFlags() map[string]bool {
 
 func cardFieldFlags(fs *flag.FlagSet) fieldFlagSet {
 	values := map[string]*string{}
-	for _, key := range []string{"status", "title", "priority", "owner", "area", "source-runs", "compare-run", "observed-runs", "fingerprint", "updated", "updated-by"} {
+	for _, key := range []string{"status", "title", "priority", "owner", "area", "source-runs", "compare-run", "observed-runs", "updated", "updated-by"} {
 		value := ""
 		fs.StringVar(&value, key, "", "card field")
 		values[key] = &value
@@ -1293,7 +1293,7 @@ func runPass(config cliConfig, args []string) {
 		ComparisonScore: comparisonScoreValue, ComparisonStatus: comparisonStatus, Delta: deltaValue,
 		ManifestSHA256: run.ManifestSHA256, SnapshotRevision: run.BacklogSnapshot.Revision,
 	}
-	cards, err := store.adoptCardsMatching(ids, snapshotTreatmentHashes(run), event, passReason)
+	cards, err := store.adoptCardsMatching(ids, snapshotChangeBoundaryHashes(run), event, passReason)
 	if err != nil {
 		fatal(err)
 	}

@@ -11,7 +11,6 @@ const META_FIELDS: Array<[keyof BacklogCardDetail, string]> = [
   ['source_runs', 'source runs'],
   ['compare_run', 'compare runs'],
   ['observed_runs', 'observed runs'],
-  ['fingerprint', 'fingerprint'],
 ]
 
 export function BacklogCardModal({ id, onClose }: Props) {

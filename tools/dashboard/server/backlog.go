@@ -74,7 +74,6 @@ type backlogCardDetail struct {
 	SourceRuns   string                      `json:"source_runs"`
 	CompareRun   string                      `json:"compare_run"`
 	ObservedRuns string                      `json:"observed_runs"`
-	Fingerprint  string                      `json:"fingerprint"`
 	Updated      string                      `json:"updated"`
 	UpdatedBy    string                      `json:"updated_by"`
 	Sections     []backlogSection            `json:"sections"`
@@ -90,7 +89,7 @@ const backlogCardColumns = `
 	COALESCE((SELECT group_concat(run_id, ',') FROM (SELECT run_id FROM card_runs WHERE card_id=c.id AND relation='SOURCE' ORDER BY position)), ''),
 	COALESCE((SELECT group_concat(run_id, ',') FROM (SELECT run_id FROM card_runs WHERE card_id=c.id AND relation='COMPARE' ORDER BY position)), ''),
 	COALESCE((SELECT group_concat(run_id, ',') FROM (SELECT run_id FROM card_runs WHERE card_id=c.id AND relation='OBSERVED' ORDER BY position)), ''),
-		c.fingerprint, c.updated, c.updated_by`
+		c.updated, c.updated_by`
 
 // queryBacklogCard mirrors tools/backlog's getCardFrom/loadCardContent query
 // shape (core columns + card_sections + card_history) but is
@@ -107,7 +106,7 @@ func queryBacklogCard(dbPath, id string) (*backlogCardDetail, error) {
 	row := db.QueryRow(`SELECT `+backlogCardColumns+` FROM cards c WHERE c.id = ?`, id)
 	err = row.Scan(
 		&d.ID, &d.Status, &d.Title, &d.Priority, &d.Owner, &d.Area,
-		&d.SourceRuns, &d.CompareRun, &d.ObservedRuns, &d.Fingerprint,
+		&d.SourceRuns, &d.CompareRun, &d.ObservedRuns,
 		&d.Updated, &d.UpdatedBy,
 	)
 	if errors.Is(err, sql.ErrNoRows) {

@@ -20,6 +20,9 @@ func TestListRunsIncludesArchivedRunsAndSkipsContainerDirectories(t *testing.T) 
 	if err := os.WriteFile(filepath.Join(activeDir, "alp.json"), []byte("[]"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(activeDir, "isucon-1-go-cpu.pprof"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(archivedDir, "slp.tsv"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -32,8 +35,8 @@ func TestListRunsIncludesArchivedRunsAndSkipsContainerDirectories(t *testing.T) 
 	if len(runs) != 2 {
 		t.Fatalf("len(runs) = %d, want 2: %#v", len(runs), runs)
 	}
-	if runs[0].RunID != activeID || !runs[0].HasAlp {
-		t.Fatalf("active run = %#v, want %s with alp", runs[0], activeID)
+	if runs[0].RunID != activeID || !runs[0].HasAlp || !runs[0].HasPprof {
+		t.Fatalf("active run = %#v, want %s with alp and pprof", runs[0], activeID)
 	}
 	if runs[1].RunID != archivedID || !runs[1].HasSlow {
 		t.Fatalf("archived run = %#v, want %s with slow query", runs[1], archivedID)

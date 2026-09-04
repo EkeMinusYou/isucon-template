@@ -17,7 +17,6 @@ CREATE TABLE cards (
     priority TEXT NOT NULL DEFAULT '',
     owner TEXT NOT NULL DEFAULT '',
     area TEXT NOT NULL DEFAULT '',
-    fingerprint TEXT NOT NULL DEFAULT '',
     updated TEXT NOT NULL DEFAULT '',
     updated_by TEXT NOT NULL DEFAULT ''
 );
@@ -93,7 +92,7 @@ CREATE TABLE constraint_intervention_assessments (
     constraint_id TEXT NOT NULL REFERENCES constraints(id) ON DELETE CASCADE,
     assessment_json TEXT NOT NULL,
     constraint_definition_hash TEXT NOT NULL DEFAULT '',
-    card_treatment_hash TEXT NOT NULL DEFAULT '',
+    card_change_boundary_hash TEXT NOT NULL DEFAULT '',
     updated TEXT NOT NULL DEFAULT '',
     updated_by TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (card_id, constraint_id)
@@ -156,8 +155,7 @@ CREATE TABLE adoption_event_cards (
     adoption_event_id INTEGER NOT NULL REFERENCES adoption_events(id) ON DELETE CASCADE,
     card_id TEXT NOT NULL REFERENCES cards(id),
     origin TEXT NOT NULL DEFAULT '',
-    fingerprint TEXT NOT NULL DEFAULT '',
-    treatment_hash TEXT NOT NULL,
+    change_boundary_hash TEXT NOT NULL,
     PRIMARY KEY (adoption_event_id, card_id)
 );
 CREATE TABLE change_log (

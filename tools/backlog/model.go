@@ -104,7 +104,6 @@ type Card struct {
 	SourceRuns   string
 	CompareRun   string
 	ObservedRuns string
-	Fingerprint  string
 	Updated      string
 	UpdatedBy    string
 

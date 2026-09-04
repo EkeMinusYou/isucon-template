@@ -28,7 +28,6 @@ CREATE TABLE IF NOT EXISTS cards (
     priority TEXT NOT NULL DEFAULT '',
     owner TEXT NOT NULL DEFAULT '',
     area TEXT NOT NULL DEFAULT '',
-    fingerprint TEXT NOT NULL DEFAULT '',
     updated TEXT NOT NULL DEFAULT '',
     updated_by TEXT NOT NULL DEFAULT ''
 );
@@ -105,7 +104,7 @@ CREATE TABLE IF NOT EXISTS constraint_intervention_assessments (
     constraint_id TEXT NOT NULL REFERENCES constraints(id) ON DELETE CASCADE,
     assessment_json TEXT NOT NULL,
     constraint_definition_hash TEXT NOT NULL DEFAULT '',
-    card_treatment_hash TEXT NOT NULL DEFAULT '',
+    card_change_boundary_hash TEXT NOT NULL DEFAULT '',
     updated TEXT NOT NULL DEFAULT '',
     updated_by TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (card_id, constraint_id)
@@ -175,8 +174,7 @@ CREATE TABLE IF NOT EXISTS adoption_event_cards (
     adoption_event_id INTEGER NOT NULL REFERENCES adoption_events(id) ON DELETE CASCADE,
     card_id TEXT NOT NULL REFERENCES cards(id),
     origin TEXT NOT NULL DEFAULT '',
-    fingerprint TEXT NOT NULL DEFAULT '',
-    treatment_hash TEXT NOT NULL,
+    change_boundary_hash TEXT NOT NULL,
     PRIMARY KEY (adoption_event_id, card_id)
 );
 
@@ -254,27 +252,6 @@ func (s *Store) initialize() error {
 	return nil
 }
 
-func parseRunIDs(raw string) []string {
-	parts := strings.FieldsFunc(raw, func(r rune) bool { return r == ',' || r == ';' })
-	seen := map[string]bool{}
-	result := make([]string, 0, len(parts))
-	for _, value := range parts {
-		value = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(value), "runs/"))
-		if value == "" || strings.EqualFold(value, "none") || strings.EqualFold(value, "not-attributed") || seen[value] {
-			continue
-		}
-		if len(value) != len("20060102-150405") {
-			continue
-		}
-		if _, err := time.Parse("20060102-150405", value); err != nil {
-			continue
-		}
-		seen[value] = true
-		result = append(result, value)
-	}
-	return result
-}
-
 func parseRunIDsStrict(raw string) ([]string, error) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" || strings.EqualFold(trimmed, "none") {
@@ -284,6 +261,8 @@ func parseRunIDsStrict(raw string) ([]string, error) {
 	if len(parts) == 0 {
 		return nil, errors.New("RUN references require comma-separated RUN IDs in YYYYMMDD-HHMMSS form")
 	}
+	seen := map[string]bool{}
+	result := make([]string, 0, len(parts))
 	for _, part := range parts {
 		value := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(part), "runs/"))
 		if len(value) != len("20060102-150405") {
@@ -292,8 +271,12 @@ func parseRunIDsStrict(raw string) ([]string, error) {
 		if _, err := time.Parse("20060102-150405", value); err != nil {
 			return nil, fmt.Errorf("invalid RUN ID %q; expected YYYYMMDD-HHMMSS", strings.TrimSpace(part))
 		}
+		if !seen[value] {
+			seen[value] = true
+			result = append(result, value)
+		}
 	}
-	return parseRunIDs(raw), nil
+	return result, nil
 }
 
 func (s *Store) metadata(key string) (string, error) {
@@ -370,14 +353,14 @@ type queryer interface {
 }
 
 const cardColumns = `
-id, card_version, status, title, priority, owner, area, fingerprint, updated, updated_by`
+id, card_version, status, title, priority, owner, area, updated, updated_by`
 
 func getCardFrom(q queryer, id string) (Card, error) {
 	var card Card
 	row := q.QueryRow(`SELECT `+cardColumns+` FROM cards WHERE id = ?`, id)
 	err := row.Scan(
 		&card.ID, &card.Version, &card.Status, &card.Title, &card.Priority, &card.Owner, &card.Area,
-		&card.Fingerprint, &card.Updated, &card.UpdatedBy,
+		&card.Updated, &card.UpdatedBy,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -581,7 +564,7 @@ func (s *Store) listCards(filter ListFilter) ([]Card, error) {
 		var card Card
 		if err := rows.Scan(
 			&card.ID, &card.Version, &card.Status, &card.Title, &card.Priority, &card.Owner, &card.Area,
-			&card.Fingerprint, &card.Updated, &card.UpdatedBy,
+			&card.Updated, &card.UpdatedBy,
 		); err != nil {
 			return nil, err
 		}
@@ -885,9 +868,6 @@ func validateReadyContract(q queryer, cardID string) error {
 	if err != nil {
 		return err
 	}
-	if strings.TrimSpace(card.Fingerprint) == "" {
-		return fmt.Errorf("card %s cannot be READY without a fingerprint", card.ID)
-	}
 	for _, name := range []string{sectionHypothesis, sectionChangeBoundary, sectionVerification, sectionSafety} {
 		if strings.TrimSpace(sectionBody(card.Sections, name)) == "" {
 			return fmt.Errorf("card %s cannot be READY without a non-empty %s section", card.ID, name)
@@ -970,14 +950,13 @@ type CardPatch struct {
 }
 
 var patchColumns = map[string]string{
-	"status":      "status",
-	"title":       "title",
-	"priority":    "priority",
-	"owner":       "owner",
-	"area":        "area",
-	"fingerprint": "fingerprint",
-	"updated":     "updated",
-	"updated-by":  "updated_by",
+	"status":     "status",
+	"title":      "title",
+	"priority":   "priority",
+	"owner":      "owner",
+	"area":       "area",
+	"updated":    "updated",
+	"updated-by": "updated_by",
 }
 
 var runRelationFields = map[string]string{"source-runs": "SOURCE", "compare-run": "COMPARE", "observed-runs": "OBSERVED"}
@@ -1689,18 +1668,6 @@ func (s *Store) addCard(input NewCard, options mutation) (string, error) {
 	if _, err := tx.Exec(query, args...); err != nil {
 		tx.Rollback()
 		return "", err
-	}
-	if fingerprint := strings.TrimSpace(values["fingerprint"]); fingerprint != "" {
-		var duplicate string
-		err := tx.QueryRow(`SELECT id FROM cards WHERE fingerprint = ? AND id <> ? ORDER BY id LIMIT 1`, fingerprint, nextID).Scan(&duplicate)
-		if err == nil {
-			tx.Rollback()
-			return "", fmt.Errorf("duplicate fingerprint already exists on %s; use a versioned fingerprint for a materially different successor", duplicate)
-		}
-		if !errors.Is(err, sql.ErrNoRows) {
-			tx.Rollback()
-			return "", err
-		}
 	}
 	for key, relation := range runRelationFields {
 		if value, ok := input.Values[key]; ok {

@@ -11,8 +11,8 @@ import (
 func TestAppliedSnapshotIncludesOnlyAppliedCards(t *testing.T) {
 	store := testStore(t)
 	seedBacklog(t, store, 42, "B-005",
-		Card{ID: "B-001", Status: "APPLIED", Title: "change", Fingerprint: "change:v1", Sections: []Section{{Name: sectionChangeBoundary, Body: "replace query"}}},
-		Card{ID: "B-002", Status: "APPLIED", Title: "second change", Fingerprint: "change:v2", Sections: []Section{{Name: sectionVerification, Body: `{"version":1}`}}},
+		Card{ID: "B-001", Status: "APPLIED", Title: "change", Sections: []Section{{Name: sectionChangeBoundary, Body: "replace query"}}},
+		Card{ID: "B-002", Status: "APPLIED", Title: "second change", Sections: []Section{{Name: sectionVerification, Body: `{"version":1}`}}},
 		Card{ID: "B-003", Status: "READY", Title: "ready"},
 		Card{ID: "B-004", Status: "VALIDATED", Title: "validated"})
 
@@ -20,16 +20,24 @@ func TestAppliedSnapshotIncludesOnlyAppliedCards(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snapshot.Status != "ok" || snapshot.SchemaVersion != 2 || snapshot.Revision != 42 {
+	if snapshot.Status != "ok" || snapshot.SchemaVersion != 3 || snapshot.Revision != 42 {
 		t.Fatalf("snapshot metadata = %#v", snapshot)
 	}
 	if len(snapshot.Cards) != 2 || snapshot.Cards[0].ID != "B-001" || snapshot.Cards[1].ID != "B-002" {
 		t.Fatalf("snapshot cards = %#v", snapshot.Cards)
 	}
 	for _, card := range snapshot.Cards {
-		if !strings.HasPrefix(card.TreatmentHash, "sha256:") || !strings.HasPrefix(card.DecisionHash, "sha256:") {
-			t.Fatalf("snapshot hashes = treatment %q, decision %q", card.TreatmentHash, card.DecisionHash)
+		if !strings.HasPrefix(card.ChangeBoundaryHash, "sha256:") || !strings.HasPrefix(card.DecisionHash, "sha256:") {
+			t.Fatalf("snapshot hashes = change boundary %q, decision %q", card.ChangeBoundaryHash, card.DecisionHash)
 		}
+	}
+	body, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded := string(body)
+	if !strings.Contains(encoded, `"change_boundary_hash"`) || strings.Contains(encoded, `"fingerprint"`) || strings.Contains(encoded, `"treatment_hash"`) {
+		t.Fatalf("snapshot contains obsolete or missing fields: %s", encoded)
 	}
 }
 
@@ -48,8 +56,8 @@ func TestAppliedSnapshotUsesEmptyArray(t *testing.T) {
 	}
 }
 
-func TestValidateRunSnapshotCardRequiresOnlySameTreatment(t *testing.T) {
-	card := Card{ID: "B-001", Status: "APPLIED", Fingerprint: "change:v1", Sections: []Section{
+func TestValidateRunSnapshotCardRequiresSameChangeBoundary(t *testing.T) {
+	card := Card{ID: "B-001", Status: "APPLIED", Sections: []Section{
 		{Name: sectionObservation, Body: "baseline observation"},
 		{Name: sectionHypothesis, Body: "remove repeated work"},
 		{Name: sectionChangeBoundary, Body: "replace query"},
@@ -80,50 +88,50 @@ func TestValidateRunSnapshotCardRequiresOnlySameTreatment(t *testing.T) {
 		t.Fatal("hypothesis change was not reported as a decision change")
 	}
 	card.Sections[2].Body = "replace query and response cache"
-	if err := validateRunSnapshotCard(run, card); err == nil || !strings.Contains(err.Error(), "treatment differs") {
-		t.Fatalf("treatment change error = %v", err)
+	if err := validateRunSnapshotCard(run, card); err == nil || !strings.Contains(err.Error(), "change boundary differs") {
+		t.Fatalf("change boundary error = %v", err)
 	}
 }
 
 func TestCardHashesIgnoreJSONAndLineEndingFormatting(t *testing.T) {
-	card := Card{Fingerprint: "query:v1  \r\n", Sections: []Section{
+	card := Card{Sections: []Section{
 		{Name: sectionHypothesis, Body: "remove repeated work  \r\nwithout changing output"},
-		{Name: sectionChangeBoundary, Body: "query only"},
+		{Name: sectionChangeBoundary, Body: "query only  \r\n"},
 		{Name: sectionVerification, Body: "```json\n{\n  \"checks\": [\"correctness\"],\n  \"version\": 1\n}\n```"},
 		{Name: sectionSafety, Body: "restore query"},
 	}}
-	wantTreatment := cardTreatmentHash(card)
+	wantBoundary := cardChangeBoundaryHash(card)
 	wantDecision := cardDecisionHash(card)
-	card.Fingerprint = "query:v1"
 	card.Sections[0].Body = "remove repeated work\nwithout changing output"
+	card.Sections[1].Body = "query only"
 	card.Sections[2].Body = `{"version":1,"checks":["correctness"]}`
-	if got := cardTreatmentHash(card); got != wantTreatment {
-		t.Fatalf("format-only change altered treatment hash: got %s want %s", got, wantTreatment)
+	if got := cardChangeBoundaryHash(card); got != wantBoundary {
+		t.Fatalf("format-only change altered change-boundary hash: got %s want %s", got, wantBoundary)
 	}
 	if got := cardDecisionHash(card); got != wantDecision {
 		t.Fatalf("format-only change altered decision hash: got %s want %s", got, wantDecision)
 	}
 }
 
-func TestConstraintAssessmentHashTracksOnlyTreatment(t *testing.T) {
-	card := Card{Fingerprint: "query:v1", Sections: []Section{
+func TestConstraintAssessmentHashTracksOnlyChangeBoundary(t *testing.T) {
+	card := Card{Sections: []Section{
 		{Name: sectionHypothesis, Body: "remove repeated work"},
 		{Name: sectionChangeBoundary, Body: "query only"},
 		{Name: sectionVerification, Body: "compare query count"},
 		{Name: sectionSafety, Body: "rollback on errors"},
 	}}
-	want := cardAssessmentTreatmentHash(card)
+	want := cardAssessmentChangeBoundaryHash(card)
 	card.Sections[2].Body = "compare latency and query count"
 	card.Sections[3].Body = "rollback on errors or score regression"
-	if got := cardAssessmentTreatmentHash(card); got != want {
+	if got := cardAssessmentChangeBoundaryHash(card); got != want {
 		t.Fatalf("decision/safety policy altered residual-assessment hash: got %s want %s", got, want)
 	}
 	card.Sections[0].Body = "remove a different source of repeated work"
-	if got := cardAssessmentTreatmentHash(card); got != want {
+	if got := cardAssessmentChangeBoundaryHash(card); got != want {
 		t.Fatalf("hypothesis change altered residual-assessment hash: got %s want %s", got, want)
 	}
 	card.Sections[1].Body = "query and cache"
-	if got := cardAssessmentTreatmentHash(card); got == want {
+	if got := cardAssessmentChangeBoundaryHash(card); got == want {
 		t.Fatal("change-boundary change did not alter residual-assessment hash")
 	}
 }
@@ -136,7 +144,7 @@ func TestLoadRunAppliedSnapshotRejectsOutdatedAndStartedRuns(t *testing.T) {
 	}{
 		{runID: "20260901-120000", body: `{"run_id":"20260901-120000"}`},
 		{runID: "20260901-120001", body: `{"schema_version":2,"phase":"started","run_id":"20260901-120001","backlog_snapshot":{"schema_version":1,"status":"ok","cards":[]}}`},
-		{runID: "20260901-120002", body: `{"schema_version":4,"phase":"finalized","run_id":"20260901-120002","score":100,"passed":true,"backlog_snapshot":{"schema_version":1,"status":"ok","cards":[]}}`},
+		{runID: "20260901-120002", body: `{"schema_version":4,"phase":"finalized","run_id":"20260901-120002","score":100,"passed":true,"backlog_snapshot":{"schema_version":2,"status":"ok","cards":[]}}`},
 	} {
 		dir := filepath.Join(root, "runs", test.runID)
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -164,7 +172,7 @@ func TestLoadRunAppliedSnapshotRequiresPassedKnownScoreAndCompatibleComparison(t
 	write := func(body string) error {
 		return os.WriteFile(filepath.Join(dir, "run.json"), []byte(body), 0o644)
 	}
-	base := `{"schema_version":4,"phase":"finalized","run_id":"20260901-120010","backlog_snapshot":{"schema_version":2,"status":"ok","cards":[]}`
+	base := `{"schema_version":4,"phase":"finalized","run_id":"20260901-120010","backlog_snapshot":{"schema_version":3,"status":"ok","cards":[]}`
 	for name, suffix := range map[string]string{
 		"failed":               `,"score":100,"passed":false}`,
 		"unknown pass":         `,"score":100,"passed":null}`,
@@ -189,7 +197,7 @@ func TestLoadRunAppliedSnapshotRequiresPassedKnownScoreAndCompatibleComparison(t
 	if run, err := loadRunAppliedSnapshot(root, runID, false); err != nil || run.Score == nil || *run.Score != 0 {
 		t.Fatalf("valid zero-score RUN rejected: run=%#v err=%v", run, err)
 	}
-	if err := write(`{"schema_version":4,"phase":"finalized","run_id":"20260901-120010","passed":false,"backlog_snapshot":{"schema_version":2,"status":"error","cards":[]}}`); err != nil {
+	if err := write(`{"schema_version":4,"phase":"finalized","run_id":"20260901-120010","passed":false,"backlog_snapshot":{"schema_version":3,"status":"error","cards":[]}}`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := loadRunAppliedSnapshot(root, runID, true); err == nil {

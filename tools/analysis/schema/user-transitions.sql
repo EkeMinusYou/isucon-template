@@ -21,6 +21,7 @@ with reports as (
             scenarios: 'JSON'
         }
     )
+    where schema_version = 3
 ), flattened as (
     select reports.run_id, reports.summary, item.value as edge
     from reports, json_each(reports.edges) as item
@@ -83,6 +84,7 @@ with reports as (
             scenarios: 'JSON'
         }
     )
+    where schema_version = 3
 ), scenario_rows as (
     select reports.run_id, scenario.key::integer as scenario_rank_zero_based, scenario.value as scenario
     from reports, json_each(reports.scenarios) as scenario

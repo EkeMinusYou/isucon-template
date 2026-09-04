@@ -65,12 +65,12 @@ func TestManifestBeginAndFinalizePreserveSnapshotAndSource(t *testing.T) {
 	}
 	snapshotPath := filepath.Join(root, "snapshot.json")
 	snapshot := BacklogSnapshot{
-		SchemaVersion: 2,
+		SchemaVersion: 3,
 		Status:        "ok",
 		CapturedAt:    "2026-09-01T12:00:00+09:00",
 		Revision:      42,
 		Cards: []AppliedSnapshotCard{{
-			ID: "B-001", Status: "APPLIED", Version: 3, TreatmentHash: "sha256:treatment", DecisionHash: "sha256:decision",
+			ID: "B-001", Status: "APPLIED", Version: 3, ChangeBoundaryHash: "sha256:boundary", DecisionHash: "sha256:decision",
 		}},
 	}
 	body, err := json.Marshal(snapshot)
@@ -136,11 +136,11 @@ func TestManifestBeginRejectsOutdatedAppliedSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshotPath := filepath.Join(root, "snapshot.json")
-	if err := os.WriteFile(snapshotPath, []byte(`{"schema_version":1,"status":"ok","cards":[]}`), 0o644); err != nil {
+	if err := os.WriteFile(snapshotPath, []byte(`{"schema_version":2,"status":"ok","cards":[]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	err := runManifestBegin([]string{"-dir", runDir, "-applied-snapshot", snapshotPath})
-	if err == nil || !strings.Contains(err.Error(), "schema_version=1") {
+	if err == nil || !strings.Contains(err.Error(), "schema_version=2") {
 		t.Fatalf("outdated snapshot error = %v", err)
 	}
 }
@@ -190,8 +190,8 @@ func TestCompareManifestAcceptsOnlyDeclaredCardAndRoleDeltas(t *testing.T) {
 		Preflight:     Preflight{CollectorClean: true},
 		Source:        CodeSource{Commit: "abc123"},
 		Roles:         Roles{App: []string{"isucon-1"}, MySQL: "isucon-1"},
-		BacklogSnapshot: BacklogSnapshot{SchemaVersion: 2, Status: "ok", Cards: []AppliedSnapshotCard{
-			{ID: "B-001", TreatmentHash: "sha256:control", DecisionHash: "sha256:decision"},
+		BacklogSnapshot: BacklogSnapshot{SchemaVersion: 3, Status: "ok", Cards: []AppliedSnapshotCard{
+			{ID: "B-001", ChangeBoundaryHash: "sha256:control", DecisionHash: "sha256:decision"},
 		}},
 		Artifacts: []Artifact{{Name: "alp", Status: "ok"}},
 	}
@@ -206,7 +206,7 @@ func TestCompareManifestAcceptsOnlyDeclaredCardAndRoleDeltas(t *testing.T) {
 	target.RunID = "20260901-130000"
 	target.Source.Commit = "def456"
 	target.Roles.MySQL = "isucon-2"
-	target.BacklogSnapshot.Cards = []AppliedSnapshotCard{{ID: "B-001", TreatmentHash: "sha256:target", DecisionHash: "sha256:decision"}}
+	target.BacklogSnapshot.Cards = []AppliedSnapshotCard{{ID: "B-001", ChangeBoundaryHash: "sha256:target", DecisionHash: "sha256:decision"}}
 
 	allowed, err := compareManifest(target, controlDir, []string{"B-001"}, []string{"mysql"})
 	if err != nil {
@@ -226,7 +226,7 @@ func TestCompareManifestAcceptsOnlyDeclaredCardAndRoleDeltas(t *testing.T) {
 
 	decisionOnly := control
 	decisionOnly.RunID = "20260901-140000"
-	decisionOnly.BacklogSnapshot.Cards = []AppliedSnapshotCard{{ID: "B-001", TreatmentHash: "sha256:control", DecisionHash: "sha256:changed"}}
+	decisionOnly.BacklogSnapshot.Cards = []AppliedSnapshotCard{{ID: "B-001", ChangeBoundaryHash: "sha256:control", DecisionHash: "sha256:changed"}}
 	decisionComparison, err := compareManifest(decisionOnly, controlDir, nil, nil)
 	if err != nil {
 		t.Fatal(err)

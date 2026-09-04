@@ -10,8 +10,8 @@ import (
 func TestAdoptCardsMatchingRecordsOneAtomicEvent(t *testing.T) {
 	store := testStore(t)
 	seedBacklog(t, store, 7, "B-003",
-		Card{ID: "B-001", Status: "APPLIED", Title: "first", Fingerprint: "first:v1", History: []HistoryEntry{{Actor: "agent:first", Body: "created"}}},
-		Card{ID: "B-002", Status: "APPLIED", Title: "second", Fingerprint: "second:v1", History: []HistoryEntry{{Actor: "agent:second", Body: "created"}}})
+		Card{ID: "B-001", Status: "APPLIED", Title: "first", History: []HistoryEntry{{Actor: "agent:first", Body: "created"}}},
+		Card{ID: "B-002", Status: "APPLIED", Title: "second", History: []HistoryEntry{{Actor: "agent:second", Body: "created"}}})
 	first, err := store.getCard("B-001")
 	if err != nil {
 		t.Fatal(err)
@@ -28,7 +28,7 @@ func TestAdoptCardsMatchingRecordsOneAtomicEvent(t *testing.T) {
 		ManifestSHA256: "sha256:" + strings.Repeat("0", 64), SnapshotRevision: 7,
 	}
 	cards, err := store.adoptCardsMatching([]string{"B-001", "B-002"}, map[string]string{
-		"B-001": cardTreatmentHash(first), "B-002": cardTreatmentHash(second),
+		"B-001": cardChangeBoundaryHash(first), "B-002": cardChangeBoundaryHash(second),
 	}, event, "forced adoption")
 	if err != nil {
 		t.Fatal(err)
@@ -69,7 +69,8 @@ func TestAdoptCardsMatchingRecordsOneAtomicEvent(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(body)
-	if !strings.Contains(text, "comparison_status\tforced\n") || !strings.Contains(text, "\t20260901-120000\t0\tnone\tunknown\tunknown\t2\tnone\ttrue\n") {
+	if !strings.Contains(text, "origin\tchange_boundary_hash\trun_id") || strings.Contains(text, "fingerprint") ||
+		!strings.Contains(text, "comparison_status\tforced\n") || !strings.Contains(text, "\t20260901-120000\t0\tnone\tunknown\tunknown\t2\tnone\ttrue\n") {
 		t.Fatalf("outcomes.tsv =\n%s", text)
 	}
 }
@@ -88,9 +89,9 @@ func TestAdoptCardsMatchingRollsBackEveryCardOnMismatch(t *testing.T) {
 		ComparisonStatus: "none", ManifestSHA256: "sha256:" + strings.Repeat("0", 64), SnapshotRevision: 3,
 	}
 	_, err = store.adoptCardsMatching([]string{"B-001", "B-002"}, map[string]string{
-		"B-001": cardTreatmentHash(first), "B-002": "sha256:stale",
+		"B-001": cardChangeBoundaryHash(first), "B-002": "sha256:stale",
 	}, event, "adoption")
-	if err == nil || !strings.Contains(err.Error(), "treatment differs") {
+	if err == nil || !strings.Contains(err.Error(), "change boundary differs") {
 		t.Fatalf("adoption mismatch error = %v", err)
 	}
 	for _, id := range []string{"B-001", "B-002"} {

@@ -26,13 +26,12 @@ type AppliedSnapshot struct {
 }
 
 type AppliedSnapshotCard struct {
-	ID            string `json:"id"`
-	Status        string `json:"status"`
-	Version       int    `json:"version"`
-	Title         string `json:"title"`
-	Fingerprint   string `json:"fingerprint"`
-	TreatmentHash string `json:"treatment_hash"`
-	DecisionHash  string `json:"decision_hash"`
+	ID                 string `json:"id"`
+	Status             string `json:"status"`
+	Version            int    `json:"version"`
+	Title              string `json:"title"`
+	ChangeBoundaryHash string `json:"change_boundary_hash"`
+	DecisionHash       string `json:"decision_hash"`
 }
 
 type runSnapshotEnvelope struct {
@@ -96,7 +95,7 @@ func (s *Store) appliedSnapshot() (AppliedSnapshot, error) {
 		return AppliedSnapshot{}, err
 	}
 	return AppliedSnapshot{
-		SchemaVersion: 2,
+		SchemaVersion: 3,
 		Status:        "ok",
 		CapturedAt:    time.Now().Format(time.RFC3339Nano),
 		Revision:      revision,
@@ -114,25 +113,18 @@ func strconvAtoiNonNegative(value string) (int, error) {
 
 func snapshotCard(card Card) AppliedSnapshotCard {
 	return AppliedSnapshotCard{
-		ID:            card.ID,
-		Status:        card.Status,
-		Version:       card.Version,
-		Title:         card.Title,
-		Fingerprint:   card.Fingerprint,
-		TreatmentHash: cardTreatmentHash(card),
-		DecisionHash:  cardDecisionHash(card),
+		ID:                 card.ID,
+		Status:             card.Status,
+		Version:            card.Version,
+		Title:              card.Title,
+		ChangeBoundaryHash: cardChangeBoundaryHash(card),
+		DecisionHash:       cardDecisionHash(card),
 	}
 }
 
-func cardTreatmentHash(card Card) string {
-	treatment := struct {
-		Fingerprint    string `json:"fingerprint"`
-		ChangeBoundary string `json:"change_boundary"`
-	}{
-		Fingerprint:    normalizeAdoptionContractText(card.Fingerprint),
-		ChangeBoundary: normalizeAdoptionContractText(sectionBody(card.Sections, sectionChangeBoundary)),
-	}
-	body, _ := json.Marshal(treatment)
+func cardChangeBoundaryHash(card Card) string {
+	boundary := normalizeAdoptionContractText(sectionBody(card.Sections, sectionChangeBoundary))
+	body, _ := json.Marshal(boundary)
 	sum := sha256.Sum256(body)
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
@@ -287,7 +279,7 @@ func loadRunSnapshot(root, runID string, requireCompatibleComparison, force bool
 			return runSnapshotEnvelope{}, fmt.Errorf("evidence RUN %s comparison with %s is %s, expected compatible", runID, run.Comparison.RunID, run.Comparison.Status)
 		}
 	}
-	if run.BacklogSnapshot.Status != "ok" || run.BacklogSnapshot.SchemaVersion != 2 {
+	if run.BacklogSnapshot.Status != "ok" || run.BacklogSnapshot.SchemaVersion != 3 {
 		return runSnapshotEnvelope{}, fmt.Errorf("evidence RUN %s has no usable APPLIED snapshot", runID)
 	}
 	return run, nil
@@ -301,8 +293,8 @@ func validateRunSnapshotCard(run runSnapshotEnvelope, card Card) error {
 		if item.Status != "APPLIED" {
 			return fmt.Errorf("evidence RUN %s records %s as %s, expected APPLIED", run.RunID, card.ID, item.Status)
 		}
-		if item.TreatmentHash != cardTreatmentHash(card) {
-			return fmt.Errorf("card %s treatment differs from evidence RUN %s snapshot", card.ID, run.RunID)
+		if item.ChangeBoundaryHash != cardChangeBoundaryHash(card) {
+			return fmt.Errorf("card %s change boundary differs from evidence RUN %s snapshot", card.ID, run.RunID)
 		}
 		return nil
 	}
@@ -320,11 +312,11 @@ func snapshotCardIDs(run runSnapshotEnvelope) []string {
 	return ids
 }
 
-func snapshotTreatmentHashes(run runSnapshotEnvelope) map[string]string {
+func snapshotChangeBoundaryHashes(run runSnapshotEnvelope) map[string]string {
 	hashes := map[string]string{}
 	for _, card := range run.BacklogSnapshot.Cards {
 		if card.Status == "APPLIED" {
-			hashes[card.ID] = card.TreatmentHash
+			hashes[card.ID] = card.ChangeBoundaryHash
 		}
 	}
 	return hashes

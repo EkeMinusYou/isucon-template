@@ -6,6 +6,7 @@ import {
   type MetricsResponse,
   type MysqlResponse,
   type FgprofResponse,
+  type GoPprofResponse,
   type ReportInfo,
   type RunInfo,
   type ScoreEntry,
@@ -19,6 +20,7 @@ import { BacklogBoard } from './components/BacklogBoard'
 import { BenchmarkTimeline } from './components/BenchmarkTimeline'
 import { MysqlStatus } from './components/MysqlStatus'
 import { FgprofTop } from './components/PprofTop'
+import { GoPprofTop } from './components/GoPprofTop'
 import { ResourceTimeSeries } from './components/ResourceTimeSeries'
 import { ReportsPanel } from './components/ReportsPanel'
 import { RunSelector } from './components/RunSelector'
@@ -36,6 +38,7 @@ type RunData = {
   slowquery: SlowQueryResponse
   metrics: MetricsResponse
   fgprof: FgprofResponse
+  pprof: GoPprofResponse
   mysql: MysqlResponse
   upstream: UpstreamResponse
   userTransitions: UserTransitionsResponse
@@ -53,6 +56,7 @@ const SECTIONS: SectionDef[] = [
   { id: 'slowquery', title: 'slow query トップ', navLabel: 'slow query' },
   { id: 'mysql', title: 'MySQL ステータス', navLabel: 'MySQL' },
   { id: 'resources', title: 'ホスト/サービス別リソース時系列', navLabel: 'リソース' },
+  { id: 'pprof', title: 'Go pprof', navLabel: 'pprof' },
   { id: 'fgprof', title: 'fgprof wall-clock', navLabel: 'fgprof' },
 ]
 
@@ -137,17 +141,18 @@ function App() {
       setSelectedRun(runId)
 
       if (runId) {
-        const [alp, slowquery, metrics, fgprof, mysql, upstream, userTransitions, timeline] = await Promise.all([
+        const [alp, slowquery, metrics, pprof, fgprof, mysql, upstream, userTransitions, timeline] = await Promise.all([
           api.alp(runId),
           api.slowQuery(runId),
           api.metrics(runId),
+          api.pprof(runId),
           api.fgprof(runId),
           api.mysql(runId),
           api.upstream(runId),
           api.userTransitions(runId),
           api.timeline(runId),
         ])
-        setRunData({ alp, slowquery, metrics, fgprof, mysql, upstream, userTransitions, timeline })
+        setRunData({ alp, slowquery, metrics, pprof, fgprof, mysql, upstream, userTransitions, timeline })
       } else {
         setRunData(null)
       }
@@ -179,17 +184,18 @@ function App() {
     setLoading(true)
     setError(null)
     try {
-      const [alp, slowquery, metrics, fgprof, mysql, upstream, userTransitions, timeline] = await Promise.all([
+      const [alp, slowquery, metrics, pprof, fgprof, mysql, upstream, userTransitions, timeline] = await Promise.all([
         api.alp(runId),
         api.slowQuery(runId),
         api.metrics(runId),
+        api.pprof(runId),
         api.fgprof(runId),
         api.mysql(runId),
         api.upstream(runId),
         api.userTransitions(runId),
         api.timeline(runId),
       ])
-      setRunData({ alp, slowquery, metrics, fgprof, mysql, upstream, userTransitions, timeline })
+      setRunData({ alp, slowquery, metrics, pprof, fgprof, mysql, upstream, userTransitions, timeline })
       setLastLoaded(new Date())
     } catch (err) {
       setError(String((err as Error).message ?? err))
@@ -354,6 +360,10 @@ function App() {
 
             <Section id="resources" title="ホスト/サービス別リソース時系列">
               {runData ? <ResourceTimeSeries metrics={runData.metrics} /> : <ChartSkeleton columns={3} />}
+            </Section>
+
+            <Section id="pprof" title="Go pprof">
+              {runData ? <GoPprofTop data={runData.pprof} /> : <TableSkeleton />}
             </Section>
 
             <Section id="fgprof" title="fgprof wall-clock">

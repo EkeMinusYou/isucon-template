@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -18,9 +19,9 @@ type scoreEntry struct {
 	AppTraffic string `json:"app_traffic"`
 }
 
-// parseScores reads runs/scores.tsv
-// (header: run_id score app nginx mysql app_traffic).
-// app_traffic was added later, so older rows may carry "unknown" or be absent.
+const scoresHeader = "run_id\tscore\tapp\tnginx\tmysql\tapp_traffic"
+
+// parseScores reads the current runs/scores.tsv format.
 func parseScores(path string) ([]scoreEntry, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -34,38 +35,40 @@ func parseScores(path string) ([]scoreEntry, error) {
 	var entries []scoreEntry
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	first := true
-	for scanner.Scan() {
-		line := scanner.Text()
-		if first {
-			first = false
-			continue // skip header
+	if !scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			return nil, err
 		}
+		return nil, fmt.Errorf("scores.tsv is missing its header")
+	}
+	if scanner.Text() != scoresHeader {
+		return nil, fmt.Errorf("scores.tsv has an unsupported header %q", scanner.Text())
+	}
+	lineNumber := 1
+	for scanner.Scan() {
+		lineNumber++
+		line := scanner.Text()
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
 		cols := strings.Split(line, "\t")
-		if len(cols) < 2 {
-			continue
+		if len(cols) != 6 {
+			return nil, fmt.Errorf("scores.tsv line %d has %d columns, expected 6", lineNumber, len(cols))
 		}
 		var score *int64
-		if parsed, parseErr := strconv.ParseInt(strings.TrimSpace(cols[1]), 10, 64); parseErr == nil {
+		if rawScore := strings.TrimSpace(cols[1]); rawScore != "" {
+			parsed, parseErr := strconv.ParseInt(rawScore, 10, 64)
+			if parseErr != nil {
+				return nil, fmt.Errorf("scores.tsv line %d has invalid score %q: %w", lineNumber, cols[1], parseErr)
+			}
 			score = &parsed
 		}
-		e := scoreEntry{RunID: cols[0], Score: score}
-		if len(cols) > 2 {
-			e.App = cols[2]
+		if strings.TrimSpace(cols[0]) == "" {
+			return nil, fmt.Errorf("scores.tsv line %d has an empty run_id", lineNumber)
 		}
-		if len(cols) > 3 {
-			e.Nginx = cols[3]
-		}
-		if len(cols) > 4 {
-			e.Mysql = cols[4]
-		}
-		if len(cols) > 5 {
-			e.AppTraffic = cols[5]
-		}
-		entries = append(entries, e)
+		entries = append(entries, scoreEntry{
+			RunID: cols[0], Score: score, App: cols[2], Nginx: cols[3], Mysql: cols[4], AppTraffic: cols[5],
+		})
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, err

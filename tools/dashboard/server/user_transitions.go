@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -95,6 +96,8 @@ type userTransitionsResponse struct {
 	userTransitionsArtifact
 }
 
+const userTransitionsSchemaVersion = 3
+
 func parseUserTransitions(path string) (userTransitionsArtifact, bool, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -109,13 +112,16 @@ func parseUserTransitions(path string) (userTransitionsArtifact, bool, error) {
 	if err := json.NewDecoder(f).Decode(&artifact); err != nil {
 		return userTransitionsArtifact{}, false, err
 	}
+	if artifact.SchemaVersion != userTransitionsSchemaVersion {
+		return userTransitionsArtifact{}, false, fmt.Errorf("unsupported user-transitions schema_version %d", artifact.SchemaVersion)
+	}
 	if artifact.Edges == nil {
 		artifact.Edges = []userTransitionEdge{}
 	}
 	if artifact.Scenarios == nil {
 		artifact.Scenarios = []userScenario{}
 	}
-	return artifact, artifact.SchemaVersion >= 1 && artifact.Summary.InputFiles > 0, nil
+	return artifact, artifact.Summary.InputFiles > 0, nil
 }
 
 func (a *app) handleUserTransitions(w http.ResponseWriter, r *http.Request) {

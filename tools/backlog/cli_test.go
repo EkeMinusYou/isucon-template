@@ -36,7 +36,7 @@ func TestParseGlobalAcceptsDumpPath(t *testing.T) {
 }
 
 func TestMutatesBacklog(t *testing.T) {
-	for _, command := range []string{"init", "add", "update", "resolve", "transition", "close", "history", "pass"} {
+	for _, command := range []string{"init", "add", "update", "resolve", "transition", "history", "pass"} {
 		if !mutatesBacklog(command, nil) {
 			t.Errorf("mutatesBacklog(%q) = false, want true", command)
 		}
@@ -50,12 +50,12 @@ func TestMutatesBacklog(t *testing.T) {
 		t.Fatal("dependency mutation classification is incorrect")
 	}
 	for _, subcommand := range []string{"add", "update", "transition", "link", "unlink", "assess"} {
-		if !mutatesBacklog("anchor", []string{subcommand}) {
-			t.Errorf("anchor %s should mutate backlog", subcommand)
+		if !mutatesBacklog("constraint", []string{subcommand}) {
+			t.Errorf("constraint %s should mutate backlog", subcommand)
 		}
 	}
-	if mutatesBacklog("anchor", []string{"list"}) || mutatesBacklog("anchor", []string{"show"}) {
-		t.Fatal("anchor read command was classified as a mutation")
+	if mutatesBacklog("constraint", []string{"list"}) || mutatesBacklog("constraint", []string{"show"}) {
+		t.Fatal("constraint read command was classified as a mutation")
 	}
 }
 

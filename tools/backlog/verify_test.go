@@ -40,7 +40,7 @@ func TestBuildVerificationSummaryAcceptsFreeText(t *testing.T) {
 	passed := true
 	target := verifyManifest{
 		RunID: "20260101-000001", Phase: "finalized", Passed: &passed,
-		BacklogSnapshot: AppliedSnapshot{SchemaVersion: 2, Status: "ok", Cards: []AppliedSnapshotCard{snapshotCard(card)}},
+		BacklogSnapshot: AppliedSnapshot{SchemaVersion: 3, Status: "ok", Cards: []AppliedSnapshotCard{snapshotCard(card)}},
 	}
 	summary, err := buildVerificationSummary(t.TempDir(), card, target, []verifyManifest{target})
 	if err != nil {
@@ -111,11 +111,11 @@ func TestLoadVerifyManifestsSkipsStartedRun(t *testing.T) {
 }
 
 func TestSelectEvidenceManifestUsesLatestRunContainingCard(t *testing.T) {
-	card := Card{ID: "B-001", Status: "APPLIED", Fingerprint: "test:v1"}
+	card := Card{ID: "B-001", Status: "APPLIED"}
 	item := snapshotCard(card)
 	manifests := []verifyManifest{
-		{RunID: "20260101-000001", BacklogSnapshot: AppliedSnapshot{SchemaVersion: 2, Status: "ok", Cards: []AppliedSnapshotCard{item}}},
-		{RunID: "20260101-000002", BacklogSnapshot: AppliedSnapshot{SchemaVersion: 2, Status: "ok", Cards: []AppliedSnapshotCard{}}},
+		{RunID: "20260101-000001", BacklogSnapshot: AppliedSnapshot{SchemaVersion: 3, Status: "ok", Cards: []AppliedSnapshotCard{item}}},
+		{RunID: "20260101-000002", BacklogSnapshot: AppliedSnapshot{SchemaVersion: 3, Status: "ok", Cards: []AppliedSnapshotCard{}}},
 	}
 	selected, err := selectEvidenceManifest(card.ID, "", manifests)
 	if err != nil {

@@ -458,11 +458,11 @@ func (s *Store) setConstraintLink(constraintID, cardID string, link bool, role, 
 				return contractErr
 			}
 			parsed = &contract
-			if _, contractErr = tx.Exec(`INSERT INTO constraint_intervention_assessments(card_id, constraint_id, assessment_json, constraint_definition_hash, card_treatment_hash, updated, updated_by)
+			if _, contractErr = tx.Exec(`INSERT INTO constraint_intervention_assessments(card_id, constraint_id, assessment_json, constraint_definition_hash, card_change_boundary_hash, updated, updated_by)
 				VALUES (?, ?, ?, ?, ?, ?, ?)
 				ON CONFLICT(card_id, constraint_id) DO UPDATE SET assessment_json=excluded.assessment_json, constraint_definition_hash=excluded.constraint_definition_hash,
-				card_treatment_hash=excluded.card_treatment_hash, updated=excluded.updated, updated_by=excluded.updated_by`,
-				cardID, constraintID, canonical, constraintDefinitionHash(constraint), cardAssessmentTreatmentHash(card), now(), options.Actor); contractErr != nil {
+				card_change_boundary_hash=excluded.card_change_boundary_hash, updated=excluded.updated, updated_by=excluded.updated_by`,
+				cardID, constraintID, canonical, constraintDefinitionHash(constraint), cardAssessmentChangeBoundaryHash(card), now(), options.Actor); contractErr != nil {
 				tx.Rollback()
 				return contractErr
 			}

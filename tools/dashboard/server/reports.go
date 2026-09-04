@@ -23,10 +23,6 @@ type reportInfo struct {
 	Size    int64  `json:"size"`
 }
 
-// archiveDir holds reports written under the retired naming rules. They are
-// kept as history and stay out of the dashboard listing.
-const archiveDir = "archive"
-
 func (a *app) listReports() ([]reportInfo, error) {
 	reports := []reportInfo{}
 
@@ -41,9 +37,6 @@ func (a *app) listReports() ([]reportInfo, error) {
 		rel = filepath.ToSlash(rel)
 
 		if d.IsDir() {
-			if rel == archiveDir {
-				return fs.SkipDir
-			}
 			return nil
 		}
 		name := d.Name()

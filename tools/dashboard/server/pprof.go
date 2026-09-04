@@ -41,6 +41,44 @@ type pprofResponse struct {
 	Profiles  []pprofProfileData `json:"profiles"`
 }
 
+type goPprofFunction struct {
+	Name    string  `json:"name"`
+	Flat    float64 `json:"flat"`
+	FlatPct float64 `json:"flat_pct"`
+	Cum     float64 `json:"cum"`
+	CumPct  float64 `json:"cum_pct"`
+}
+
+type goPprofProfileData struct {
+	Kind        string            `json:"kind"`
+	Host        string            `json:"host"`
+	Source      string            `json:"source"`
+	SampleType  string            `json:"sample_type"`
+	SampleUnit  string            `json:"sample_unit"`
+	DurationSec float64           `json:"duration_sec"`
+	Total       float64           `json:"total"`
+	Functions   []goPprofFunction `json:"functions"`
+}
+
+type goPprofResponse struct {
+	RunID     string               `json:"run_id"`
+	Available bool                 `json:"available"`
+	Profiles  []goPprofProfileData `json:"profiles"`
+}
+
+type goPprofKind struct {
+	name                 string
+	suffix               string
+	preferredSampleTypes []string
+}
+
+var goPprofKinds = []goPprofKind{
+	{name: "cpu", suffix: "-go-cpu.pprof", preferredSampleTypes: []string{"cpu", "time"}},
+	{name: "heap", suffix: "-go-heap.pprof", preferredSampleTypes: []string{"inuse_space", "space"}},
+	{name: "allocs", suffix: "-go-allocs.pprof", preferredSampleTypes: []string{"alloc_space", "space"}},
+	{name: "goroutine", suffix: "-go-goroutine.pprof", preferredSampleTypes: []string{"goroutine", "samples"}},
+}
+
 type pprofFunctionValue struct {
 	flat int64
 	cum  int64
@@ -53,12 +91,18 @@ type pprofFunctionStat struct {
 }
 
 // selectPprofSampleType prefers the wall-clock sample value emitted by fgprof.
-// The fallback keeps the endpoint useful for older or converted profiles
-// whose sample type metadata does not name a wall-clock value explicitly.
+// Supported profile converters may label the primary value through
+// DefaultSampleType instead, so use that metadata before the first valid type.
 func selectPprofSampleType(p *pprofprofile.Profile) (int, *pprofprofile.ValueType, error) {
-	for i, sampleType := range p.SampleType {
-		if sampleType != nil && sampleType.Type == "time" {
-			return i, sampleType, nil
+	return selectPreferredPprofSampleType(p, []string{"time"})
+}
+
+func selectPreferredPprofSampleType(p *pprofprofile.Profile, preferred []string) (int, *pprofprofile.ValueType, error) {
+	for _, preferredType := range preferred {
+		for i, sampleType := range p.SampleType {
+			if sampleType != nil && sampleType.Type == preferredType {
+				return i, sampleType, nil
+			}
 		}
 	}
 	if p.DefaultSampleType != "" {
@@ -74,6 +118,24 @@ func selectPprofSampleType(p *pprofprofile.Profile) (int, *pprofprofile.ValueTyp
 		}
 	}
 	return -1, nil, fmt.Errorf("profile has no sample type")
+}
+
+func findGoPprofKind(name string) (goPprofKind, bool) {
+	for _, kind := range goPprofKinds {
+		if kind.name == name {
+			return kind, true
+		}
+	}
+	return goPprofKind{}, false
+}
+
+func hasGoPprofFiles(dir string) bool {
+	for _, kind := range goPprofKinds {
+		if len(mustGlob(filepath.Join(dir, "*"+kind.suffix))) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func pprofLocationName(location *pprofprofile.Location) string {
@@ -200,13 +262,7 @@ func pprofPercent(value, total int64) float64 {
 }
 
 func parsePprofFile(path string) (pprofProfileData, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return pprofProfileData{}, err
-	}
-	defer f.Close()
-
-	profile, err := pprofprofile.Parse(f)
+	profile, err := readPprofFile(path)
 	if err != nil {
 		return pprofProfileData{}, err
 	}
@@ -233,6 +289,53 @@ func parsePprofFile(path string) (pprofProfileData, error) {
 		SampleUnit:  sampleType.Unit,
 		DurationSec: float64(profile.DurationNanos) / 1_000_000_000,
 		TotalMs:     pprofValueToMillis(total, sampleType.Unit),
+		Functions:   outputFunctions,
+	}, nil
+}
+
+func readPprofFile(path string) (*pprofprofile.Profile, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	profile, err := pprofprofile.Parse(f)
+	if err != nil {
+		return nil, err
+	}
+	return profile, nil
+}
+
+func parseGoPprofFile(path string, kind goPprofKind) (goPprofProfileData, error) {
+	profile, err := readPprofFile(path)
+	if err != nil {
+		return goPprofProfileData{}, err
+	}
+	sampleIndex, sampleType, err := selectPreferredPprofSampleType(profile, kind.preferredSampleTypes)
+	if err != nil {
+		return goPprofProfileData{}, err
+	}
+
+	functions, total := summarizePprof(profile, sampleIndex)
+	outputFunctions := make([]goPprofFunction, 0, len(functions))
+	for _, function := range functions {
+		outputFunctions = append(outputFunctions, goPprofFunction{
+			Name:    function.name,
+			Flat:    float64(function.flat),
+			FlatPct: pprofPercent(function.flat, total),
+			Cum:     float64(function.cum),
+			CumPct:  pprofPercent(function.cum, total),
+		})
+	}
+
+	return goPprofProfileData{
+		Kind:        kind.name,
+		Source:      filepath.Base(path),
+		SampleType:  sampleType.Type,
+		SampleUnit:  sampleType.Unit,
+		DurationSec: float64(profile.DurationNanos) / 1_000_000_000,
+		Total:       float64(total),
 		Functions:   outputFunctions,
 	}, nil
 }
@@ -288,6 +391,85 @@ func (a *app) handleFgprofGraph(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	profile, err := readPprofFile(profilePath)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("parse %s: %v", filepath.Base(profilePath), err))
+		return
+	}
+	_, sampleType, err := selectPprofSampleType(profile)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("select sample type: %v", err))
+		return
+	}
+	a.writePprofGraph(w, r, profilePath, sampleType.Type, "fgprof")
+}
+
+func (a *app) handleGoPprof(w http.ResponseWriter, r *http.Request) {
+	runID := r.PathValue("run_id")
+	dir, ok := a.resolveRunDir(runID)
+	if !ok {
+		writeError(w, http.StatusNotFound, "unknown run_id")
+		return
+	}
+
+	resp := goPprofResponse{RunID: runID, Available: false, Profiles: []goPprofProfileData{}}
+	for _, kind := range goPprofKinds {
+		for _, path := range mustGlob(filepath.Join(dir, "*"+kind.suffix)) {
+			profile, err := parseGoPprofFile(path, kind)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, fmt.Sprintf("parse %s: %v", filepath.Base(path), err))
+				return
+			}
+			profile.Host = strings.TrimSuffix(filepath.Base(path), kind.suffix)
+			resp.Profiles = append(resp.Profiles, profile)
+		}
+	}
+	sort.Slice(resp.Profiles, func(i, j int) bool {
+		if resp.Profiles[i].Kind != resp.Profiles[j].Kind {
+			return resp.Profiles[i].Kind < resp.Profiles[j].Kind
+		}
+		return resp.Profiles[i].Host < resp.Profiles[j].Host
+	})
+	resp.Available = len(resp.Profiles) > 0
+	writeJSON(w, resp)
+}
+
+func (a *app) resolveGoPprofFile(runID, kindName, host string) (string, goPprofKind, bool) {
+	kind, ok := findGoPprofKind(kindName)
+	if !ok || host == "" || filepath.Base(host) != host || strings.ContainsAny(host, `/\\`) {
+		return "", goPprofKind{}, false
+	}
+	dir, ok := a.resolveRunDir(runID)
+	if !ok {
+		return "", goPprofKind{}, false
+	}
+	path := filepath.Join(dir, host+kind.suffix)
+	if !fileExists(path) {
+		return "", goPprofKind{}, false
+	}
+	return path, kind, true
+}
+
+func (a *app) handleGoPprofGraph(w http.ResponseWriter, r *http.Request) {
+	profilePath, kind, ok := a.resolveGoPprofFile(r.PathValue("run_id"), r.PathValue("kind"), r.PathValue("host"))
+	if !ok {
+		writeError(w, http.StatusNotFound, "unknown Go pprof profile")
+		return
+	}
+	profile, err := readPprofFile(profilePath)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("parse %s: %v", filepath.Base(profilePath), err))
+		return
+	}
+	_, sampleType, err := selectPreferredPprofSampleType(profile, kind.preferredSampleTypes)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("select sample type: %v", err))
+		return
+	}
+	a.writePprofGraph(w, r, profilePath, sampleType.Type, "Go pprof")
+}
+
+func (a *app) writePprofGraph(w http.ResponseWriter, r *http.Request, profilePath, sampleType, label string) {
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
@@ -299,6 +481,7 @@ func (a *app) handleFgprofGraph(w http.ResponseWriter, r *http.Request) {
 		"-functions",
 		"-nodecount=50",
 		"-edgefraction=0.01",
+		"-sample_index=" + sampleType,
 	}
 	binaryPath := findApplicationBinary(filepath.Join(a.root, "webapp", "go"))
 	if fileExists(binaryPath) {
@@ -315,11 +498,11 @@ func (a *app) handleFgprofGraph(w http.ResponseWriter, r *http.Request) {
 		if message == "" {
 			message = err.Error()
 		}
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("generate fgprof graph: %s", message))
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("generate %s graph: %s", label, message))
 		return
 	}
 	if !bytes.Contains(svg, []byte("<svg")) {
-		writeError(w, http.StatusInternalServerError, "generate fgprof graph: SVG output is empty")
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("generate %s graph: SVG output is empty", label))
 		return
 	}
 

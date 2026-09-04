@@ -42,6 +42,8 @@ func main() {
 	mux.HandleFunc("GET /api/runs/{run_id}/metrics", a.handleMetrics)
 	mux.HandleFunc("GET /api/runs/{run_id}/fgprof", a.handleFgprof)
 	mux.HandleFunc("GET /api/runs/{run_id}/fgprof/{host}/graph.svg", a.handleFgprofGraph)
+	mux.HandleFunc("GET /api/runs/{run_id}/pprof", a.handleGoPprof)
+	mux.HandleFunc("GET /api/runs/{run_id}/pprof/{kind}/{host}/graph.svg", a.handleGoPprofGraph)
 	mux.HandleFunc("GET /api/runs/{run_id}/timeline", a.handleTimeline)
 	mux.HandleFunc("GET /api/runs/{run_id}/mysql", a.handleMysql)
 	mux.HandleFunc("GET /api/runs/{run_id}/upstream", a.handleUpstream)

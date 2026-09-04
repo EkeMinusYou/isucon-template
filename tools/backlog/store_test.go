@@ -24,9 +24,6 @@ func seedBacklog(t *testing.T, store *Store, revision int, nextID string, cards 
 			card.Status = "INVESTIGATE"
 		}
 		if requiresReadyContract(card.Status) {
-			if strings.TrimSpace(card.Fingerprint) == "" {
-				card.Fingerprint = "test:" + card.ID
-			}
 			present := map[string]bool{}
 			for _, section := range card.Sections {
 				present[section.Name] = true
@@ -37,14 +34,18 @@ func seedBacklog(t *testing.T, store *Store, revision int, nextID string, cards 
 				}
 			}
 		}
-		_, err := store.db.Exec(`INSERT INTO cards(`+cardColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		_, err := store.db.Exec(`INSERT INTO cards(`+cardColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			card.ID, card.Version, card.Status, card.Title, card.Priority, card.Owner, card.Area,
-			card.Fingerprint, card.Updated, card.UpdatedBy)
+			card.Updated, card.UpdatedBy)
 		if err != nil {
 			t.Fatal(err)
 		}
 		for relation, raw := range map[string]string{"SOURCE": card.SourceRuns, "COMPARE": card.CompareRun, "OBSERVED": card.ObservedRuns} {
-			for position, runID := range parseRunIDs(raw) {
+			runIDs, err := parseRunIDsStrict(raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for position, runID := range runIDs {
 				if _, err := store.db.Exec(`INSERT INTO card_runs(card_id, run_id, relation, position) VALUES (?, ?, ?, ?)`, card.ID, runID, relation, position); err != nil {
 					t.Fatal(err)
 				}
@@ -86,9 +87,6 @@ func seedBacklog(t *testing.T, store *Store, revision int, nextID string, cards 
 
 func prepareReadyContract(t *testing.T, store *Store, cardID string) {
 	t.Helper()
-	if _, err := store.db.Exec(`UPDATE cards SET fingerprint = ? WHERE id = ?`, "test:"+cardID, cardID); err != nil {
-		t.Fatal(err)
-	}
 	for position, name := range []string{sectionHypothesis, sectionChangeBoundary, sectionVerification, sectionSafety} {
 		if _, err := store.db.Exec(`INSERT INTO card_sections(card_id, name, position, body) VALUES (?, ?, ?, ?)
 			ON CONFLICT(card_id, name) DO UPDATE SET body=excluded.body`, cardID, name, position, "test "+strings.ToLower(name)); err != nil {
@@ -248,7 +246,6 @@ func TestReadyGateRequiresMinimalContract(t *testing.T) {
 		remove  string
 		wantErr string
 	}{
-		{"fingerprint", `UPDATE cards SET fingerprint='' WHERE id='B-001'`, "fingerprint"},
 		{"hypothesis", `DELETE FROM card_sections WHERE card_id='B-001' AND name='Hypothesis'`, "Hypothesis"},
 		{"change boundary", `DELETE FROM card_sections WHERE card_id='B-001' AND name='Change boundary'`, "Change boundary"},
 		{"verification", `DELETE FROM card_sections WHERE card_id='B-001' AND name='Verification'`, "Verification"},
@@ -337,7 +334,7 @@ func TestValidateRejectsReadyWithoutContract(t *testing.T) {
 	if _, err := store.db.Exec(`UPDATE metadata SET value='B-002' WHERE key='next_id'`); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.validate(); err == nil || !strings.Contains(err.Error(), "fingerprint") {
+	if err := store.validate(); err == nil || !strings.Contains(err.Error(), "Hypothesis") {
 		t.Fatalf("validate malformed READY error = %v", err)
 	}
 }
@@ -350,7 +347,7 @@ func TestResolveUpdatesAndTransitionsInOneMutation(t *testing.T) {
 	}
 
 	woke, err := store.resolveCardAndWake("B-001", "READY", CardPatch{
-		Values: map[string]string{"status": "READY", "title": "bounded candidate", "fingerprint": "query:v1"},
+		Values: map[string]string{"status": "READY", "title": "bounded candidate"},
 		Sections: map[string]string{
 			sectionHypothesis:     "remove repeated query work to increase throughput",
 			sectionChangeBoundary: "replace the query and roll it back as one unit",
@@ -561,24 +558,6 @@ func TestNonPerformanceConstraintResolvesWithoutPerformanceAssessment(t *testing
 	}
 }
 
-func TestFingerprintSuppressesExactDuplicates(t *testing.T) {
-	store := testStore(t)
-	_, err := store.addCard(NewCard{
-		Title: "first candidate", Actor: "skill:test", Reason: "create candidate",
-		CardPatch: CardPatch{Values: map[string]string{"fingerprint": "candidate:v1:lookup"}},
-	}, mutation{Actor: "skill:test", Operation: "add"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = store.addCard(NewCard{
-		Title: "duplicate candidate", Actor: "skill:test", Reason: "test duplicate suppression",
-		CardPatch: CardPatch{Values: map[string]string{"fingerprint": "candidate:v1:lookup"}},
-	}, mutation{Actor: "skill:test", Operation: "add"})
-	if err == nil || !strings.Contains(err.Error(), "duplicate fingerprint") {
-		t.Fatalf("duplicate fingerprint error = %v", err)
-	}
-}
-
 func TestConstraintLifecycleAndCardLink(t *testing.T) {
 	store := testStore(t)
 	cardID, err := store.addCard(NewCard{Title: "candidate", Actor: "skill:isucon-analyze", Reason: "add candidate"}, mutation{Actor: "skill:isucon-analyze", Operation: "add"})
@@ -599,7 +578,7 @@ func TestConstraintLifecycleAndCardLink(t *testing.T) {
 	if len(card.ActiveConstraintIDs) != 1 || card.ActiveConstraintIDs[0] != constraintID {
 		t.Fatalf("active constraint IDs = %#v", card.ActiveConstraintIDs)
 	}
-	if err := store.updateCard(cardID, CardPatch{Sections: map[string]string{sectionChangeBoundary: "changed after assessment"}}, mutation{Actor: "skill:test", Operation: "update", ExpectedCardVersion: intPtr(0)}, "attempt stale boundary update"); err == nil || !strings.Contains(err.Error(), "card fingerprint or change boundary") {
+	if err := store.updateCard(cardID, CardPatch{Sections: map[string]string{sectionChangeBoundary: "changed after assessment"}}, mutation{Actor: "skill:test", Operation: "update", ExpectedCardVersion: intPtr(0)}, "attempt stale boundary update"); err == nil || !strings.Contains(err.Error(), "card change boundary") {
 		t.Fatalf("stale card binding error = %v", err)
 	}
 	changedEvidence := "new limiting-axis snapshot"

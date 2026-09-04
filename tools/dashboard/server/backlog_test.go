@@ -22,7 +22,7 @@ func TestDashboardReadsCurrentBacklogSchema(t *testing.T) {
 		t.Fatal(err)
 	}
 	statements := []string{
-		`INSERT INTO cards(id, status, title, priority, owner, area, fingerprint, updated, updated_by) VALUES ('B-001', 'READY', 'current intervention', 'P1', '', 'app', 'query:v1', '2026-09-04T00:00:00Z', 'skill:test')`,
+		`INSERT INTO cards(id, status, title, priority, owner, area, updated, updated_by) VALUES ('B-001', 'READY', 'current intervention', 'P1', '', 'app', '2026-09-04T00:00:00Z', 'skill:test')`,
 		`INSERT INTO cards(id, status, title) VALUES ('B-002', 'APPLIED', 'prerequisite')`,
 		`INSERT INTO card_sections(card_id, name, position, body) VALUES ('B-001', 'Hypothesis', 0, 'remove repeated query')`,
 		`INSERT INTO card_history(card_id, position, occurred_at, actor, body) VALUES ('B-001', 0, '2026-09-04T00:00:00Z', 'skill:test', 'investigated')`,

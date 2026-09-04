@@ -290,7 +290,7 @@ func printCard(card Card) {
 		{"Objectives", strings.Join(card.ObjectiveIDs, ", ")},
 		{"Constraints", formatConstraintRelations(card.ConstraintIDs, card.ConstraintRoles)},
 		{"Priority", card.Priority}, {"Owner", card.Owner}, {"Area", card.Area}, {"Source RUNs", card.SourceRuns},
-		{"Compare RUNs", card.CompareRun}, {"Observed RUNs", card.ObservedRuns}, {"Fingerprint", card.Fingerprint},
+		{"Compare RUNs", card.CompareRun}, {"Observed RUNs", card.ObservedRuns},
 		{"Depends on", formatDependencies(card.Dependencies, false)}, {"Unblocks", formatDependencies(card.Unblocks, true)},
 		{"Updated", card.Updated}, {"Updated by", card.UpdatedBy},
 	}
