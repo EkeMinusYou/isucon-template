@@ -28,6 +28,7 @@ vars:
   ISUCON_USER: isucon
   APP_NAME: app-binary
   SERVICE: app-service
+  DB_NAME: app-database
   ALL_HOSTS: isucon-1 isucon-2 isucon-3
   IP:
     map:
@@ -104,8 +105,8 @@ task after-bench SCORE=12345
 - `upstream-breakdown*.tsv`
 - `user-transitions.json` — `routes.json`を当日のAPIへ合わせた場合
 
-nginxのJSON access logは、少なくとも`msec`、`method`、`uri`、`status`、`response_time`、
-`upstream_response_time`、`body_bytes`を出してください。ユーザー遷移を使う場合は、個人情報を保存せず、
+nginxのJSON access logは、少なくとも`msec`、`method`、`uri`、`status`、`response_time`、`body_bytes`、
+`upstream_time`、`upstream_addr`、`upstream_status`、`cache_status`を出してください。ユーザー遷移を使う場合は、個人情報を保存せず、
 Cookie由来識別子を専用フィールド（既定`session_id`）に出します。識別値は集計中だけhash化され、成果物には残りません。
 
 `tools/measurectl/collectors.yaml`と`digesters.yaml`は宣言が正本です。成果物を増減したら次を実行します。

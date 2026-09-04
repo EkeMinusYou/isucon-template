@@ -110,6 +110,42 @@ func TestFailedRebuildKeepsPreviousDatabase(t *testing.T) {
 	}
 }
 
+func TestMissingTablesChecksOnlyActiveSources(t *testing.T) {
+	duckdb, err := exec.LookPath("duckdb")
+	if err != nil {
+		t.Skip("duckdb is not installed")
+	}
+	dir := t.TempDir()
+	db := filepath.Join(dir, "analysis.duckdb")
+	cmd := exec.Command(duckdb, db, "-c", "create table active_source as select 1 as value")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("create database: %v: %s", err, output)
+	}
+	r := runner{
+		options: options{db: db, duckdb: duckdb, stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}},
+		config: config{
+			Sources: []sourceConfig{
+				{Table: "active_source"},
+				{Table: "optional_source"},
+			},
+		},
+	}
+	missing, err := r.missingTables([]sourceConfig{{Table: "active_source"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(missing) != 0 {
+		t.Fatalf("inactive optional source was treated as missing: %v", missing)
+	}
+	missing, err = r.missingTables(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(missing) != 0 {
+		t.Fatalf("empty active source set returned missing tables: %v", missing)
+	}
+}
+
 func writeTestFile(t *testing.T, base, name, content string) {
 	t.Helper()
 	path := filepath.Join(base, name)

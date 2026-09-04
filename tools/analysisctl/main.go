@@ -195,7 +195,15 @@ func (r runner) sync() error {
 	} else if err != nil {
 		return err
 	}
-	missing, err := r.missingTables()
+	dirs := make([]string, 0, len(runs))
+	for _, runID := range runs {
+		dirs = append(dirs, filepath.Join(r.results, runID))
+	}
+	active, err := r.activeSources(dirs)
+	if err != nil {
+		return err
+	}
+	missing, err := r.missingTables(active)
 	if err != nil {
 		return err
 	}
@@ -564,9 +572,9 @@ func (r runner) indexedRuns() (map[string]bool, error) {
 	return indexed, nil
 }
 
-func (r runner) missingTables() ([]string, error) {
+func (r runner) missingTables(active []sourceConfig) ([]string, error) {
 	wanted := map[string]bool{}
-	for _, source := range r.config.Sources {
+	for _, source := range active {
 		wanted[source.Table] = true
 	}
 	for _, table := range r.config.Profiles.Tables {
@@ -575,6 +583,9 @@ func (r runner) missingTables() ([]string, error) {
 	var tables []string
 	for table := range wanted {
 		tables = append(tables, table)
+	}
+	if len(tables) == 0 {
+		return nil, nil
 	}
 	sort.Strings(tables)
 	query := "select table_name from information_schema.tables where table_name in ("

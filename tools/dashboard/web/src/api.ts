@@ -413,7 +413,7 @@ export type BacklogCardDetail = {
 }
 
 export type ReportInfo = {
-  /** path relative to docs/reports, e.g. "isucon-analyze-alp/20260828-235318.md" */
+  /** path relative to docs/reports, e.g. "isucon-analyze/20260828-235318-r2.md" */
   filename: string
   /** directory the report is filed under (the report type), "" for the top level */
   kind: string

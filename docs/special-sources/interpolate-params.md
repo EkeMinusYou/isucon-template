@@ -11,8 +11,9 @@ MySQL サーバーの設定ではなく、Go アプリケーション側の接�
 config.InterpolateParams = true
 ```
 
-このリポジトリでは、`webapp/go/main.go` の `connectDB` にある接続設定へ追加する。
-実装上の変数名が `conf` の場合は、`conf.InterpolateParams = true` と記述する。
+Go実装を採用した場合は、`Taskfile.yml` の `APP_DIR` が指すソースからMySQL接続設定を探して追加する。
+関数名や変数名は当日の実装に合わせる。変数名が `conf` の場合は、`conf.InterpolateParams = true` と
+記述する。
 
 ## 反映
 

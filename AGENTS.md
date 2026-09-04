@@ -12,7 +12,7 @@ ISUCON用の作業テンプレートリポジトリ。競技サーバーをSSH�
 - `docs/official/` — 当日マニュアル、仕様、API定義などの正本
 - `docs/special-sources/` — 複数構成で再利用できる設定断片
 - `docs/solutions/` — スキーマや配置に依存する解決策の例
-- `docs/reports/` — 分析レポート。既存ファイルを上書きしない
+- `docs/reports/` — 分析レポート。`README.md`の命名規則に従い、既存ファイルを上書きしない
 - `.agents/skills/` — Claude Code / Codex共有skills
 - `tools/measurectl/` — RUNの開始、collector、回収、集計、manifest
 - `tools/deployctl/` — 宣言的な転送・activation・deploy plan
@@ -25,7 +25,7 @@ ISUCON用の作業テンプレートリポジトリ。競技サーバーをSSH�
 ## 前提
 
 - 作業前に`docs/official/`の関連資料を確認する。仕様と他資料が矛盾したら公式資料を優先する
-- `Taskfile.yml`冒頭の`APP_NAME`、`SERVICE`、`ALL_HOSTS`、`IP`、`*_HOSTS`を競技ごとに更新する
+- `Taskfile.yml`冒頭の`APP_NAME`、`SERVICE`、`DB_NAME`、`ALL_HOSTS`、`IP`、`*_HOSTS`を競技ごとに更新する
 - サーバー上で直接編集せず、`task setup-*`で取得し、ローカル編集後に`task deploy-*`で反映する
 - `nginx/conf.d/upstream.conf`は`task gen`の生成物なので手編集しない
 - Goアプリとcollectorはローカルで`linux/amd64`へクロスコンパイルする

@@ -34,7 +34,7 @@
 
 ## 実装パターン一覧
 
-- [アプリケーション処理の非同期化](asynchronous-processing.md) — 正本更新と外部 API・通知・集計・バッチ処理をキュー／ワーカーへ分離する実装
+- [アプリケーション処理の非同期化](asynchronous-processing.md) — 独立処理をboundedなgoroutineで並列化し、同期境界を保つ実装
 - [PGOを有効にする](pgo.md) — CPUプロファイルを利用したプロファイル誘導最適化
 - [bulk upsertのqueryを作成](bulk-upsert-query.md) — 複数レコードをまとめて更新するSQL実装例
 - [DBに適切なインデックスを追加する](database-index.md) — WHERE/JOIN/ORDER BY に沿った単一・複合インデックスの設計

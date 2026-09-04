@@ -25,9 +25,9 @@ PGO はビルド時の最適化であり、実行中のバイナリへプロフ�
 - PGO 用のビルド経路と通常ビルド経路を残す。PGO の入力がない環境でも、同じサービスを通常バイナリで
   ビルド・起動できる構成にしておく。
 
-このリポジトリでは、`webapp/go` が Go の main package であり、`Taskfile.yml` のローカル
-Linux/amd64 クロスビルドを前提とする。`webapp/go/default.pgo` と `webapp/go/app` はそのための
-ローカル生成物であり、他のリポジトリへそのまま持ち込めるファイル配置ではない。
+このテンプレートの既定値は `APP_DIR=webapp/go`、`APP_NAME=app` であり、`Taskfile.yml` はローカルでの
+Linux/amd64クロスビルドを前提とする。実際のmain package、出力名、OS・architectureは、当日取得した
+採用実装と競技サーバーに合わせる。
 
 ## 探索方法
 
@@ -37,9 +37,8 @@ Linux/amd64 クロスビルドを前提とする。`webapp/go/default.pgo` と `
    `go build`、`CGO_ENABLED`、`GOOS`、`GOARCH`、`-pgo`、`default.pgo` が探索の手掛かりになる。
 3. デプロイ経路を確認し、サーバー上で再ビルドしていないか、生成したバイナリをどの unit が起動するかを
    追う。プロファイルだけを配置して再起動する経路は PGO の適用経路にならない。
-4. このリポジトリを例にする場合は、`Taskfile.yml` の `build-pgo` と `deploy-app`、
-   [`webapp/go/main.go`](../../webapp/go/main.go) の listener、`runs/` に保存された CPU プロファイルの
-   対応関係を確認する。これらのタスク名・保存場所はリポジトリ固有の例である。
+4. このテンプレートでは、`Taskfile.yml` の `build-pgo` と `deploy-app`、`APP_DIR` 配下のmain package、
+   `runs/` に保存されたCPU profileの対応関係を確認する。`APP_DIR`と成果物名は当日の構成へ合わせる。
 
 ## 実装方法
 
@@ -55,8 +54,8 @@ PGO の入力から配布物までを、次の役割に分けて実装する。
    ```
 
 3. 通常ビルドと同じソース・依存関係から、配布対象の OS/アーキテクチャ向けに PGO バイナリを生成する。
-   たとえばこのリポジトリでは、サーバー上でビルドせず、ローカルの Linux/amd64 クロスビルドで
-   `webapp/go/app` を作る。
+   既定のTaskfileでは、サーバー上でビルドせず、ローカルのLinux/amd64クロスビルドで
+   `APP_DIR/APP_NAME`を作る。対象architectureが異なる場合はbuild設定も変更する。
 4. サービス unit が参照するバイナリを、既存の正規デプロイ経路から配布する。プロファイルの配置や
    サーバー上の手動ビルドを、PGO の適用とみなさない。
 5. PGO の有無を切り替えられるよう、プロファイルを除いた通常ビルドも同じ出力・起動条件で維持する。

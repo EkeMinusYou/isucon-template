@@ -10,6 +10,7 @@ description: ISUCONの公式仕様、コード、設定、保存済みRUNを横�
 ## 最初に読む
 
 - `AGENTS.md`
+- `docs/reports/README.md`
 - [Objective / Constraint / Intervention](../_shared/objective-constraint-intervention.md)
 - [Evidence](../_shared/evidence.md)
 - 対象に関係する`docs/official/`
@@ -39,7 +40,8 @@ description: ISUCONの公式仕様、コード、設定、保存済みRUNを横�
 5. 現在Objectiveを制約する事実が作成条件を満たす場合だけConstraintを作成・更新・終端する。候補がないことをConstraintの終端理由にしない。
 6. 一体の採否・rollback境界ごとに未被覆Intervention候補を作る。ConstraintがなくてもObjectiveへ直接効く候補を含める。
 7. 各候補をOwnerなし`INVESTIGATE`として起票し、Objectiveへlinkする。Constraintに正方向なら`RESOLVES`または`MITIGATES`を付ける。
-8. 必要なレポートを`docs/reports/isucon-analyze/`へ保存し、事実・推論・未確定点・起票IDを分ける。
+8. 必要なレポートを`docs/reports/README.md`の命名規則に従って保存し、解析日時、事実、推論、
+   未確定点、起票IDを分ける。
 
 ## 起票の最小内容
 

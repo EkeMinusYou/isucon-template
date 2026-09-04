@@ -2,7 +2,7 @@
 
 役割の正本は`Taskfile.yml`冒頭のrole変数とIP mapである。対象RUNの`run.json`と一致する構成だけを原因Evidenceに使う。
 
-- app、nginx、MySQL、DNSの需要とcapacity
+- app、nginx、DB、外部serviceの需要とcapacity
 - cross-host往復、connection、serialization
 - state ownerとtraffic入口
 - 移設後の最大需要/capacityと障害時guardrail

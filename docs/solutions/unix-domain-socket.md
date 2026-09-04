@@ -27,10 +27,10 @@ UDS はホスト間接続には使えない。nginx とアプリが別ホスト�
 - 業務 listener と pprof などの計測用 listener は別物である。業務 listener を UDS 化しても、必要な計測用
   listener を一緒に削除しない。
 
-このリポジトリを例にすると、`Taskfile.yml` の役割構成では nginx が `isucon-1`、通常 API のトラフィックを
-受けるアプリが `isucon-2`、別サービスが `isucon-3` に配置されている。したがって既定のままでは通常 API の
-nginx upstream を UDS にできず、nginx とアプリの役割を同じホストへ移す必要がある。ベンチマーカーや内部の
-疎通確認がアプリの TCP listener を前提とする場合は、その経路を残すか呼び出し側も合わせて変更する。
+このリポジトリでは、`Taskfile.yml` の `NGINX_HOSTS` と `APP_TRAFFIC_HOSTS` を比較し、同じホストに
+割り当てられた経路だけを UDS の候補にする。役割を別ホストへ分離した場合、その経路は TCP のまま残す。
+ベンチマーカーや内部の疎通確認がアプリの TCP listener を前提とする場合は、その経路を残すか呼び出し側も
+合わせて変更する。
 
 ## 探索方法
 
@@ -40,8 +40,8 @@ nginx upstream を UDS にできず、nginx とアプリの役割を同じホス
    `listenPort` を検索する。`8080` が設定ファイル・Taskfile・サービス unit のどこで参照されるかも追う。
 3. systemd unit の `User`、`Group`、`ExecStart`、`RuntimeDirectory`、`UMask` と、nginx の `user` 設定を
    両方確認する。親ディレクトリへ入る権限と socket へ接続する権限を別々に考える。
-4. 設定の生成元と配布経路を特定する。たとえばこのリポジトリの `nginx/conf.d/upstream.conf` は
-   `Taskfile.yml` から生成され、`etc/env.sh` と同じく生成後のファイルを直接編集する場所ではない。
+4. 設定の生成元と配布経路を特定する。このリポジトリの `nginx/conf.d/upstream.conf` は
+   `task gen` が `Taskfile.yml` の役割・IP・portから生成するため、生成後のファイルを直接編集しない。
 5. アプリの graceful shutdown、再起動、異常終了、複数 worker の起動時に、同じ socket パスを安全に再利用
    できるかをコードと unit の両方から確認する。
 

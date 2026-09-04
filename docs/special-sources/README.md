@@ -27,7 +27,7 @@
 | MySQL | `mysql/mysql.conf.d/mysqld.cnf` | `task deploy-mysql` | `MYSQL_HOST`。MySQL を restart |
 | MySQL の FD 上限 | `etc/systemd/system/mysql.service.d/limits.conf` | `task deploy-mysql` | `MYSQL_HOST`。daemon-reload と MySQL restart |
 | カーネルパラメーター | `etc/sysctl.conf` | `task deploy-sysctl` | `ALL_HOSTS`。`sysctl -p` で即時適用 |
-| アプリの DB 接続プール | `webapp/go/` の DB 接続処理 | `task deploy` または `task deploy-app` | `APP_HOSTS`。アプリを再起動 |
+| アプリの DB 接続プール | `Taskfile.yml` の `APP_DIR` 配下にある DB 接続処理 | `task deploy` または `task deploy-app` | `APP_HOSTS`。アプリを再起動 |
 
 `task deploy-all`は上記をまとめて反映するが、データベースを初期化しない。初期化が必要な競技では、
 公式手順を確認して明示的な破壊的Taskを別途定義し、通常deployと混同しない。

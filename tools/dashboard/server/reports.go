@@ -13,7 +13,7 @@ import (
 
 type reportInfo struct {
 	// Filename is the slash-separated path relative to docs/reports,
-	// e.g. "isucon-analyze-alp/20260828-235318.md".
+	// e.g. "isucon-analyze/20260828-235318-r2.md".
 	Filename string `json:"filename"`
 	// Kind is the directory the report lives in (the report type), or
 	// "" for a report directly under docs/reports.

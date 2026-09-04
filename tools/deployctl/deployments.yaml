@@ -17,7 +17,7 @@ deployments:
         role: app
         script: |
           set -eu
-          sudo chown -R {var:isucon_user}:{var:isucon_user} {var:remote_home}/webapp
+          sudo chown -R {var:isucon_user}:{var:isucon_user} {var:remote_home}/{var:app_dir}
           sudo systemctl daemon-reload
           sudo systemctl restart {var:service}
           sudo systemctl is-active --quiet {var:service}

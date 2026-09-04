@@ -9,6 +9,7 @@ vars:
   APP_NAME: app
   APP_DIR: webapp/go
   SERVICE: app
+  DB_NAME: app
   REMOTE_HOME: /home/isucon
   LISTEN_PORT: '8080'
 
@@ -206,7 +207,7 @@ tasks:
     cmds: ['go build -trimpath -ldflags "-s -w" -o nginx-backend-report .']
 
   build-user-transition-metrics:
-    internal: true
+    desc: Cookie由来のユーザー遷移集計ツールをローカルでビルド
     dir: '{{.USER_TRANSITION_METRICS_DIR}}'
     sources: ['*.go', go.mod, routes.json]
     generates: [user-transition-metrics]
@@ -344,7 +345,7 @@ tasks:
     silent: true
     cmds:
       - for: { var: NGINX_HOSTS }
-        cmd: '{{.SSH}} {{.SSH_USER}}@{{.ITEM}} "for ip in {{.APP_IPS}}; do timeout 2 bash -c \"</dev/tcp/$ip/{{.LISTEN_PORT}}\"; done" && echo "[{{.ITEM}}] app OK"'
+        cmd: '{{.SSH}} {{.SSH_USER}}@{{.ITEM}} "for ip in {{.APP_IPS}}; do timeout 2 bash -c \"</dev/tcp/\$ip/{{.LISTEN_PORT}}\"; done" && echo "[{{.ITEM}}] app OK"'
       - for: { var: APP_HOSTS }
         cmd: '{{.SSH}} {{.SSH_USER}}@{{.ITEM}} "timeout 2 bash -c \"</dev/tcp/{{.MYSQL_IP}}/3306\"" && echo "[{{.ITEM}}] mysql OK"'
 
@@ -477,10 +478,91 @@ tasks:
     dir: tools/backlog
     cmds: ['go run . -root {{.ROOT_DIR}} -db {{.ROOT_DIR}}/{{.BACKLOG_DB}} {{.CLI_ARGS}}']
 
+  pass:
+    desc: 最新RUNのAPPLIED InterventionをVALIDATEDへ昇格し、スコア差分を記録
+    silent: true
+    dir: tools/backlog
+    vars:
+      TARGETS: '{{.CLI_ARGS | default "all"}}'
+    cmds:
+      - |
+        set -eu
+        scores='{{.ROOT_DIR}}/{{.RESULT_DIR}}/scores.tsv'
+        outcomes='{{.ROOT_DIR}}/{{.RESULT_DIR}}/outcomes.tsv'
+
+        if [ ! -s "$scores" ]; then
+          echo "$scores がありません。先に task after-bench でスコアを記録してください" >&2
+          exit 1
+        fi
+
+        latest=$(awk 'NR > 1 && NF > 0' "$scores" | tail -1)
+        previous=$(awk 'NR > 1 && NF > 0' "$scores" | tail -2 | head -1)
+        latest_run=$(printf '%s' "$latest" | cut -f1)
+        latest_score=$(printf '%s' "$latest" | cut -f2)
+        previous_run=$(printf '%s' "$previous" | cut -f1)
+        previous_score=$(printf '%s' "$previous" | cut -f2)
+        if [ -z "$latest_run" ]; then
+          echo "$scores にデータ行がありません" >&2
+          exit 1
+        fi
+        if [ "$latest_run" = "$previous_run" ]; then
+          previous_run=''
+          previous_score=''
+        fi
+
+        config_changed=unknown
+        if [ -n "$previous_run" ]; then
+          latest_config=$(printf '%s' "$latest" | cut -f3-)
+          previous_config=$(printf '%s' "$previous" | cut -f3-)
+          config_changed=no
+          [ "$latest_config" = "$previous_config" ] || config_changed=yes
+        fi
+
+        delta=unknown
+        if printf '%s' "$latest_score" | grep -Eq '^-?[0-9]+$' && \
+           printf '%s' "$previous_score" | grep -Eq '^-?[0-9]+$'; then
+          delta=$((latest_score - previous_score))
+        fi
+
+        reason="benchmark passed: ${previous_run:-none} ${previous_score:-none} -> $latest_run ${latest_score:-none} (delta $delta, config_changed=$config_changed)"
+        output=$(go run . -root '{{.ROOT_DIR}}' -db '{{.ROOT_DIR}}/{{.BACKLOG_DB}}' \
+          pass '{{.TARGETS}}' --evidence-run "$latest_run" --actor task:pass --reason "$reason")
+        printf '%s\n' "$output"
+
+        ids=$(printf '%s\n' "$output" | awk '/^validated / {sub(/:$/, "", $2); print $2}')
+        if [ -z "$ids" ]; then
+          echo '昇格したカードがないため outcomes.tsv へ追記しません'
+          exit 0
+        fi
+
+        count=$(printf '%s\n' "$ids" | grep -c .)
+        if [ ! -f "$outcomes" ]; then
+          printf 'promoted_at\tcard_id\torigin\tfingerprint\trun_id\tscore\tprev_run_id\tprev_score\tdelta\tcards_in_pass\tconfig_changed\n' > "$outcomes"
+        fi
+        promoted_at=$(date '+%Y-%m-%dT%H:%M:%S%z')
+        for id in $ids; do
+          card=$(go run . -root '{{.ROOT_DIR}}' -db '{{.ROOT_DIR}}/{{.BACKLOG_DB}}' -no-color show "$id")
+          origin=$(printf '%s\n' "$card" | awk '/^History/ {history=1; next} history && /\[/ {match($0, /\[[^]]+\]/); print substr($0, RSTART+1, RLENGTH-2); exit}')
+          fingerprint=$(printf '%s\n' "$card" | awk -F'Fingerprint:' '/Fingerprint:/ {print $2; exit}' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+          printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+            "$promoted_at" "$id" "${origin:-unknown}" "${fingerprint:-unknown}" \
+            "$latest_run" "${latest_score:-none}" "${previous_run:-none}" "${previous_score:-none}" \
+            "$delta" "$count" "$config_changed" >> "$outcomes"
+        done
+        echo "$outcomes へ $count 件を記録しました (delta=$delta, config_changed=$config_changed)"
+
   q:
     desc: RUN横断DuckDBクエリ
     deps: [q-sync]
-    cmds: ['duckdb {{.ANALYSIS_DB}} {{if .CLI_ARGS}}-c {{.CLI_ARGS}}{{end}}']
+    env:
+      ISUCON_QUERY: '{{join " " .CLI_ARGS_LIST}}'
+    cmds:
+      - |
+        if [ -n "$ISUCON_QUERY" ]; then
+          duckdb '{{.ANALYSIS_DB}}' -c "$ISUCON_QUERY"
+        else
+          duckdb '{{.ANALYSIS_DB}}'
+        fi
 
   q-sync:
     internal: true
@@ -556,7 +638,7 @@ tasks:
   db:
     desc: MYSQL_HOSTのMySQLへ接続
     interactive: true
-    cmds: ['{{.SSH}} -t {{.SSH_USER}}@{{.MYSQL_HOST}} "sudo mysql {{.APP_NAME}}"']
+    cmds: ['{{.SSH}} -t {{.SSH_USER}}@{{.MYSQL_HOST}} "sudo mysql {{.DB_NAME}}"']
 
   clear-cache:
     desc: 古いログとAPTキャッシュを削除（破壊的。明示指示時のみ）

@@ -20,7 +20,7 @@
 
 1. `docs/official/`から、変更可能範囲、ホスト構成、採点条件、再起動・初期化条件を確認する。
 2. 読み取り専用の確認で、OS、CPU architecture、service名、設定パス、ログパス、port、private IPを記録する。
-3. `Taskfile.yml`のアプリ、ホスト、役割、IP、port、build、ベンチコマンドを実環境へ合わせる。
+3. `Taskfile.yml`のアプリ、DB名、ホスト、役割、IP、port、build、ベンチコマンドを実環境へ合わせる。
 4. 下表に従い、必須adapterを確認する。使わないoptional機能は無理に設定しない。
 5. nginx access logのJSON列と、MySQL slow log・performance schemaの利用可否を確認する。
 6. ローカルのbuild、test、成果物契約、deploy dry-runを通す。
@@ -58,7 +58,7 @@
 - nginx、DB、アプリのroleとdeploy依存順
 - 役割変更時に停止・起動するservice
 
-一般的なGo + nginx + MySQL構成では、ホスト、アプリ名、service名、directoryは`Taskfile.yml`の
+一般的なGo + nginx + MySQL構成では、ホスト、アプリ名、DB名、service名、directoryは`Taskfile.yml`の
 変数から渡せる。複数アプリservice、別DB、container、release symlink方式を使う場合は
 `deployments.yaml`を拡張する。
 
@@ -135,10 +135,9 @@ task --dry deploy-all
 
 ## 設定完了条件
 
-- Taskfileのホスト、役割、IP、service、port、build、ベンチコマンドが実環境と一致する。
+- Taskfileのホスト、役割、IP、アプリ名、DB名、service、port、build、ベンチコマンドが実環境と一致する。
 - deploy dry-runの転送先とactivation順に意図しない対象がない。
 - collectorが読むログと、nginx・DBが実際に出すログのpath・形式が一致する。
 - `task artifacts`で成果物宣言と分析・dashboardの読み手が一致する。
 - optional機能は、有効化理由、負荷、停止・cleanup手順が確認できている。
 - baseline RUNで必要な成果物が同じRUN IDへ集まり、欠損理由が`run.json`へ記録される。
-
