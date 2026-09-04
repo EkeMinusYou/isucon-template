@@ -1,0 +1,95 @@
+# Remote operations for one benchmark run. Host names are role names resolved
+# by Taskfile.yml through measurectl's -role flags.
+prepare:
+  - name: nginx-log
+    label: nginx access log
+    hosts: nginx
+    script: |
+      set -eu
+      log=/var/log/nginx/access.log
+      if sudo test -e "$log"; then
+        sudo mv -f "$log" "${log}.old"
+      fi
+      sudo nginx -s reopen
+      echo "nginx log rotated"
+
+  - name: mysql-log
+    label: MySQL slow log and performance_schema digest
+    hosts: mysql
+    script: |
+      set -eu
+      log=/var/log/mysql/mysql-slow.log
+      if sudo test -e "$log"; then
+        sudo mv -f "$log" "${log}.old"
+      fi
+      sudo mysql -e 'FLUSH SLOW LOGS'
+      sudo rm -f "${log}.old"
+      if sudo mysql -N -e 'SELECT @@performance_schema' 2>/dev/null | grep -q '^1$'; then
+        sudo mysql -e 'TRUNCATE TABLE performance_schema.events_statements_summary_by_digest'
+      fi
+      echo "MySQL logs rotated"
+
+oneshots:
+  - name: fgprof
+    label: wall-clock profile
+    hosts: app
+    delay: 20s
+    run: curl -fsS -o {remote_out} '{var:profile_url}'
+    remote_out: /tmp/fgprof.pprof
+    output: '{host}-fgprof.pprof'
+
+collectors:
+  - name: proc
+    label: host and service metrics
+    hosts: all
+    binary: tools/proc-metrics/proc-metrics
+    remote_root: /tmp/isucon-proc-metrics
+    stdout: '{remote_dir}/metrics.tsv'
+    args: >-
+      -interval 1s
+      -services {var:services}
+      -service-output {remote_dir}/service-metrics.tsv
+      -disk-output {remote_dir}/disk-metrics.tsv
+      -task-output {remote_dir}/task-states.tsv
+      -task-interval 250ms
+    outputs:
+      metrics.tsv: '{host}-proc-metrics.tsv'
+      service-metrics.tsv: '{host}-service-metrics.tsv'
+      disk-metrics.tsv: '{host}-disk-metrics.tsv'
+      task-states.tsv: '{host}-task-states.tsv'
+    stderr: '{host}-proc-metrics.stderr'
+
+  - name: mysql
+    label: MySQL status and lock waits
+    hosts: mysql
+    binary: tools/mysql-metrics/mysql-metrics
+    remote_root: /tmp/isucon-mysql-metrics
+    stdout: /dev/null
+    args: >-
+      -interval 1s
+      -output {remote_dir}/metrics.tsv
+      -lock-output {remote_dir}/lock-waits.tsv
+      -lock-interval 50ms
+      -lock-query-timeout 40ms
+    outputs:
+      metrics.tsv: mysql-status.tsv
+      lock-waits.tsv: mysql-lock-waits.tsv
+    stderr: mysql-status.stderr
+
+  - name: nginx-oncpu
+    label: nginx worker on-CPU profile
+    enabled_by_default: false
+    hosts: nginx_profile
+    binary: tools/nginx-oncpu-profiler/nginx-oncpu-profiler
+    remote_root: /tmp/isucon-nginx-oncpu
+    stdout: /dev/null
+    args: >-
+      -delay 10s -duration 60s -frequency 49 -max-workers 8
+      -max-samples 23520 -max-output-bytes 67108864 -call-graph dwarf,8192
+      -folded-output {remote_dir}/nginx-oncpu.folded
+      -metadata-output {remote_dir}/nginx-oncpu-metadata.json
+      -raw-output {remote_dir}/nginx-oncpu.data
+    outputs:
+      nginx-oncpu.folded: '{host}-nginx-oncpu.folded'
+      nginx-oncpu-metadata.json: '{host}-nginx-oncpu-metadata.json'
+    stderr: '{host}-nginx-oncpu.stderr'

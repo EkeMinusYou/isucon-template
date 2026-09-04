@@ -1,0 +1,176 @@
+# ベンチ後の集計の宣言。measurectl digest がこれを読んで、生ログの回収 → 集計 →
+# 生ログの圧縮まで流す。
+#
+# 生ログ (sources) と集計 (digesters) を分けてあるのは、同じログを複数の集計が
+# 読むため。access.log は alp と upstream 集計の両方が使うので、回収は 1 回だけ行う。
+#
+# 使えるプレースホルダ:
+#   {run_dir}  runs/<RUN_ID>
+#   {raw_dir}  raw/ (走行をまたいで上書きする置き場)
+#   {host}     回収元ホスト名 (sources のみ)
+#   {input}    その集計の入力ファイル。複数あればすべて引数に展開される
+#
+# 集計コマンドの標準出力が outputs の file へ書き込まれる。stdin を宣言した集計は、
+# そのコマンドで入力を読んで集計コマンドの標準入力へつなぐ。
+
+# 回収する生ログ。role は measurectl に -role で渡す役割名。
+sources:
+  - name: access
+    role: nginx
+    remote: /var/log/nginx/access.log
+    local: '{run_dir}/raw/access-{host}.log'
+    # 1 本 130MB 前後あるが zstd で 1/30 程度になる。集計が済んでから畳む。
+    compress: true
+
+  - name: slow
+    role: mysql
+    remote: /var/log/mysql/mysql-slow.log
+    # long_query_time=0 だと 150MB を超える。走行ごとに残さず毎回上書きする。
+    local: '{raw_dir}/mysql-slow.log'
+    compress: false
+
+digesters:
+  - name: alp
+    label: alp
+    source: access
+    stderr: alp.stderr
+    # zstdcat は非圧縮ファイルもそのまま通すので、圧縮前後どちらの入力でも動く。
+    stdin: zstdcat
+    # alp は 1 回の実行で複数フォーマットを出せない。同じログを独立に舐めるだけなので
+    # 並列に流す (直列だと素朴に 2 倍かかる)。
+    outputs:
+      - file: alp.txt
+        run: alp json --config alp.yml
+      - file: alp.json
+        run: alp json --config alp.yml --format json
+        # ダッシュボードが読む。壊れた JSON を置くより空配列のほうが扱いやすい。
+        on_error: '[]'
+        on_skip: '[]'
+
+  - name: upstream-breakdown
+    label: upstream breakdown
+    source: access
+    stderr: upstream-breakdown.stderr
+    # zstdcat を挟むことで、このツール自身が zstd を解さなくても圧縮済みの
+    # ログを集計できる。末尾の - は「入力を stdin から読む」指定
+    # (-output - は出力先が stdout であることを指す。両方に - が要る)。
+    stdin: zstdcat
+    outputs:
+      - file: upstream-breakdown.tsv
+        run: tools/nginx-backend-report/nginx-backend-report -output - -
+
+  # 集約後も入口nginxを識別できるよう、ファイル名由来のhostを保持する。
+  # 通常のupstream-breakdownは後方互換のため変更しない。
+  - name: upstream-breakdown-by-ingress
+    label: upstream breakdown by ingress
+    source: access
+    stderr: upstream-breakdown-by-ingress.stderr
+    outputs:
+      - file: upstream-breakdown-by-ingress.tsv
+        run: tools/nginx-backend-report/nginx-backend-report -group-by-ingress -output - {input}
+        on_error: "ingress_host\tupstream_addr\tupstream_status\tcache_status\trequests\tstatus_2xx\tstatus_3xx\tstatus_4xx\tstatus_5xx\tstatus_other\tresponse_time_sum_ms\tresponse_time_avg_ms\tupstream_time_sum_ms\tupstream_time_avg_ms"
+        on_skip: "ingress_host\tupstream_addr\tupstream_status\tcache_status\trequests\tstatus_2xx\tstatus_3xx\tstatus_4xx\tstatus_5xx\tstatus_other\tresponse_time_sum_ms\tresponse_time_avg_ms\tupstream_time_sum_ms\tupstream_time_avg_ms"
+
+  # alpをaccess logごとに実行し、入口nginx別のendpoint集計を保存する。
+  - name: alp-by-ingress
+    label: alp by ingress
+    source: access
+    stderr: alp-by-ingress.stderr
+    outputs:
+      - file: alp-by-ingress.tsv
+        run: tools/analysis/alp-by-ingress.sh {input}
+        on_error: "ingress_host\tcount\tmethod\turi\t2xx\t3xx\t4xx\t5xx\tmax\tavg\tsum\tp90\tp99\tsum_body\tavg_body"
+        on_skip: "ingress_host\tcount\tmethod\turi\t2xx\t3xx\t4xx\t5xx\tmax\tavg\tsum\tp90\tp99\tsum_body\tavg_body"
+
+  # Cookie values are used only while reading raw access logs. The artifact
+  # contains aggregate edges between normalized APIs, never identities.
+  # Pass paths separately so events from every nginx can be merged by request
+  # start time before each Cookie sequence is constructed.
+  - name: user-transitions
+    label: Cookie user transitions
+    source: access
+    stderr: user-transitions.stderr
+    timeout: 120s
+    outputs:
+      - file: user-transitions.json
+        run: tools/user-transition-metrics/user-transition-metrics -config tools/user-transition-metrics/routes.json -output - {input}
+        on_error: '{"schema_version":3,"identity_field":"session_id","ordering":"request_start_time; ties by response_end_time then input order","scenario_grouping":"exact set of normalized method-route nodes observed in one Cookie session","summary":{"input_files":0,"input_lines":0,"malformed_lines":0,"invalid_time_lines":0,"api_requests":0,"classified_requests":0,"unmatched_api_requests":0,"requests_with_identity":0,"missing_identity_requests":0,"sessions":0,"transitions":0,"overlapping_transitions":0,"ambiguous_order_transitions":0,"window_start_unix_ms":0,"window_end_unix_ms":0,"scenario_groups":0,"scenarios_emitted":0,"scenario_sessions_omitted":0},"edges":[],"scenarios":[]}'
+        on_skip: '{"schema_version":3,"identity_field":"session_id","ordering":"request_start_time; ties by response_end_time then input order","scenario_grouping":"exact set of normalized method-route nodes observed in one Cookie session","summary":{"input_files":0,"input_lines":0,"malformed_lines":0,"invalid_time_lines":0,"api_requests":0,"classified_requests":0,"unmatched_api_requests":0,"requests_with_identity":0,"missing_identity_requests":0,"sessions":0,"transitions":0,"overlapping_transitions":0,"ambiguous_order_transitions":0,"window_start_unix_ms":0,"window_end_unix_ms":0,"scenario_groups":0,"scenarios_emitted":0,"scenario_sessions_omitted":0},"edges":[],"scenarios":[]}'
+
+  - name: pt-query-digest
+    label: pt-query-digest
+    source: slow
+    stderr: pt-query-digest.stderr
+    timeout: 120s
+    # preflight で落ちた走行のスロークエリを集計しても、読むのは初期化の分だけになる。
+    skip_if_bench_failed: true
+    outputs:
+      - file: pt-query-digest.log
+        run: pt-query-digest {input}
+      - file: pt-query-digest.json
+        run: pt-query-digest --output json {input}
+        on_error: '[]'
+        on_skip: '[]'
+
+  # ローカルのログではなく、リモートで SQL を流してその出力を集計とする。
+  # slp / pt-query-digest には無い索引未使用・一時表・ソートの回数が取れる。
+  # ストアドプロシージャ内部の文は MySQL の仕様上ここにも現れない (CALL が 1 エントリ)。
+  # before-bench で digest をリセットしてあるので、これで 1 RUN 分になる。
+  - name: mysql-digest
+    label: performance_schema digest
+    remote:
+      role: mysql
+      # performance_schema が無効なら空振りせずに落として、スキップ扱いにする。
+      script: |
+        if ! sudo mysql -N -e 'SELECT @@performance_schema' 2>/dev/null | grep -q '^1$'; then
+          echo 'performance_schema disabled' >&2
+          exit 1
+        fi
+        sudo mysql -N -B -e "
+          SELECT
+            IFNULL(SCHEMA_NAME,''),
+            IFNULL(DIGEST,''),
+            COUNT_STAR,
+            ROUND(SUM_TIMER_WAIT/1e12, 6),
+            ROUND(MAX_TIMER_WAIT/1e12, 6),
+            ROUND(SUM_LOCK_TIME/1e12, 6),
+            ROUND(SUM_LOCK_TIME/NULLIF(COUNT_STAR,0)/1e12, 9),
+            SUM_ROWS_EXAMINED,
+            SUM_ROWS_SENT,
+            SUM_ROWS_AFFECTED,
+            SUM_NO_INDEX_USED,
+            SUM_NO_GOOD_INDEX_USED,
+            SUM_CREATED_TMP_DISK_TABLES,
+            SUM_CREATED_TMP_TABLES,
+            SUM_SORT_MERGE_PASSES,
+            SUM_ERRORS,
+            REPLACE(REPLACE(REPLACE(IFNULL(DIGEST_TEXT,''),'\t',' '),'\n',' '),'\r',' ')
+          FROM performance_schema.events_statements_summary_by_digest
+          WHERE COUNT_STAR > 0
+          ORDER BY SUM_TIMER_WAIT DESC
+        "
+    stderr: mysql-digest.stderr
+    outputs:
+      # SQL の出力に列名が付かないので、header を前置する。
+      # SELECT の並びと必ず一致させること。
+      - file: mysql-digest.tsv
+        header: "schema_name\tdigest\tcount\tsum_time_sec\tmax_time_sec\tsum_lock_sec\tavg_lock_sec\trows_examined\trows_sent\trows_affected\tno_index_used\tno_good_index_used\ttmp_disk_tables\ttmp_tables\tsort_merge_passes\terrors\tdigest_text"
+        on_skip: "schema_name\tdigest\tcount\tsum_time_sec\tmax_time_sec\tsum_lock_sec\tavg_lock_sec\trows_examined\trows_sent\trows_affected\tno_index_used\tno_good_index_used\ttmp_disk_tables\ttmp_tables\tsort_merge_passes\terrors\tdigest_text"
+
+  - name: slp
+    label: slp
+    source: slow
+    stderr: slp.stderr
+    timeout: 180s
+    skip_if_bench_failed: true
+    # PATH に無ければ集計を飛ばす (理由は stderr に残る)。
+    install_hint: go install github.com/tkuchiki/slp/cmd/slp@latest
+    outputs:
+      - file: slp.tsv
+        run: >-
+          slp my --file {input}
+          --sort sum-query-time -r --format tsv --nosave-pos --percentiles 95
+          -o count,query,sum-query-time,avg-query-time,max-query-time,min-query-time,p95-query-time,sum-lock-time,avg-lock-time,max-lock-time,sum-rows-examined,avg-rows-examined,max-rows-examined,sum-rows-sent,avg-rows-sent
+        # 集計をスキップしても、実データと同じ列名の空ファイルは残す
+        # (解析側がヘッダの有無で分岐しなくて済む)。
+        on_skip: "Count\tQuery\tSum(QueryTime)\tAvg(QueryTime)\tMax(QueryTime)\tMin(QueryTime)\tP95(QueryTime)\tSum(LockTime)\tAvg(LockTime)\tMax(LockTime)\tSum(RowsExamined)\tAvg(RowsExamined)\tMax(RowsExamined)\tSum(RowsSent)\tAvg(RowsSent)"

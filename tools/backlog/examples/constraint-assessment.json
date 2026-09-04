@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "axis": {
+    "unit": "response-s",
+    "denominator": "one load window"
+  },
+  "current": {
+    "value": 10,
+    "snapshot": "RUN YYYYMMDD-HHMMSS"
+  },
+  "reduction": {
+    "value": 9,
+    "basis": "code and saved profile evidence"
+  },
+  "added_cost": {
+    "value": 0,
+    "basis": "no shifted work"
+  },
+  "threshold": {
+    "value": 2,
+    "basis": "next limiting contributor"
+  }
+}

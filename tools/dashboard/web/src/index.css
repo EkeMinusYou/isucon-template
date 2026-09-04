@@ -1,0 +1,82 @@
+@import 'tailwindcss';
+@plugin '@tailwindcss/typography';
+@plugin 'daisyui' {
+  themes: light --default, dark --prefersdark;
+}
+
+/*
+ * Chart-specific color tokens, independent of the daisyUI theme. These are
+ * the dataviz skill's validated categorical/status palette (fixed hue
+ * order, CVD-checked) — recharts needs literal color strings, not utility
+ * classes, so they stay as CSS custom properties consumed via var(...).
+ *
+ * テーマは 3 状態ある: `data-theme` 未設定（OS 追従）/ `light` / `dark`。
+ * 明色を素の :root に置き、暗色は「OS が暗い かつ light 固定でない」場合と
+ * 「dark 固定」の場合の両方で上書きする。
+ */
+:root {
+  --series-1: #2a78d6; /* blue */
+  --series-2: #eb6834; /* orange */
+  --series-3: #1baf7a; /* aqua */
+  --series-4: #eda100; /* yellow */
+  --series-5: #e87ba4; /* magenta */
+  --series-6: #008300; /* green */
+  --series-7: #4a3aa7; /* violet */
+  --series-8: #e34948; /* red */
+
+  --status-good: #0ca30c;
+  --status-warning: #fab219;
+  --status-serious: #ec835a;
+  --status-critical: #d03b3b;
+
+  --chart-grid: #e1e0d9;
+  --chart-baseline: #c3c2b7;
+  --chart-muted: #898781;
+  --chart-tooltip-bg: #ffffff;
+  --chart-tooltip-text: #0b0b0b;
+  /* Hover highlight behind the pointed-at value. Translucent so it tints the
+     panel instead of painting over it — recharts' default cursor is a solid
+     #ccc rect, which reads as a white slab (especially in dark mode). */
+  --chart-cursor-fill: rgba(11, 11, 11, 0.07);
+  --chart-cursor-line: #c3c2b7;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+    --series-5: #d55181;
+    --series-6: #008300;
+    --series-7: #9085e9;
+    --series-8: #e66767;
+
+    --chart-grid: #2c2c2a;
+    --chart-baseline: #383835;
+    --chart-muted: #898781;
+    --chart-tooltip-bg: #202020;
+    --chart-tooltip-text: #ffffff;
+    --chart-cursor-fill: rgba(255, 255, 255, 0.08);
+    --chart-cursor-line: #4a4a46;
+  }
+}
+
+:root[data-theme='dark'] {
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-5: #d55181;
+  --series-6: #008300;
+  --series-7: #9085e9;
+  --series-8: #e66767;
+
+  --chart-grid: #2c2c2a;
+  --chart-baseline: #383835;
+  --chart-muted: #898781;
+  --chart-tooltip-bg: #202020;
+  --chart-tooltip-text: #ffffff;
+  --chart-cursor-fill: rgba(255, 255, 255, 0.08);
+  --chart-cursor-line: #4a4a46;
+}

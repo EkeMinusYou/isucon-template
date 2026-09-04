@@ -1,28 +1,42 @@
-# General
+# macOS
 .DS_Store
 .AppleDouble
 .LSOverride
-
-# Icon must end with two \r
-Icon
-
-# Thumbnails
 ._*
 
-# Files that might appear in the root of a volume
-.DocumentRevisions-V100
-.fseventsd
-.Spotlight-V100
-.TemporaryItems
-.Trashes
-.VolumeIcon.icns
-.com.apple.timemachine.donotpresent
+# Local task/cache state
+.task/
+raw/
 
-# Directories potentially created on remote AFP share
-.AppleDB
-.AppleDesktop
-Network Trash Folder
-Temporary Items
-.apdisk
+# Contest application build artifacts
+webapp/go/default.pgo
 
-slowquery/log/
+# Tool build artifacts
+/tools/analysisctl/analysisctl
+/tools/deployctl/deployctl
+/tools/measurectl/measurectl
+/tools/proc-metrics/proc-metrics
+/tools/json-metrics-collector/json-metrics-collector
+/tools/mysql-metrics/mysql-metrics
+/tools/nginx-backend-report/nginx-backend-report
+/tools/nginx-oncpu-profiler/nginx-oncpu-profiler
+/tools/user-transition-metrics/user-transition-metrics
+/tools/dashboard/server/dashboardserver
+
+# Node dependencies and browser state
+node_modules/
+tools/browser/.playwright-cli/
+
+# Rebuildable state
+runs/analysis.duckdb
+runs/analysis.duckdb.lock
+tools/backlog/backlog.sqlite3
+tools/backlog/backlog.sqlite3-wal
+tools/backlog/backlog.sqlite3-shm
+tools/backlog/backlog.sql.tmp
+
+# Raw access logs are retained locally for re-digestion but not committed.
+runs/*/raw/
+
+# Local credentials
+application_default_credentials.json

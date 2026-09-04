@@ -1,31 +1,25 @@
-# 共有 Skills
+# 共有Skills
 
-このディレクトリが skill の実体です。Claude Code / Codex の両方から同じものが読まれます。
+`.agents/skills/`がClaude Code / Codex共通のskill実体である。`.claude/skills`はこのディレクトリへのsymlink。
 
-```
-.agents/skills/            <- 実体（ここに追加する）
-  <skill-name>/SKILL.md
-.claude/skills -> ../.agents/skills   (symlink / Claude Code 用)
-```
+## 構成
 
-- Codex: `.agents/skills/` をプロジェクト skill として自動検出（symlink 不要）
-- Claude Code: `.claude/skills/` を読むため symlink 経由で同じ実体を参照
+- `isucon-setup` — 競技開始時の取得、生成、build、正規deploy・bench経路の準備
+- `isucon-analyze` — Objective、Constraint、Intervention候補の発見
+- `isucon-investigate` — INVESTIGATEの独立検証とREADY安全ゲート
+- `isucon-worker` — READYの実装・適用、ベンチ後検証、rollback・復旧
 
-## 追加方法
+発見観点やレポート種別ごとにskillを分割しない。性能、score mechanics、benchmark behavior、topology、既知solutionは`isucon-analyze/references/`から必要なものだけ読む。
 
-`.agents/skills/<skill-name>/SKILL.md` を作るだけ。両ツールに即反映される（セッション再起動が必要な場合あり）。
+## 共通規律
 
-```markdown
----
-name: <skill-name>
-description: どんな時に使うかを1行で（この文でツールが読み込み判断する）
----
+- `_shared/objective-constraint-intervention.md` — Backlog三層、relation、READY条件、優先順
+- `_shared/evidence.md` — 公式仕様、コード、設定、保存済みRUNの扱い
 
-# <Skill Name>
+計測はEvidence生成であり、skillやBacklogカードの種類にしない。標準計測基盤の設計変更が必要なら、ユーザー指定の別タスクとして扱う。
 
-手順や参照情報をここに書く。
-補助ファイルは同じディレクトリに置き、SKILL.md から相対パスで参照する。
-```
+## 追加・変更
 
-frontmatter は両ツール共通で `name` / `description` のみ使う。
-ツール固有のキー（`allowed-tools` など）は片方でしか効かないので、共有前提なら避ける。
+skillを追加する前に、既存4スキルの責務またはreferenceで表現できない独立した作業段階か確認する。追加・削除・改名時は、同じ変更でリポジトリルートの`AGENTS.md`も更新する。
+
+各`SKILL.md`のfrontmatterは`name`と`description`だけを使う。詳細手順は、すべての実行に必要なものだけ本文へ置き、条件付き知識は`references/`へ分ける。

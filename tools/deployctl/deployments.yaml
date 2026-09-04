@@ -1,0 +1,122 @@
+# Generic deployment graph. Taskfile.yml owns concrete host roles and values.
+deployments:
+  app:
+    uploads:
+      - label: application
+        role: app
+        local: '{var:app_dir}/'
+        remote: '{var:remote_home}/{var:app_dir}/'
+        delete: true
+        excludes: ['node_modules', '*.pprof', 'default.pgo']
+      - label: systemd unit
+        role: app
+        local: 'etc/systemd/system/{var:service}.service'
+        remote: '/etc/systemd/system/{var:service}.service'
+    activations:
+      - label: restart application
+        role: app
+        script: |
+          set -eu
+          sudo chown -R {var:isucon_user}:{var:isucon_user} {var:remote_home}/webapp
+          sudo systemctl daemon-reload
+          sudo systemctl restart {var:service}
+          sudo systemctl is-active --quiet {var:service}
+
+  nginx:
+    uploads:
+      - label: nginx configuration
+        role: nginx
+        local: nginx/
+        remote: /etc/nginx/
+        delete: true
+    activations:
+      - label: reload nginx
+        role: nginx
+        script: |
+          set -eu
+          sudo nginx -t
+          if sudo systemctl is-active --quiet nginx; then
+            sudo systemctl reload nginx
+          else
+            sudo systemctl enable --now nginx
+          fi
+          sudo systemctl is-active --quiet nginx
+
+  mysql:
+    uploads:
+      - label: MySQL configuration
+        role: mysql
+        local: mysql/
+        remote: /etc/mysql/
+        delete: true
+      - label: MySQL systemd limits
+        role: mysql
+        local: etc/systemd/system/mysql.service.d/limits.conf
+        remote: /etc/systemd/system/mysql.service.d/limits.conf
+    activations:
+      - label: restart MySQL
+        role: mysql
+        script: |
+          set -eu
+          sudo systemctl daemon-reload
+          sudo systemctl restart mysql
+          sudo systemctl is-active --quiet mysql
+
+  sysctl:
+    uploads:
+      - label: sysctl configuration
+        role: all
+        local: etc/sysctl.conf
+        remote: /etc/sysctl.conf
+    activations:
+      - label: apply sysctl
+        role: all
+        script: |
+          set -eu
+          sudo sysctl -p >/dev/null
+
+  roles-off:
+    activations:
+      - label: stop services outside assigned roles
+        role: all
+        script: |
+          set -eu
+          host='{host}'
+          in_role() { case ",$2," in *",$1,"*) return 0 ;; *) return 1 ;; esac; }
+          disable_unit() {
+            unit="$1"
+            if sudo systemctl cat "$unit" >/dev/null 2>&1; then
+              sudo systemctl disable --now "$unit" >/dev/null
+            fi
+          }
+          if ! in_role "$host" '{var:app_hosts}'; then disable_unit '{var:service}'; fi
+          if ! in_role "$host" '{var:nginx_hosts}'; then disable_unit nginx; fi
+          if [ "$host" != '{var:mysql_host}' ]; then disable_unit mysql; fi
+
+  roles-on:
+    activations:
+      - label: start services assigned to roles
+        role: all
+        script: |
+          set -eu
+          host='{host}'
+          in_role() { case ",$2," in *",$1,"*) return 0 ;; *) return 1 ;; esac; }
+          enable_unit() {
+            sudo systemctl enable --now "$1" >/dev/null
+            sudo systemctl is-active --quiet "$1"
+          }
+          if [ "$host" = '{var:mysql_host}' ]; then enable_unit mysql; fi
+          if in_role "$host" '{var:app_hosts}'; then enable_unit '{var:service}'; fi
+          if in_role "$host" '{var:nginx_hosts}'; then enable_unit nginx; fi
+
+plans:
+  deploy-all:
+    deployments:
+      sysctl: {}
+      mysql: {}
+      app: {needs: [mysql]}
+      nginx: {needs: [app]}
+  roles:
+    deployments:
+      roles-off: {}
+      roles-on: {needs: [roles-off]}

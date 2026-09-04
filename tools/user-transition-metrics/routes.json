@@ -1,0 +1,10 @@
+{
+  "cookie_field": "session_id",
+  "api_prefix": "/api/",
+  "routes": [
+    { "name": "/api/:resource/:id/:subresource/:sub_id", "pattern": "^/api/[^/]+/[^/]+/[^/]+/[^/]+$" },
+    { "name": "/api/:resource/:id/:action", "pattern": "^/api/[^/]+/[^/]+/[^/]+$" },
+    { "name": "/api/:resource/:id", "pattern": "^/api/[^/]+/[^/]+$" },
+    { "name": "/api/:resource", "pattern": "^/api/[^/]+$" }
+  ]
+}

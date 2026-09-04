@@ -1,0 +1,103 @@
+version: 1
+
+base_schema: schema/00-base.sql
+semantic_schemas:
+  - schema/semantic.sql
+  - schema/comparison.sql
+  - schema/bottleneck.sql
+
+reports:
+  bottleneck_evidence: queries/bottleneck-evidence.sql
+  bottleneck_profile: queries/bottleneck-profile.sql
+
+profiles:
+  match: "*-fgprof.pprof"
+  schema: schema/fgprof.sql
+  tables:
+    - profile_metadata
+    - profile_samples
+    - profile_frames
+    - profile_functions
+    - profile_edges
+
+sources:
+  - table: metrics
+    schema: schema/proc.sql
+    match: "*-proc-metrics.tsv"
+    view: metrics_proc
+  - table: metrics
+    schema: schema/service.sql
+    match: "*-service-metrics.tsv"
+    view: metrics_service
+  - table: metrics
+    schema: schema/disk.sql
+    match: "*-disk-metrics.tsv"
+    view: metrics_disk
+  - table: metrics
+    schema: schema/mysql.sql
+    match: mysql-status.tsv
+    view: metrics_mysql
+  - table: task_states
+    schema: schema/task.sql
+    match: "*-task-states.tsv"
+    view: task_states
+  - table: mysql_lock_waits
+    schema: schema/mysql-lock.sql
+    match: mysql-lock-waits.tsv
+    view: mysql_lock_waits
+  - table: queries
+    schema: schema/slp.sql
+    match: slp.tsv
+    view: queries_slp
+  - table: queries
+    schema: schema/digest.sql
+    match: mysql-digest.tsv
+    view: queries_digest
+  - table: upstreams
+    schema: schema/upstreams.sql
+    match: upstream-breakdown.tsv
+    view: upstreams
+  - table: upstreams_by_ingress
+    schema: schema/upstreams-ingress.sql
+    match: upstream-breakdown-by-ingress.tsv
+    view: upstreams_by_ingress
+  - table: endpoints
+    schema: schema/endpoints.sql
+    match: alp.json
+    view: endpoints
+  - table: endpoints_by_ingress
+    schema: schema/endpoints-ingress.sql
+    match: alp-by-ingress.tsv
+    view: endpoints_by_ingress
+  - table: user_transitions
+    schema: schema/user-transitions.sql
+    match: user-transitions.json
+    view: user_transitions
+  - table: user_transition_scenarios
+    schema: schema/user-transitions.sql
+    match: user-transitions.json
+    view: user_transition_scenarios
+  - table: manifests
+    schema: schema/manifest.sql
+    match: run.json
+    view: manifests
+  - table: artifacts
+    schema: schema/manifest.sql
+    match: run.json
+    view: artifacts
+  - table: run_applied_cards
+    schema: schema/manifest.sql
+    match: run.json
+    view: run_applied_cards
+  - table: bench_phases
+    schema: schema/bench.sql
+    match: bench.log
+    view: bench_phases
+  - table: bench_summaries
+    schema: schema/bench-summary.sql
+    match: bench.log
+    view: bench_summaries_raw
+  - table: bench_scenarios
+    schema: schema/bench-summary.sql
+    match: bench.log
+    view: bench_scenarios_raw
