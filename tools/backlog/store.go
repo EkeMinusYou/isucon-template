@@ -105,7 +105,7 @@ CREATE TABLE IF NOT EXISTS constraint_intervention_assessments (
     constraint_id TEXT NOT NULL REFERENCES constraints(id) ON DELETE CASCADE,
     assessment_json TEXT NOT NULL,
     constraint_definition_hash TEXT NOT NULL DEFAULT '',
-    card_definition_hash TEXT NOT NULL DEFAULT '',
+    card_treatment_hash TEXT NOT NULL DEFAULT '',
     updated TEXT NOT NULL DEFAULT '',
     updated_by TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (card_id, constraint_id)
@@ -161,7 +161,7 @@ CREATE TABLE IF NOT EXISTS adoption_events (
     passed INTEGER CHECK (passed IS NULL OR passed IN (0, 1)),
     comparison_run_id TEXT NOT NULL DEFAULT '',
     comparison_score INTEGER,
-    comparison_status TEXT NOT NULL CHECK (comparison_status IN ('none', 'compatible', 'incompatible', 'unverified')),
+    comparison_status TEXT NOT NULL CHECK (comparison_status IN ('none', 'compatible', 'incompatible')),
     delta INTEGER,
     manifest_sha256 TEXT NOT NULL CHECK (
         length(manifest_sha256) = 71
@@ -176,7 +176,7 @@ CREATE TABLE IF NOT EXISTS adoption_event_cards (
     card_id TEXT NOT NULL REFERENCES cards(id),
     origin TEXT NOT NULL DEFAULT '',
     fingerprint TEXT NOT NULL DEFAULT '',
-    definition_hash TEXT NOT NULL,
+    treatment_hash TEXT NOT NULL,
     PRIMARY KEY (adoption_event_id, card_id)
 );
 
@@ -244,546 +244,14 @@ func (s *Store) initialize() error {
 	if _, err := s.db.Exec(schema); err != nil {
 		return fmt.Errorf("create backlog schema: %w", err)
 	}
-	if err := s.removeLegacyMeasurements(); err != nil {
-		return fmt.Errorf("remove legacy measurement cards: %w", err)
-	}
-	if _, err := s.db.Exec(`DROP TABLE IF EXISTS card_coverage_contracts`); err != nil {
-		return fmt.Errorf("remove legacy coverage contracts: %w", err)
-	}
-	if err := s.migrateCardsSchema(); err != nil {
-		return fmt.Errorf("migrate backlog schema: %w", err)
-	}
-	migratedLegacyConstraints, err := s.migrateLegacyConstraints()
-	if err != nil {
-		return fmt.Errorf("migrate legacy constraints: %w", err)
-	}
-	migratedConstraintScope, err := s.migrateConstraintScopeSchema()
-	if err != nil {
-		return fmt.Errorf("migrate constraint scope schema: %w", err)
-	}
-	if err := s.migrateConstraintAssessmentSchema(); err != nil {
-		return fmt.Errorf("migrate constraint assessment schema: %w", err)
-	}
-	if err := s.migrateConstraintAssessmentPayloads(); err != nil {
-		return fmt.Errorf("migrate constraint assessment payloads: %w", err)
-	}
-	if migratedLegacyConstraints || migratedConstraintScope {
-		if err := s.refreshConstraintAssessmentHashes(); err != nil {
-			return fmt.Errorf("refresh migrated constraint assessment hashes: %w", err)
-		}
-	}
-	if err := s.migrateConstraintRelationSchema(); err != nil {
-		return fmt.Errorf("migrate constraint relation schema: %w", err)
-	}
 	if _, err := s.db.Exec(`INSERT OR IGNORE INTO metadata(key, value) VALUES
 		('backlog_revision', '0'), ('next_id', 'B-001'), ('next_constraint_id', 'A-001'), ('next_objective_id', 'O-001')`); err != nil {
 		return fmt.Errorf("initialize metadata: %w", err)
 	}
-	if err := s.seedInitialObjectives(); err != nil {
-		return fmt.Errorf("seed objectives: %w", err)
+	if err := s.initializeBaseObjectives(); err != nil {
+		return fmt.Errorf("initialize objectives: %w", err)
 	}
 	return nil
-}
-
-func (s *Store) tableExists(name string) (bool, error) {
-	var count int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?`, name).Scan(&count); err != nil {
-		return false, err
-	}
-	return count != 0, nil
-}
-
-func (s *Store) tableColumns(name string) (map[string]bool, error) {
-	columns := map[string]bool{}
-	rows, err := s.db.Query(`PRAGMA table_info(` + name + `)`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var cid, notNull, primaryKey int
-		var columnName, columnType string
-		var defaultValue sql.NullString
-		if err := rows.Scan(&cid, &columnName, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
-			return nil, err
-		}
-		columns[columnName] = true
-	}
-	return columns, rows.Err()
-}
-
-func (s *Store) migrateLegacyConstraints() (bool, error) {
-	legacyExists, err := s.tableExists("bottleneck_anchors")
-	if err != nil {
-		return false, err
-	}
-	if !legacyExists {
-		if _, err := s.db.Exec(`INSERT OR IGNORE INTO metadata(key, value) SELECT 'next_constraint_id', value FROM metadata WHERE key = 'next_anchor_id'`); err != nil {
-			return false, err
-		}
-		_, err := s.db.Exec(`DELETE FROM metadata WHERE key = 'next_anchor_id'`)
-		return false, err
-	}
-	relationColumns, err := s.tableColumns("card_bottleneck_anchors")
-	if err != nil {
-		return false, err
-	}
-	assessmentColumns, err := s.tableColumns("anchor_candidate_assessments")
-	if err != nil {
-		return false, err
-	}
-	roleExpression, rationaleExpression := "'RESOLVES'", "''"
-	if relationColumns["role"] {
-		roleExpression = "role"
-	}
-	if relationColumns["rationale"] {
-		rationaleExpression = "rationale"
-	}
-	constraintHashExpression, cardHashExpression := "''", "''"
-	if assessmentColumns["anchor_definition_hash"] {
-		constraintHashExpression = "anchor_definition_hash"
-	}
-	if assessmentColumns["card_definition_hash"] {
-		cardHashExpression = "card_definition_hash"
-	}
-
-	if _, err := s.db.Exec(`PRAGMA foreign_keys = OFF`); err != nil {
-		return false, err
-	}
-	defer func() { _, _ = s.db.Exec(`PRAGMA foreign_keys = ON`) }()
-	tx, err := s.db.Begin()
-	if err != nil {
-		return false, err
-	}
-	rollback := func(err error) error {
-		_ = tx.Rollback()
-		return err
-	}
-
-	statements := []string{
-		`INSERT OR IGNORE INTO constraints(id, constraint_version, status, title, priority, fingerprint, scope, source_runs, observed_runs, evidence, resolution, merged_into_constraint_id, updated, updated_by)
-		 SELECT id, anchor_version, status, title, priority, fingerprint,
-		 CASE WHEN trim(target) = '' THEN trim(limiting_axis) WHEN trim(limiting_axis) = '' THEN trim(target) ELSE trim(target) || ' — ' || trim(limiting_axis) END,
-		 source_runs, observed_runs, evidence, resolution, merged_into_anchor_id, updated, updated_by FROM bottleneck_anchors`,
-		`INSERT OR IGNORE INTO constraint_history(constraint_id, position, occurred_at, actor, body)
-		 SELECT anchor_id, position, occurred_at, actor, body FROM bottleneck_anchor_history`,
-		fmt.Sprintf(`INSERT OR IGNORE INTO constraint_interventions(card_id, constraint_id, role, rationale)
-		 SELECT card_id, anchor_id, %s, %s FROM card_bottleneck_anchors`, roleExpression, rationaleExpression),
-		fmt.Sprintf(`INSERT OR IGNORE INTO constraint_intervention_assessments(card_id, constraint_id, assessment_json, constraint_definition_hash, card_definition_hash, updated, updated_by)
-		 SELECT card_id, anchor_id, contract_json, %s, %s, updated, updated_by FROM anchor_candidate_assessments`, constraintHashExpression, cardHashExpression),
-		`CREATE TABLE objective_constraints_new (
-		 objective_id TEXT NOT NULL REFERENCES objectives(id) ON DELETE CASCADE,
-		 constraint_id TEXT NOT NULL REFERENCES constraints(id) ON DELETE CASCADE,
-		 PRIMARY KEY (objective_id, constraint_id))`,
-		`INSERT OR IGNORE INTO objective_constraints_new(objective_id, constraint_id) SELECT objective_id, constraint_id FROM objective_constraints`,
-		`DROP TABLE objective_constraints`,
-		`ALTER TABLE objective_constraints_new RENAME TO objective_constraints`,
-		`DROP TABLE anchor_candidate_assessments`,
-		`DROP TABLE card_bottleneck_anchors`,
-		`DROP TABLE bottleneck_anchor_history`,
-		`DROP TABLE bottleneck_anchors`,
-		`INSERT OR IGNORE INTO metadata(key, value) SELECT 'next_constraint_id', value FROM metadata WHERE key = 'next_anchor_id'`,
-		`DELETE FROM metadata WHERE key = 'next_anchor_id'`,
-		`CREATE INDEX IF NOT EXISTS idx_objective_constraints_constraint ON objective_constraints(constraint_id, objective_id)`,
-	}
-	for _, statement := range statements {
-		if _, err := tx.Exec(statement); err != nil {
-			return false, rollback(err)
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		return false, err
-	}
-	return true, nil
-}
-
-func (s *Store) migrateConstraintScopeSchema() (bool, error) {
-	columns, err := s.tableColumns("constraints")
-	if err != nil {
-		return false, err
-	}
-	if columns["scope"] && !columns["limiting_axis"] && !columns["target"] {
-		return false, nil
-	}
-	if !columns["scope"] && (!columns["limiting_axis"] || !columns["target"]) {
-		return false, errors.New("constraints requires scope or the legacy limiting_axis and target columns")
-	}
-	scopeExpression := "scope"
-	if !columns["scope"] {
-		scopeExpression = `CASE
-		 WHEN trim(target) = '' THEN trim(limiting_axis)
-		 WHEN trim(limiting_axis) = '' THEN trim(target)
-		 ELSE trim(target) || ' — ' || trim(limiting_axis)
-		 END`
-	}
-	if _, err := s.db.Exec(`PRAGMA foreign_keys = OFF`); err != nil {
-		return false, err
-	}
-	defer func() { _, _ = s.db.Exec(`PRAGMA foreign_keys = ON`) }()
-	tx, err := s.db.Begin()
-	if err != nil {
-		return false, err
-	}
-	rollback := func(err error) (bool, error) {
-		_ = tx.Rollback()
-		return false, err
-	}
-	statements := []string{
-		`CREATE TABLE constraints_scope_new (
-		 id TEXT PRIMARY KEY,
-		 constraint_version INTEGER NOT NULL DEFAULT 0,
-		 status TEXT NOT NULL CHECK (status IN ('ACTIVE', 'RESOLVED', 'INVALIDATED', 'MERGED')),
-		 title TEXT NOT NULL,
-		 priority TEXT NOT NULL DEFAULT '',
-		 fingerprint TEXT NOT NULL UNIQUE,
-		 scope TEXT NOT NULL DEFAULT '',
-		 source_runs TEXT NOT NULL DEFAULT '',
-		 observed_runs TEXT NOT NULL DEFAULT '',
-		 evidence TEXT NOT NULL DEFAULT '',
-		 resolution TEXT NOT NULL DEFAULT '',
-		 merged_into_constraint_id TEXT NOT NULL DEFAULT '',
-		 updated TEXT NOT NULL DEFAULT '',
-		 updated_by TEXT NOT NULL DEFAULT '')`,
-		fmt.Sprintf(`INSERT INTO constraints_scope_new(id, constraint_version, status, title, priority, fingerprint, scope, source_runs, observed_runs, evidence, resolution, merged_into_constraint_id, updated, updated_by)
-		 SELECT id, constraint_version, status, title, priority, fingerprint, %s, source_runs, observed_runs, evidence, resolution, merged_into_constraint_id, updated, updated_by FROM constraints`, scopeExpression),
-		`DROP TABLE constraints`,
-		`ALTER TABLE constraints_scope_new RENAME TO constraints`,
-		`CREATE INDEX idx_constraints_status ON constraints(status)`,
-	}
-	for _, statement := range statements {
-		if _, err := tx.Exec(statement); err != nil {
-			return rollback(err)
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		return false, err
-	}
-	return true, nil
-}
-
-func (s *Store) migrateConstraintRelationSchema() error {
-	columns := map[string]bool{}
-	rows, err := s.db.Query(`PRAGMA table_info(constraint_interventions)`)
-	if err != nil {
-		return err
-	}
-	for rows.Next() {
-		var cid, notNull, primaryKey int
-		var name, columnType string
-		var defaultValue sql.NullString
-		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
-			rows.Close()
-			return err
-		}
-		columns[name] = true
-	}
-	if err := rows.Close(); err != nil {
-		return err
-	}
-	if !columns["role"] {
-		if _, err := s.db.Exec(`ALTER TABLE constraint_interventions ADD COLUMN role TEXT NOT NULL DEFAULT 'RESOLVES' CHECK (role IN ('RESOLVES', 'MITIGATES'))`); err != nil {
-			return err
-		}
-	}
-	if !columns["rationale"] {
-		if _, err := s.db.Exec(`ALTER TABLE constraint_interventions ADD COLUMN rationale TEXT NOT NULL DEFAULT ''`); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (s *Store) removeLegacyMeasurements() error {
-	columns, err := s.cardColumnsPresent()
-	if err != nil || !columns["kind"] {
-		return err
-	}
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	if _, err := tx.Exec(`DELETE FROM change_log WHERE card_id IN (SELECT id FROM cards WHERE kind = 'MEASUREMENT')`); err != nil {
-		tx.Rollback()
-		return err
-	}
-	if _, err := tx.Exec(`DELETE FROM cards WHERE kind = 'MEASUREMENT'`); err != nil {
-		tx.Rollback()
-		return err
-	}
-	return tx.Commit()
-}
-
-func (s *Store) migrateConstraintAssessmentSchema() error {
-	columns := map[string]bool{}
-	rows, err := s.db.Query(`PRAGMA table_info(constraint_intervention_assessments)`)
-	if err != nil {
-		return err
-	}
-	for rows.Next() {
-		var cid, notNull, primaryKey int
-		var name, columnType string
-		var defaultValue sql.NullString
-		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
-			rows.Close()
-			return err
-		}
-		columns[name] = true
-	}
-	if err := rows.Close(); err != nil {
-		return err
-	}
-	if !columns["assessment_json"] && columns["contract_json"] {
-		if _, err := s.db.Exec(`ALTER TABLE constraint_intervention_assessments RENAME COLUMN contract_json TO assessment_json`); err != nil {
-			return err
-		}
-		columns["assessment_json"] = true
-	}
-	if !columns["assessment_json"] {
-		return errors.New("constraint_intervention_assessments requires assessment_json")
-	}
-	for _, item := range []struct{ name, declaration string }{
-		{"constraint_definition_hash", `TEXT NOT NULL DEFAULT ''`},
-		{"card_definition_hash", `TEXT NOT NULL DEFAULT ''`},
-	} {
-		if !columns[item.name] {
-			if _, err := s.db.Exec(`ALTER TABLE constraint_intervention_assessments ADD COLUMN ` + item.name + ` ` + item.declaration); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-func (s *Store) migrateConstraintAssessmentPayloads() error {
-	type payload struct {
-		constraintID string
-		cardID       string
-		raw          string
-	}
-	rows, err := s.db.Query(`SELECT constraint_id, card_id, assessment_json FROM constraint_intervention_assessments ORDER BY constraint_id, card_id`)
-	if err != nil {
-		return err
-	}
-	var payloads []payload
-	for rows.Next() {
-		var item payload
-		if err := rows.Scan(&item.constraintID, &item.cardID, &item.raw); err != nil {
-			rows.Close()
-			return err
-		}
-		payloads = append(payloads, item)
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return err
-	}
-	if err := rows.Close(); err != nil {
-		return err
-	}
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	for _, item := range payloads {
-		_, canonical, err := migratePerformanceResidualAssessment(item.raw)
-		if err != nil {
-			tx.Rollback()
-			return fmt.Errorf("migrate assessment %s -> %s: %w", item.constraintID, item.cardID, err)
-		}
-		if canonical == item.raw {
-			continue
-		}
-		if _, err := tx.Exec(`UPDATE constraint_intervention_assessments SET assessment_json = ? WHERE constraint_id = ? AND card_id = ?`, canonical, item.constraintID, item.cardID); err != nil {
-			tx.Rollback()
-			return err
-		}
-	}
-	return tx.Commit()
-}
-
-func (s *Store) refreshConstraintAssessmentHashes() error {
-	type binding struct{ constraintID, cardID string }
-	rows, err := s.db.Query(`SELECT constraint_id, card_id FROM constraint_intervention_assessments ORDER BY constraint_id, card_id`)
-	if err != nil {
-		return err
-	}
-	var bindings []binding
-	for rows.Next() {
-		var item binding
-		if err := rows.Scan(&item.constraintID, &item.cardID); err != nil {
-			rows.Close()
-			return err
-		}
-		bindings = append(bindings, item)
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return err
-	}
-	if err := rows.Close(); err != nil {
-		return err
-	}
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	for _, item := range bindings {
-		constraint, err := getConstraintFrom(tx, item.constraintID)
-		if err != nil {
-			tx.Rollback()
-			return err
-		}
-		card, err := getCardFrom(tx, item.cardID)
-		if err != nil {
-			tx.Rollback()
-			return err
-		}
-		if _, err := tx.Exec(`UPDATE constraint_intervention_assessments SET constraint_definition_hash = ?, card_definition_hash = ? WHERE constraint_id = ? AND card_id = ?`, constraintDefinitionHash(constraint), cardDefinitionHash(card), item.constraintID, item.cardID); err != nil {
-			tx.Rollback()
-			return err
-		}
-	}
-	return tx.Commit()
-}
-
-func (s *Store) cardColumnsPresent() (map[string]bool, error) {
-	columns := map[string]bool{}
-	rows, err := s.db.Query(`PRAGMA table_info(cards)`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var cid, notNull, primaryKey int
-		var name, columnType string
-		var defaultValue sql.NullString
-		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
-			return nil, err
-		}
-		columns[name] = true
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return columns, nil
-}
-
-func (s *Store) migrateCardsSchema() error {
-	columns, err := s.cardColumnsPresent()
-	if err != nil {
-		return err
-	}
-	wanted := []string{"card_version"}
-	isCurrent := len(columns) == 10
-	for _, name := range wanted {
-		isCurrent = isCurrent && columns[name]
-	}
-	if isCurrent && !columns["touches"] && !columns["source_runs"] {
-		_, err := s.db.Exec(`DROP TABLE IF EXISTS card_metadata`)
-		return err
-	}
-
-	type legacyRuns struct{ id, source, compare, observed string }
-	var runRows []legacyRuns
-	expression := func(name string) string {
-		if columns[name] {
-			return name
-		}
-		return "''"
-	}
-	rows, err := s.db.Query(fmt.Sprintf(`SELECT id, %s, %s, %s FROM cards`, expression("source_runs"), expression("compare_run"), expression("observed_runs")))
-	if err != nil {
-		return err
-	}
-	for rows.Next() {
-		var item legacyRuns
-		if err := rows.Scan(&item.id, &item.source, &item.compare, &item.observed); err != nil {
-			rows.Close()
-			return err
-		}
-		runRows = append(runRows, item)
-	}
-	if err := rows.Close(); err != nil {
-		return err
-	}
-
-	versionExpression := expression("card_version")
-	if !columns["card_version"] {
-		versionExpression = "0"
-	}
-	if _, err := s.db.Exec(`PRAGMA foreign_keys = OFF`); err != nil {
-		return err
-	}
-	defer func() { _, _ = s.db.Exec(`PRAGMA foreign_keys = ON`) }()
-
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	rollback := func(err error) error {
-		_ = tx.Rollback()
-		return err
-	}
-	if _, err := tx.Exec(`DROP TABLE IF EXISTS card_metadata`); err != nil {
-		return rollback(err)
-	}
-	if _, err := tx.Exec(`CREATE TABLE cards_new (
-    id TEXT PRIMARY KEY,
-    card_version INTEGER NOT NULL DEFAULT 0,
-    status TEXT NOT NULL CHECK (status IN ('INVESTIGATE', 'READY', 'DOING', 'VERIFY', 'APPLIED', 'BLOCKED', 'VALIDATED', 'REJECTED')),
-    title TEXT NOT NULL,
-    priority TEXT NOT NULL DEFAULT '',
-    owner TEXT NOT NULL DEFAULT '',
-    area TEXT NOT NULL DEFAULT '',
-    fingerprint TEXT NOT NULL DEFAULT '',
-    updated TEXT NOT NULL DEFAULT '',
-    updated_by TEXT NOT NULL DEFAULT ''
-)`); err != nil {
-		return rollback(err)
-	}
-	copySQL := fmt.Sprintf(`INSERT INTO cards_new (
-    id, card_version, status, title, priority, owner, area, fingerprint, updated, updated_by
-) SELECT
-    id, %s, status, title, priority, owner, area, %s, %s, %s
-FROM cards`, versionExpression, expression("fingerprint"), expression("updated"), expression("updated_by"))
-	if _, err := tx.Exec(copySQL); err != nil {
-		return rollback(err)
-	}
-	if _, err := tx.Exec(`DROP TABLE cards`); err != nil {
-		return rollback(err)
-	}
-	if _, err := tx.Exec(`ALTER TABLE cards_new RENAME TO cards`); err != nil {
-		return rollback(err)
-	}
-	if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS card_runs (
-    card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
-    run_id TEXT NOT NULL,
-    relation TEXT NOT NULL CHECK (relation IN ('SOURCE', 'COMPARE', 'OBSERVED')),
-    position INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (card_id, run_id, relation)
-)`); err != nil {
-		return rollback(err)
-	}
-	for _, item := range runRows {
-		for relation, raw := range map[string]string{"SOURCE": item.source, "COMPARE": item.compare, "OBSERVED": item.observed} {
-			for position, runID := range parseRunIDs(raw) {
-				if _, err := tx.Exec(`INSERT OR IGNORE INTO card_runs(card_id, run_id, relation, position) VALUES (?, ?, ?, ?)`, item.id, runID, relation, position); err != nil {
-					return rollback(err)
-				}
-			}
-		}
-	}
-	for _, statement := range []string{
-		`CREATE INDEX IF NOT EXISTS idx_cards_status ON cards(status)`,
-		`CREATE INDEX IF NOT EXISTS idx_cards_area ON cards(area)`,
-		`CREATE INDEX IF NOT EXISTS idx_cards_priority ON cards(priority)`,
-		`CREATE INDEX IF NOT EXISTS idx_card_runs_run ON card_runs(run_id, relation, card_id)`,
-	} {
-		if _, err := tx.Exec(statement); err != nil {
-			return rollback(err)
-		}
-	}
-	return tx.Commit()
 }
 
 func parseRunIDs(raw string) []string {
@@ -1403,6 +871,88 @@ func ensureReadyActor(actor, status string) error {
 	return nil
 }
 
+func requiresReadyContract(status string) bool {
+	switch normalizeStatus(status) {
+	case "READY", "DOING", "VERIFY", "APPLIED", "VALIDATED":
+		return true
+	default:
+		return false
+	}
+}
+
+func validateReadyContract(q queryer, cardID string) error {
+	card, err := getCardFrom(q, cardID)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(card.Fingerprint) == "" {
+		return fmt.Errorf("card %s cannot be READY without a fingerprint", card.ID)
+	}
+	for _, name := range []string{sectionHypothesis, sectionChangeBoundary, sectionVerification, sectionSafety} {
+		if strings.TrimSpace(sectionBody(card.Sections, name)) == "" {
+			return fmt.Errorf("card %s cannot be READY without a non-empty %s section", card.ID, name)
+		}
+	}
+	var activeObjectives int
+	if err := q.QueryRow(`SELECT COUNT(*) FROM objective_interventions oi
+		JOIN objectives o ON o.id = oi.objective_id
+		WHERE oi.card_id = ? AND o.status = 'ACTIVE'`, card.ID).Scan(&activeObjectives); err != nil {
+		return err
+	}
+	if activeObjectives == 0 {
+		return fmt.Errorf("card %s cannot be READY without an ACTIVE Objective relation", card.ID)
+	}
+	rows, err := q.Query(`SELECT d.depends_on_card_id, d.required_status, target.status
+		FROM card_dependencies d JOIN cards target ON target.id = d.depends_on_card_id
+		WHERE d.card_id = ? AND d.mode = 'BLOCKING' ORDER BY d.depends_on_card_id`, card.ID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var targetID, required, status string
+		if err := rows.Scan(&targetID, &required, &status); err != nil {
+			return err
+		}
+		if status == "REJECTED" {
+			return fmt.Errorf("dependency %s is REJECTED; return %s to INVESTIGATE", targetID, card.ID)
+		}
+		if !dependencyStatusSatisfied(status, required) {
+			return fmt.Errorf("dependency %s requires %s and is %s", targetID, required, status)
+		}
+	}
+	return rows.Err()
+}
+
+func validateReadyDependents(q queryer, changedCardID string) error {
+	rows, err := q.Query(`SELECT DISTINCT dependent.id
+		FROM card_dependencies d JOIN cards dependent ON dependent.id = d.card_id
+		WHERE d.depends_on_card_id = ? AND d.mode = 'BLOCKING'
+		AND dependent.status IN ('READY', 'DOING', 'VERIFY', 'APPLIED', 'VALIDATED')
+		ORDER BY dependent.id`, changedCardID)
+	if err != nil {
+		return err
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if err := validateReadyContract(q, id); err != nil {
+			return fmt.Errorf("card %s status change would invalidate dependent READY contract: %w", changedCardID, err)
+		}
+	}
+	return nil
+}
+
 func addHistoryTx(tx *sql.Tx, cardID, occurredAt, actor, body string) error {
 	var position int
 	if err := tx.QueryRow(`SELECT COALESCE(MAX(position), -1) + 1 FROM card_history WHERE card_id = ?`, cardID).Scan(&position); err != nil {
@@ -1503,6 +1053,9 @@ func (s *Store) mutateCard(id string, patch CardPatch, options mutation, reason 
 			if targetStatus != "READY" && targetStatus != "DOING" {
 				break
 			}
+			if targetStatus == "READY" && dependency.Mode != "BLOCKING" {
+				continue
+			}
 			if dependency.TargetStatus == "REJECTED" {
 				tx.Rollback()
 				return nil, fmt.Errorf("dependency %s is REJECTED; return %s to INVESTIGATE", dependency.DependsOnCardID, currentCard.ID)
@@ -1569,6 +1122,18 @@ func (s *Store) mutateCard(id string, patch CardPatch, options mutation, reason 
 			return nil, err
 		}
 		if err := upsertSectionTx(tx, id, name, body); err != nil {
+			tx.Rollback()
+			return nil, err
+		}
+	}
+	if requiresReadyContract(targetStatus) {
+		if err := validateReadyContract(tx, id); err != nil {
+			tx.Rollback()
+			return nil, err
+		}
+	}
+	if targetStatus != currentCard.Status {
+		if err := validateReadyDependents(tx, id); err != nil {
 			tx.Rollback()
 			return nil, err
 		}
@@ -1730,6 +1295,12 @@ func (s *Store) addDependency(input DependencyInput, options mutation) (bool, er
         VALUES (?, ?, ?, ?, ?)`, input.CardID, input.DependsOnCardID, input.RequiredStatus, input.Mode, input.Reason); err != nil {
 		tx.Rollback()
 		return false, err
+	}
+	if requiresReadyContract(card.Status) {
+		if err := validateReadyContract(tx, card.ID); err != nil {
+			tx.Rollback()
+			return false, fmt.Errorf("dependency would invalidate READY contract: %w", err)
+		}
 	}
 	updated := now()
 	if _, err := tx.Exec(`UPDATE cards SET updated = ?, updated_by = ? WHERE id = ?`, updated, options.Actor, input.CardID); err != nil {
@@ -1959,6 +1530,12 @@ func (s *Store) transitionCardAndWake(id, status string, options mutation, reaso
 		tx.Rollback()
 		return nil, err
 	}
+	if requiresReadyContract(status) {
+		if err := validateReadyContract(tx, id); err != nil {
+			tx.Rollback()
+			return nil, err
+		}
+	}
 	if card.Status == "READY" && status == "DOING" {
 		tx.Rollback()
 		return nil, errors.New("READY -> DOING must use update with a non-empty owner for an atomic claim")
@@ -1971,6 +1548,10 @@ func (s *Store) transitionCardAndWake(id, status string, options mutation, reaso
 		args = []any{status, "", updated, options.Actor, id}
 	}
 	if _, err := tx.Exec(query, args...); err != nil {
+		tx.Rollback()
+		return nil, err
+	}
+	if err := validateReadyDependents(tx, id); err != nil {
 		tx.Rollback()
 		return nil, err
 	}
@@ -1991,57 +1572,6 @@ func (s *Store) transitionCardAndWake(id, status string, options mutation, reaso
 		return nil, err
 	}
 	return woke, nil
-}
-
-func (s *Store) promoteAppliedCards(ids []string, actor, reason string) ([]Card, error) {
-	return s.promoteAppliedCardsMatching(ids, nil, actor, reason)
-}
-
-func (s *Store) promoteAppliedCardsMatching(ids []string, definitionHashes map[string]string, actor, reason string) ([]Card, error) {
-	if err := ensureReason(actor, reason); err != nil {
-		return nil, err
-	}
-	if len(ids) == 0 {
-		return nil, errors.New("at least one card ID is required")
-	}
-
-	requested := make([]Card, 0, len(ids))
-	seen := map[string]bool{}
-	for _, rawID := range ids {
-		id := normalizeID(rawID)
-		if _, err := idNumber(id); err != nil {
-			return nil, err
-		}
-		if seen[id] {
-			continue
-		}
-		seen[id] = true
-		card, err := s.getCard(id)
-		if err != nil {
-			return nil, err
-		}
-		if card.Status != "APPLIED" {
-			return nil, fmt.Errorf("card %s has status %s; expected APPLIED", id, card.Status)
-		}
-		if definitionHashes != nil && definitionHashes[id] != cardDefinitionHash(card) {
-			return nil, fmt.Errorf("card %s definition differs from the evidence RUN snapshot", id)
-		}
-		requested = append(requested, card)
-	}
-
-	var promoted []Card
-	for _, card := range requested {
-		expectedVersion := card.Version
-		if err := s.transitionCard(card.ID, "VALIDATED", mutation{
-			ExpectedCardVersion: &expectedVersion,
-			Actor:               actor,
-			Operation:           "transition",
-		}, reason); err != nil {
-			return nil, err
-		}
-		promoted = append(promoted, card)
-	}
-	return promoted, nil
 }
 
 func (s *Store) addHistory(id, actor, body, occurredAt string, options mutation) error {
@@ -2094,20 +1624,11 @@ func (s *Store) addCard(input NewCard, options mutation) (string, error) {
 	if !allowedStatuses[status] {
 		return "", fmt.Errorf("invalid status %q", status)
 	}
-	if status != "INVESTIGATE" && status != "READY" {
-		return "", fmt.Errorf("new cards must start as INVESTIGATE or READY, got %s", status)
+	if status != "INVESTIGATE" {
+		return "", fmt.Errorf("new cards must start as INVESTIGATE, got %s; use resolve after completing the READY contract", status)
 	}
 	if err := ensureReadyActor(input.Actor, status); err != nil {
 		return "", err
-	}
-	if status == "READY" {
-		if strings.TrimSpace(input.Values["owner"]) != "" {
-			return "", errors.New("READY cards must have an empty owner")
-		}
-		if input.Values == nil {
-			input.Values = map[string]string{}
-		}
-		input.Values["owner"] = ""
 	}
 	tx, current, err := s.beginMutation(options)
 	if err != nil {
@@ -2297,7 +1818,7 @@ func (s *Store) validate() error {
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	var readyContractIDs []string
 	for rows.Next() {
 		var id, status, owner string
 		var cardVersion int
@@ -2310,24 +1831,30 @@ func (s *Store) validate() error {
 		if cardVersion < 0 {
 			return fmt.Errorf("card %s has invalid card_version %d", id, cardVersion)
 		}
-		if !isClosedStatus(status) {
-			trimmedOwner := strings.TrimSpace(owner)
-			if owner != trimmedOwner {
-				return fmt.Errorf("card %s has invalid open-card owner %q: owner must not contain surrounding whitespace", id, owner)
-			}
-			switch strings.ToLower(owner) {
-			case "none", "null", "-":
-				return fmt.Errorf("card %s has invalid open-card owner %q: use an empty owner for an unowned card", id, owner)
-			}
+		trimmedOwner := strings.TrimSpace(owner)
+		if owner != trimmedOwner {
+			return fmt.Errorf("card %s has invalid owner %q: owner must not contain surrounding whitespace", id, owner)
+		}
+		switch strings.ToLower(owner) {
+		case "none", "null", "-":
+			return fmt.Errorf("card %s has invalid owner %q: use an empty owner for an unowned card", id, owner)
 		}
 		if status == "READY" && strings.TrimSpace(owner) != "" {
 			return fmt.Errorf("card %s is READY but has non-empty owner %q", id, owner)
+		}
+		if requiresReadyContract(status) {
+			readyContractIDs = append(readyContractIDs, id)
 		}
 	}
 	if err := rows.Err(); err != nil {
 		return err
 	}
 	rows.Close()
+	for _, id := range readyContractIDs {
+		if err := validateReadyContract(s.db, id); err != nil {
+			return err
+		}
+	}
 
 	rows, err = s.db.Query(`SELECT card_id, run_id, relation FROM card_runs ORDER BY card_id, relation, position`)
 	if err != nil {

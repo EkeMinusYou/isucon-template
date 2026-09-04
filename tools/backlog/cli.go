@@ -1250,6 +1250,15 @@ func runPass(config cliConfig, args []string) {
 		fmt.Printf("pass: 0 cards, revision %d\n", revision)
 		return
 	}
+	for _, id := range ids {
+		card, getErr := store.getCard(id)
+		if getErr != nil {
+			fatal(getErr)
+		}
+		if snapshotDecisionChanged(run, card) {
+			fmt.Fprintf(os.Stderr, "warning: card %s decision contract changed after evidence RUN %s; review Hypothesis, Verification, and Safety before adoption\n", id, run.RunID)
+		}
+	}
 	score := formatOptionalInt64(run.Score)
 	comparisonRun, comparisonScore, delta := "", "unknown", "unknown"
 	var comparisonScoreValue, deltaValue *int64
@@ -1284,7 +1293,7 @@ func runPass(config cliConfig, args []string) {
 		ComparisonScore: comparisonScoreValue, ComparisonStatus: comparisonStatus, Delta: deltaValue,
 		ManifestSHA256: run.ManifestSHA256, SnapshotRevision: run.BacklogSnapshot.Revision,
 	}
-	cards, err := store.adoptCardsMatching(ids, snapshotDefinitionHashes(run), event, passReason)
+	cards, err := store.adoptCardsMatching(ids, snapshotTreatmentHashes(run), event, passReason)
 	if err != nil {
 		fatal(err)
 	}
@@ -1355,21 +1364,6 @@ func passSnapshotCardIDs(store *Store, run runSnapshotEnvelope, value string) ([
 	return ids, nil
 }
 
-func passCardIDs(store *Store, value string) ([]string, error) {
-	if strings.EqualFold(strings.TrimSpace(value), "all") {
-		cards, err := store.listCards(ListFilter{All: true, Status: "APPLIED"})
-		if err != nil {
-			return nil, fmt.Errorf("list APPLIED cards: %w", err)
-		}
-		ids := make([]string, 0, len(cards))
-		for _, card := range cards {
-			ids = append(ids, card.ID)
-		}
-		return ids, nil
-	}
-	return parseCardIDList(value)
-}
-
 func parseCardIDList(value string) ([]string, error) {
 	var ids []string
 	seen := map[string]bool{}
@@ -1430,7 +1424,7 @@ Commands:
   history add CARD_ID --actor ACTOR --message MESSAGE
   pass CARD_ID[,CARD_ID...]|all --actor task:pass [--evidence-run RUN_ID|latest] [--outcomes FILE] [--reason REASON] [--force]
                                           internal command used by top-level 'task pass'
-  evidence [-format text|json] CARD_ID[,CARD_ID...]  summarize normal benchmark evidence without writes
+  evidence [-format text|json] [--run RUN_ID] CARD_ID[,CARD_ID...]  summarize evidence from a RUN whose APPLIED snapshot contains each card
   validate
 
 Every write transaction increments backlog_revision internally. update, resolve, and transition require

@@ -12,11 +12,6 @@ const META_FIELDS: Array<[keyof BacklogCardDetail, string]> = [
   ['compare_run', 'compare runs'],
   ['observed_runs', 'observed runs'],
   ['fingerprint', 'fingerprint'],
-  ['assessment_kind', 'assessment kind'],
-  ['assessment_detail', 'assessment detail'],
-  ['expected_score_effect', 'expected score effect'],
-  ['attribution', 'attribution'],
-  ['blocked_contract', 'blocked contract'],
 ]
 
 export function BacklogCardModal({ id, onClose }: Props) {
@@ -79,11 +74,38 @@ export function BacklogCardModal({ id, onClose }: Props) {
               />
               <div className="min-w-0">
                 <div className="font-mono text-sm text-base-content/60">
-                  {detail.id} · {detail.kind} · {detail.status}
+                  {detail.id} · Intervention · {detail.status}
                 </div>
                 <h3 className="text-2xl font-bold">{detail.title}</h3>
               </div>
             </div>
+
+            {(detail.objectives.length > 0 || detail.constraints.length > 0) && (
+              <div className="mb-4 space-y-3">
+                {detail.objectives.length > 0 && (
+                  <div>
+                    <div className="divider divider-start my-1 text-sm font-semibold">Objectives</div>
+                    {detail.objectives.map((objective) => (
+                      <p key={objective.id} className="text-base text-base-content/80">
+                        {objective.id} · {objective.status} · {objective.mode} · {objective.title}
+                        {objective.rationale && ` — ${objective.rationale}`}
+                      </p>
+                    ))}
+                  </div>
+                )}
+                {detail.constraints.length > 0 && (
+                  <div>
+                    <div className="divider divider-start my-1 text-sm font-semibold">Constraints</div>
+                    {detail.constraints.map((constraint) => (
+                      <p key={constraint.id} className="text-base text-base-content/80">
+                        {constraint.id} · {constraint.status} · {constraint.role} · {constraint.title}
+                        {constraint.rationale && ` — ${constraint.rationale}`}
+                      </p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             <div className="mb-4 flex flex-wrap gap-1.5 text-sm">
               {detail.priority && <span className="badge badge-soft badge-primary">{detail.priority}</span>}
               {detail.area && <span className="badge badge-ghost">area: {detail.area}</span>}

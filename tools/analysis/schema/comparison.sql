@@ -5,7 +5,7 @@ create or replace view comparable_runs as
 with card_sets as (
     select
         run_id,
-        string_agg(concat_ws(':', card_id, kind, definition_hash), ',' order by card_id, kind, definition_hash) as applied_snapshot
+        string_agg(concat_ws(':', card_id, treatment_hash), ',' order by card_id, treatment_hash) as applied_snapshot
     from run_applied_cards
     group by run_id
 ), eligible as (

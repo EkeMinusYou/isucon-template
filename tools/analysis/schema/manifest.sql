@@ -27,7 +27,8 @@ select
     json_extract_string(content, '$.load_window.status') as load_window_status,
     json_extract_string(content, '$.load_window.reason') as load_window_reason,
     try_cast(json_extract_string(content, '$.raw_bytes') as bigint) as raw_bytes
-from read_text(getvariable('run_glob') || '/run.json');
+from read_text(getvariable('run_glob') || '/run.json')
+where try_cast(json_extract_string(content, '$.schema_version') as integer) = 4;
 
 -- 回収物の 1 行 1 件。status が ok 以外の RUN を拾えば、
 -- どの計測が欠けたまま解析していたかが分かる。
@@ -49,21 +50,23 @@ select
     try_cast(json_extract_string(a.value, '$.quality.finite') as boolean) as quality_finite,
     json_extract_string(a.value, '$.quality.reason') as quality_reason
 from read_text(getvariable('run_glob') || '/run.json') r,
-     json_each(coalesce(json_extract(r.content, '$.artifacts'), json('[]'))) a;
+     json_each(coalesce(json_extract(r.content, '$.artifacts'), json('[]'))) a
+where try_cast(json_extract_string(r.content, '$.schema_version') as integer) = 4;
 
--- before-bench 時点で APPLIED だったカード。JSON pathで読むことで、
--- backlog_snapshotを持たない旧run.jsonとも同じglobで共存できる。
+-- 現行run.jsonのbefore-bench時点でAPPLIEDだったカード。
 create or replace view run_applied_cards as
 select
     json_extract_string(r.content, '$.run_id')                           as run_id,
     try_cast(json_extract_string(r.content, '$.backlog_snapshot.captured_at') as timestamp) as captured_at,
     try_cast(json_extract_string(r.content, '$.backlog_snapshot.revision') as bigint)       as backlog_revision,
     json_extract_string(c.value, '$.id')                                 as card_id,
-    json_extract_string(c.value, '$.kind')                               as kind,
     json_extract_string(c.value, '$.status')                             as status,
     try_cast(json_extract_string(c.value, '$.version') as integer)       as card_version,
     json_extract_string(c.value, '$.title')                              as title,
     json_extract_string(c.value, '$.fingerprint')                        as fingerprint,
-    json_extract_string(c.value, '$.definition_hash')                    as definition_hash
+    json_extract_string(c.value, '$.treatment_hash')                     as treatment_hash,
+    json_extract_string(c.value, '$.decision_hash')                      as decision_hash
 from read_text(getvariable('run_glob') || '/run.json') r,
-     json_each(coalesce(json_extract(r.content, '$.backlog_snapshot.cards'), json('[]'))) c;
+     json_each(coalesce(json_extract(r.content, '$.backlog_snapshot.cards'), json('[]'))) c
+where try_cast(json_extract_string(r.content, '$.schema_version') as integer) = 4
+  and try_cast(json_extract_string(r.content, '$.backlog_snapshot.schema_version') as integer) = 2;

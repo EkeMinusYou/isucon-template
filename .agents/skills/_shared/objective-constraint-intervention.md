@@ -44,10 +44,12 @@ Interventionとのrelationは次の二つ。
 
 カード本文で次の四点を具体化する。専用の巨大な契約JSONは作らない。
 
-1. 目的: どのObjectiveへ、どの因果で効くか
-2. 境界: 一体で採否・適用・切り戻す範囲
-3. 判定: 何を観測し、どの結果で採用・修正・棄却するか
-4. 安全: guardrail、停止条件、rollback
+1. `Hypothesis`: どのObjectiveへ、どの因果で効くか
+2. `Change boundary`: 一体で採否・適用・切り戻す範囲
+3. `Verification`: 何を観測し、どの結果で採用・修正・棄却するか
+4. `Safety`: guardrail、停止条件、rollback
+
+CLIはREADY化の際に、この4セクション、`Fingerprint`、ACTIVE Objective relation、未充足BLOCKING dependencyがないことだけを機械検査する。文章量や効果量は検査しない。新規カードはINVESTIGATEで起票し、4点を一度の`resolve`で確定する。
 
 効果量が未知でも、方向・安全性・rollbackを説明できればREADYにできる。実際の挙動を変える実験も通常のInterventionとして扱う。
 

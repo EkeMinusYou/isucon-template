@@ -14,6 +14,7 @@ const (
 	sectionResult         = "Result"
 	sectionHistory        = "History"
 	sectionVerification   = "Verification"
+	sectionSafety         = "Safety"
 	sectionUnknowns       = "Unknowns"
 )
 
@@ -23,6 +24,7 @@ var allowedSectionNames = map[string]bool{
 	sectionChangeBoundary: true,
 	sectionUnknowns:       true,
 	sectionVerification:   true,
+	sectionSafety:         true,
 	sectionResult:         true,
 }
 
@@ -230,7 +232,7 @@ func validateSectionName(name string) error {
 		return fmt.Errorf("History is managed by 'history add'")
 	}
 	if !allowedSectionNames[name] {
-		return fmt.Errorf("unsupported section %q; allowed sections: Observation, Hypothesis, Change boundary, Unknowns, Verification, Result", name)
+		return fmt.Errorf("unsupported section %q; allowed sections: Observation, Hypothesis, Change boundary, Unknowns, Verification, Safety, Result", name)
 	}
 	return nil
 }

@@ -1,8 +1,8 @@
 -- Consecutive normalized API calls for the same Cookie identity. The artifact
 -- contains aggregates only; Cookie values and per-user histories are not
--- persisted. `user_transitions` is the all-session view kept for compatibility,
--- while `user_transition_scenarios` exposes the scenario cohorts.
-create or replace view user_transitions as
+-- persisted. `user_transition_edges` contains all-session edges, while
+-- `user_transition_scenarios` exposes the scenario cohorts.
+create or replace view user_transition_edges as
 with reports as (
     select
         regexp_extract(filename, 'runs/([^/]+)/', 1) as run_id,

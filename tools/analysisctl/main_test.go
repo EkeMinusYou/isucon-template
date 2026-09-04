@@ -146,6 +146,36 @@ func TestMissingTablesChecksOnlyActiveSources(t *testing.T) {
 	}
 }
 
+func TestImportSchemaVersionDetectsStaleDatabase(t *testing.T) {
+	duckdb, err := exec.LookPath("duckdb")
+	if err != nil {
+		t.Skip("duckdb is not installed")
+	}
+	dir := t.TempDir()
+	db := filepath.Join(dir, "analysis.duckdb")
+	if output, err := exec.Command(duckdb, db, "-c", "create table stale as select 1 as value").CombinedOutput(); err != nil {
+		t.Fatalf("create stale database: %v: %s", err, output)
+	}
+	r := runner{options: options{db: db, duckdb: duckdb}}
+	current, err := r.importSchemaCurrent()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current {
+		t.Fatal("stale database unexpectedly has the current import schema")
+	}
+	if output, err := exec.Command(duckdb, db, "-c", "create table analysis_metadata(key varchar primary key, value varchar); insert into analysis_metadata values ('import_schema_version', '"+importSchemaVersion+"')").CombinedOutput(); err != nil {
+		t.Fatalf("write schema version: %v: %s", err, output)
+	}
+	current, err = r.importSchemaCurrent()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !current {
+		t.Fatal("current import schema was not detected")
+	}
+}
+
 func writeTestFile(t *testing.T, base, name, content string) {
 	t.Helper()
 	path := filepath.Join(base, name)

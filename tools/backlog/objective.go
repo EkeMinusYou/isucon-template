@@ -75,7 +75,7 @@ func validateObjective(input NewObjective) error {
 	return nil
 }
 
-func (s *Store) seedInitialObjectives() error {
+func (s *Store) initializeBaseObjectives() error {
 	seeds := []NewObjective{
 		{ID: "O-001", Status: "ACTIVE", Mode: "SATISFY", Title: "ベンチマークと整合性チェックを通過する", MetricOrPredicate: "benchmark result is valid and every required correctness check passes", RequiredForValidResult: true, OfficialSources: "docs/official/", Verification: "verify the final benchmark result and correctness log against the official rules"},
 		{ID: "O-002", Status: "ACTIVE", Mode: "SATISFY", Title: "再起動後の永続性と再現性条件を満たす", MetricOrPredicate: "the official restart and reproducibility requirements are satisfied", RequiredForValidResult: true, OfficialSources: "docs/official/", Verification: "restart the required servers and rerun the official verification procedure"},
@@ -85,41 +85,17 @@ func (s *Store) seedInitialObjectives() error {
 	if err != nil {
 		return err
 	}
-	var seeded int
-	if err := tx.QueryRow(`SELECT COUNT(*) FROM metadata WHERE key = 'objective_model_seed_version'`).Scan(&seeded); err != nil {
-		tx.Rollback()
-		return err
-	}
-	if seeded != 0 {
-		return tx.Commit()
-	}
 	for _, seed := range seeds {
-		var exists int
-		if err := tx.QueryRow(`SELECT COUNT(*) FROM objectives WHERE id = ?`, seed.ID).Scan(&exists); err != nil {
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO objectives(id, objective_version, status, mode, title, metric_or_predicate, required_for_valid_result, parent_objective_id, official_sources, verification, updated, updated_by) VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'system:init')`, seed.ID, seed.Status, seed.Mode, seed.Title, seed.MetricOrPredicate, boolInt(seed.RequiredForValidResult), seed.ParentObjectiveID, seed.OfficialSources, seed.Verification, now()); err != nil {
 			tx.Rollback()
 			return err
 		}
-		if exists != 0 {
-			continue
-		}
-		if _, err := tx.Exec(`INSERT INTO objectives(id, objective_version, status, mode, title, metric_or_predicate, required_for_valid_result, parent_objective_id, official_sources, verification, updated, updated_by) VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'system:migration')`, seed.ID, seed.Status, seed.Mode, seed.Title, seed.MetricOrPredicate, boolInt(seed.RequiredForValidResult), seed.ParentObjectiveID, seed.OfficialSources, seed.Verification, now()); err != nil {
-			tx.Rollback()
-			return err
-		}
-		if _, err := tx.Exec(`INSERT INTO objective_history(objective_id, position, occurred_at, actor, body) VALUES (?, 0, ?, 'system:migration', 'initial objective registered from official specification')`, seed.ID, now()); err != nil {
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO objective_history(objective_id, position, occurred_at, actor, body) VALUES (?, 0, ?, 'system:init', 'initial objective registered from official specification')`, seed.ID, now()); err != nil {
 			tx.Rollback()
 			return err
 		}
 	}
 	if _, err := tx.Exec(`UPDATE metadata SET value = 'O-004' WHERE key = 'next_objective_id' AND CAST(SUBSTR(value, 3) AS INTEGER) < 4`); err != nil {
-		tx.Rollback()
-		return err
-	}
-	if _, err := tx.Exec(`INSERT OR IGNORE INTO objective_constraints(objective_id, constraint_id) SELECT 'O-003', id FROM constraints`); err != nil {
-		tx.Rollback()
-		return err
-	}
-	if _, err := tx.Exec(`INSERT INTO metadata(key, value) VALUES ('objective_model_seed_version', '1')`); err != nil {
 		tx.Rollback()
 		return err
 	}
@@ -376,6 +352,21 @@ func (s *Store) updateObjective(id string, patch ObjectivePatch, expected int, o
 		tx.Rollback()
 		return err
 	}
+	if currentObjective.Status == "ACTIVE" && target.Status != "ACTIVE" {
+		for _, cardID := range currentObjective.InterventionIDs {
+			card, err := getCardFrom(tx, cardID)
+			if err != nil {
+				tx.Rollback()
+				return err
+			}
+			if requiresReadyContract(card.Status) {
+				if err := validateReadyContract(tx, cardID); err != nil {
+					tx.Rollback()
+					return fmt.Errorf("retiring objective %s would invalidate READY contract: %w", id, err)
+				}
+			}
+		}
+	}
 	if err := addObjectiveHistoryTx(tx, id, options.Actor, reason); err != nil {
 		tx.Rollback()
 		return err
@@ -432,6 +423,19 @@ func (s *Store) setObjectiveRelation(objectiveID, targetID, targetType, rational
 	if err != nil {
 		tx.Rollback()
 		return err
+	}
+	if targetType == "intervention" && !add {
+		card, cardErr := getCardFrom(tx, targetID)
+		if cardErr != nil {
+			tx.Rollback()
+			return cardErr
+		}
+		if requiresReadyContract(card.Status) {
+			if err := validateReadyContract(tx, targetID); err != nil {
+				tx.Rollback()
+				return fmt.Errorf("unlinking objective %s would invalidate READY contract: %w", objectiveID, err)
+			}
+		}
 	}
 	verb := "linked"
 	if !add {

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -25,12 +26,13 @@ type AppliedSnapshot struct {
 }
 
 type AppliedSnapshotCard struct {
-	ID             string `json:"id"`
-	Status         string `json:"status"`
-	Version        int    `json:"version"`
-	Title          string `json:"title"`
-	Fingerprint    string `json:"fingerprint"`
-	DefinitionHash string `json:"definition_hash"`
+	ID            string `json:"id"`
+	Status        string `json:"status"`
+	Version       int    `json:"version"`
+	Title         string `json:"title"`
+	Fingerprint   string `json:"fingerprint"`
+	TreatmentHash string `json:"treatment_hash"`
+	DecisionHash  string `json:"decision_hash"`
 }
 
 type runSnapshotEnvelope struct {
@@ -94,7 +96,7 @@ func (s *Store) appliedSnapshot() (AppliedSnapshot, error) {
 		return AppliedSnapshot{}, err
 	}
 	return AppliedSnapshot{
-		SchemaVersion: 1,
+		SchemaVersion: 2,
 		Status:        "ok",
 		CapturedAt:    time.Now().Format(time.RFC3339Nano),
 		Revision:      revision,
@@ -112,28 +114,68 @@ func strconvAtoiNonNegative(value string) (int, error) {
 
 func snapshotCard(card Card) AppliedSnapshotCard {
 	return AppliedSnapshotCard{
-		ID:             card.ID,
-		Status:         card.Status,
-		Version:        card.Version,
-		Title:          card.Title,
-		Fingerprint:    card.Fingerprint,
-		DefinitionHash: cardDefinitionHash(card),
+		ID:            card.ID,
+		Status:        card.Status,
+		Version:       card.Version,
+		Title:         card.Title,
+		Fingerprint:   card.Fingerprint,
+		TreatmentHash: cardTreatmentHash(card),
+		DecisionHash:  cardDecisionHash(card),
 	}
 }
 
-func cardDefinitionHash(card Card) string {
-	definition := struct {
+func cardTreatmentHash(card Card) string {
+	treatment := struct {
 		Fingerprint    string `json:"fingerprint"`
 		ChangeBoundary string `json:"change_boundary"`
-		Verification   string `json:"verification"`
 	}{
-		Fingerprint:    strings.TrimSpace(card.Fingerprint),
-		ChangeBoundary: strings.TrimSpace(sectionBody(card.Sections, sectionChangeBoundary)),
-		Verification:   strings.TrimSpace(sectionBody(card.Sections, sectionVerification)),
+		Fingerprint:    normalizeAdoptionContractText(card.Fingerprint),
+		ChangeBoundary: normalizeAdoptionContractText(sectionBody(card.Sections, sectionChangeBoundary)),
 	}
-	body, _ := json.Marshal(definition)
+	body, _ := json.Marshal(treatment)
 	sum := sha256.Sum256(body)
 	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func cardDecisionHash(card Card) string {
+	decision := struct {
+		Hypothesis   string `json:"hypothesis"`
+		Verification string `json:"verification"`
+		Safety       string `json:"safety"`
+	}{
+		Hypothesis:   normalizeAdoptionContractText(sectionBody(card.Sections, sectionHypothesis)),
+		Verification: normalizeAdoptionContractText(sectionBody(card.Sections, sectionVerification)),
+		Safety:       normalizeAdoptionContractText(sectionBody(card.Sections, sectionSafety)),
+	}
+	body, _ := json.Marshal(decision)
+	sum := sha256.Sum256(body)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func normalizeAdoptionContractText(value string) string {
+	value = strings.ReplaceAll(value, "\r\n", "\n")
+	lines := strings.Split(value, "\n")
+	for i := range lines {
+		lines[i] = strings.TrimRight(lines[i], " \t")
+	}
+	value = strings.TrimSpace(strings.Join(lines, "\n"))
+	jsonBody := value
+	if strings.HasPrefix(jsonBody, "```") {
+		firstNewline := strings.IndexByte(jsonBody, '\n')
+		lastFence := strings.LastIndex(jsonBody, "```")
+		if firstNewline >= 0 && lastFence > firstNewline {
+			jsonBody = strings.TrimSpace(jsonBody[firstNewline+1 : lastFence])
+		}
+	}
+	var decoded any
+	decoder := json.NewDecoder(strings.NewReader(jsonBody))
+	decoder.UseNumber()
+	if decoder.Decode(&decoded) == nil && errors.Is(decoder.Decode(&struct{}{}), io.EOF) {
+		if canonical, err := json.Marshal(decoded); err == nil {
+			return string(canonical)
+		}
+	}
+	return value
 }
 
 func writeAppliedSnapshot(path string, snapshot AppliedSnapshot) error {
@@ -223,6 +265,9 @@ func loadRunSnapshot(root, runID string, requireCompatibleComparison, force bool
 	if err := json.Unmarshal(body, &run); err != nil {
 		return runSnapshotEnvelope{}, fmt.Errorf("parse evidence RUN manifest: %w", err)
 	}
+	if run.SchemaVersion != 4 {
+		return runSnapshotEnvelope{}, fmt.Errorf("evidence RUN %s has unsupported manifest schema_version %d", runID, run.SchemaVersion)
+	}
 	manifestHash := sha256.Sum256(body)
 	run.ManifestSHA256 = "sha256:" + hex.EncodeToString(manifestHash[:])
 	if run.RunID != runID {
@@ -242,7 +287,7 @@ func loadRunSnapshot(root, runID string, requireCompatibleComparison, force bool
 			return runSnapshotEnvelope{}, fmt.Errorf("evidence RUN %s comparison with %s is %s, expected compatible", runID, run.Comparison.RunID, run.Comparison.Status)
 		}
 	}
-	if run.BacklogSnapshot.Status != "ok" || run.BacklogSnapshot.SchemaVersion < 1 {
+	if run.BacklogSnapshot.Status != "ok" || run.BacklogSnapshot.SchemaVersion != 2 {
 		return runSnapshotEnvelope{}, fmt.Errorf("evidence RUN %s has no usable APPLIED snapshot", runID)
 	}
 	return run, nil
@@ -256,8 +301,8 @@ func validateRunSnapshotCard(run runSnapshotEnvelope, card Card) error {
 		if item.Status != "APPLIED" {
 			return fmt.Errorf("evidence RUN %s records %s as %s, expected APPLIED", run.RunID, card.ID, item.Status)
 		}
-		if item.DefinitionHash != cardDefinitionHash(card) {
-			return fmt.Errorf("card %s definition differs from evidence RUN %s snapshot", card.ID, run.RunID)
+		if item.TreatmentHash != cardTreatmentHash(card) {
+			return fmt.Errorf("card %s treatment differs from evidence RUN %s snapshot", card.ID, run.RunID)
 		}
 		return nil
 	}
@@ -275,12 +320,21 @@ func snapshotCardIDs(run runSnapshotEnvelope) []string {
 	return ids
 }
 
-func snapshotDefinitionHashes(run runSnapshotEnvelope) map[string]string {
+func snapshotTreatmentHashes(run runSnapshotEnvelope) map[string]string {
 	hashes := map[string]string{}
 	for _, card := range run.BacklogSnapshot.Cards {
 		if card.Status == "APPLIED" {
-			hashes[card.ID] = card.DefinitionHash
+			hashes[card.ID] = card.TreatmentHash
 		}
 	}
 	return hashes
+}
+
+func snapshotDecisionChanged(run runSnapshotEnvelope, card Card) bool {
+	for _, item := range run.BacklogSnapshot.Cards {
+		if item.ID == card.ID {
+			return item.DecisionHash != cardDecisionHash(card)
+		}
+	}
+	return false
 }

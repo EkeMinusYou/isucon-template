@@ -65,10 +65,12 @@ Terminal states do not reopen. `READY -> DOING` must set a non-empty Owner in th
 
 The card body must make four decisions clear without a separate generic contract schema:
 
-1. Purpose — Objective and causal direction
-2. Boundary — implementation and rollback unit
-3. Decision — observations and adoption/correction/rejection outcomes
-4. Safety — official guardrails, stop condition, rollback
+1. `Hypothesis` — Objective and causal direction
+2. `Change boundary` — implementation and rollback unit
+3. `Verification` — observations and adoption/correction/rejection outcomes
+4. `Safety` — official guardrails, stop condition, rollback
+
+New cards always start in INVESTIGATE. READY is a deliberately narrow structural gate: the CLI requires those four non-empty sections, a non-empty Fingerprint, at least one ACTIVE Objective relation, and satisfied BLOCKING dependencies. It does not grade wording, require an effect estimate, or require ORDERING dependencies to be complete.
 
 Effect magnitude may be unknown. A non-bottleneck optimization, selection change, loss recovery, spam control, or experiment may be READY when direction and safety are explainable. “Try it and inspect score” is insufficient.
 
@@ -80,9 +82,9 @@ Missing confidence, incomplete investigation, unknown effect size, or desire for
 
 ### VALIDATED and REJECTED
 
-Use top-level `task pass` after a successful manual benchmark. It requires a finalized RUN with `passed=true` and a known score, and validates only APPLIED cards present in that RUN's before-bench snapshot with unchanged definitions. When a control RUN is declared, the final comparison must remain `compatible` and the outcome delta uses that control rather than the immediately preceding RUN.
+Use top-level `task pass` after a successful manual benchmark. It requires a finalized RUN with `passed=true` and a known score, and validates only APPLIED cards present in that RUN's before-bench snapshot with an unchanged treatment. When a control RUN is declared, the final comparison must remain `compatible` and the outcome delta uses that control rather than the immediately preceding RUN.
 
-Use `task pass FORCE=true` only for an explicit exceptional adoption. It bypasses the pass, known-score, and comparison-compatibility gates, but never finalization, snapshot integrity, or card-definition checks. The forced decision remains visible in History.
+Use `task pass FORCE=true` only for an explicit exceptional adoption. It bypasses the pass, known-score, and comparison-compatibility gates, but never finalization, snapshot integrity, or treatment checks. The forced decision remains visible in History.
 
 Adoption decisions are stored as immutable SQLite events in the same transaction as the card transitions. Score and comparison values in an event are evidence snapshots read from the finalized `run.json`; the manifest remains the source of truth for the RUN itself. `runs/outcomes.tsv` is regenerated from these events.
 
@@ -110,11 +112,11 @@ Measurement is not a Backlog layer or card kind. Use existing standard RUN artif
 
 When Evidence is insufficient, record the limitation in Constraint or Intervention History. Do not create a measurement card. If a new standard instrumentation capability is truly required, treat it as a separately authorized repository task, not an implicit backlog transition.
 
-Historical RUNs and reports remain immutable Evidence even if they contain legacy terminology.
+`evidence` chooses the newest finalized RUN whose APPLIED snapshot contains the requested card, or the exact `--run` when supplied. Comparisons come only from the target manifest's declared `compatible` control RUN. The APPLIED snapshot uses `treatment_hash` (`Fingerprint` and `Change boundary`) as the hard RUN/adoption compatibility gate. `decision_hash` (`Hypothesis`, `Verification`, and `Safety`) is audit information and produces a warning when it changed. Workflow metadata, relations, observations, results, and History are outside both hashes.
 
 ## Priority
 
-1. existing DOING, unverified APPLIED, required rollback;
+1. existing DOING, APPLIED awaiting verification, required rollback;
 2. required-for-valid-result Objectives;
 3. explicit user priority;
 4. RESOLVES Interventions and unmet dependencies;

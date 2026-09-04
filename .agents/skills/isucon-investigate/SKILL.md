@@ -34,10 +34,10 @@ description: ISUCON BacklogのINVESTIGATE Interventionを公式仕様、現行�
 3. 同じtarget・mechanism・採否境界のopen Interventionを確認し、重複なら統合する。
 4. 一体で採用・適用・rollbackするChange boundaryを確定する。ファイル数やlayer数だけで分割しない。
 5. 次の4点を本文へ明記する。
-   - 目的: Objectiveと因果
-   - 境界: 実装対象とrollback単位
-   - 判定: 採用・修正・棄却条件
-   - 安全: 公式guardrail、停止条件、rollback
+   - `Hypothesis`: Objectiveと因果
+   - `Change boundary`: 実装対象とrollback単位
+   - `Verification`: 採用・修正・棄却条件
+   - `Safety`: 公式guardrail、停止条件、rollback
 6. 依存が本当に別の採否境界なら構造化dependencyにする。単なる実装順は同一カード内で扱う。
 7. Constraintとの関係を確認する。解消条件を満たす場合は`RESOLVES`、部分改善なら`MITIGATES`、無関係ならlinkしない。
 8. 本文と状態を一つの`resolve`操作で確定し、Ownerを空にする。

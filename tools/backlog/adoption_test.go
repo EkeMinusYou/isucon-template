@@ -28,7 +28,7 @@ func TestAdoptCardsMatchingRecordsOneAtomicEvent(t *testing.T) {
 		ManifestSHA256: "sha256:" + strings.Repeat("0", 64), SnapshotRevision: 7,
 	}
 	cards, err := store.adoptCardsMatching([]string{"B-001", "B-002"}, map[string]string{
-		"B-001": cardDefinitionHash(first), "B-002": cardDefinitionHash(second),
+		"B-001": cardTreatmentHash(first), "B-002": cardTreatmentHash(second),
 	}, event, "forced adoption")
 	if err != nil {
 		t.Fatal(err)
@@ -88,9 +88,9 @@ func TestAdoptCardsMatchingRollsBackEveryCardOnMismatch(t *testing.T) {
 		ComparisonStatus: "none", ManifestSHA256: "sha256:" + strings.Repeat("0", 64), SnapshotRevision: 3,
 	}
 	_, err = store.adoptCardsMatching([]string{"B-001", "B-002"}, map[string]string{
-		"B-001": cardDefinitionHash(first), "B-002": "sha256:stale",
+		"B-001": cardTreatmentHash(first), "B-002": "sha256:stale",
 	}, event, "adoption")
-	if err == nil || !strings.Contains(err.Error(), "definition differs") {
+	if err == nil || !strings.Contains(err.Error(), "treatment differs") {
 		t.Fatalf("adoption mismatch error = %v", err)
 	}
 	for _, id := range []string{"B-001", "B-002"} {

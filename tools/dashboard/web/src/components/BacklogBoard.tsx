@@ -63,9 +63,6 @@ export function BacklogBoard({ backlog, showClosed }: Props) {
                       {card.priority && (
                         <span className="badge badge-outline badge-xs">{card.priority}</span>
                       )}
-                      {card.kind === 'MEASUREMENT' && (
-                        <span className="badge badge-info badge-xs">measurement</span>
-                      )}
                     </div>
                     <span className="line-clamp-2 text-sm text-base-content">{card.title}</span>
                   </div>

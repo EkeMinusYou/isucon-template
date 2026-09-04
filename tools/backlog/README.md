@@ -66,18 +66,29 @@ INVESTIGATE -> BLOCKED | REJECTED
 
 `isucon-investigate` is the only skill that creates READY. A READY Intervention states:
 
-1. Objective and causal direction
-2. Change boundary and rollback unit
-3. adoption, correction, and rejection criteria
-4. official guardrails, stop condition, and rollback
+1. `Hypothesis`: Objective and causal direction
+2. `Change boundary`: implementation and rollback unit
+3. `Verification`: adoption, correction, and rejection criteria
+4. `Safety`: official guardrails, stop condition, and rollback
 
 Unknown effect magnitude, absence of a current Constraint, or lack of a direct metric does not by itself prevent READY. A proposal that can only say “change it and inspect score” remains INVESTIGATE.
 
-`READY -> DOING` sets Owner atomically. Targeted writes require `--expect-card-version`; Constraint and Objective writes use their own version checks. Dependencies always specify `required-status` and `mode` explicitly.
+New cards always start as INVESTIGATE. The CLI permits READY only when the four sections above and `Fingerprint` are non-empty, an ACTIVE Objective is linked, and every BLOCKING dependency is satisfied. It deliberately does not grade prose, require a known effect size, or block READY on ORDERING dependencies. `READY -> DOING` sets Owner atomically. Targeted writes require `--expect-card-version`; Constraint and Objective writes use their own version checks. Dependencies always specify `required-status` and `mode` explicitly.
 
-After a successful manual benchmark, use `task pass` or `task pass -- B-001,B-002`. The RUN must be finalized, have `passed=true`, and have a known score. If a control RUN was declared, its final comparison status must be `compatible`; the recorded delta uses that control rather than the previous TSV row. `task pass FORCE=true` overrides only the pass, known-score, and comparison-compatibility gates; finalization, a usable APPLIED snapshot, and unchanged card definitions remain mandatory. Forced adoption is recorded in History.
+After a successful manual benchmark, use `task pass` or `task pass -- B-001,B-002`. The RUN must be finalized, have `passed=true`, and have a known score. If a control RUN was declared, its final comparison status must be `compatible`; the recorded delta uses that control rather than the previous TSV row. `task pass FORCE=true` overrides only the pass, known-score, and comparison-compatibility gates; finalization, a usable APPLIED snapshot, and an unchanged treatment remain mandatory. Forced adoption is recorded in History.
 
 Each pass writes one immutable `adoption_events` row and its `adoption_event_cards` rows in the same SQLite transaction as every card promotion. The event snapshots score, pass state, declared control, delta, manifest hash, and backlog revision from `run.json`. `runs/outcomes.tsv` is an atomically regenerated projection, not a source of truth.
+
+APPLIED snapshot schema version 2 stores two deliberately small hashes. `treatment_hash` contains only `Fingerprint` and `Change boundary`; it is the hard compatibility gate for RUN comparison and adoption. `decision_hash` contains `Hypothesis`, `Verification`, and `Safety`; changing it produces a review warning but does not make an otherwise identical implementation incompatible or block adoption. Title, priority, owner, run links, Objective/Constraint relations, Observation, Unknowns, Result, and History are outside both hashes. Line-ending/trailing-space changes and equivalent JSON formatting are normalized. Benchmark and Evidence commands accept only version 2 snapshots.
+
+The performance residual assessment uses the same treatment hash: `Fingerprint` and `Change boundary`. Editing Hypothesis, Verification, or Safety does not force that calculation to be repeated.
+
+To inspect evidence, the CLI selects the newest finalized RUN whose APPLIED snapshot actually contains the card. Use `--run` to select one explicitly. Endpoint, TSV, and profile comparisons use only the control RUN declared compatible by that target manifest; they never fall back to an unrelated previous RUN.
+
+```shell
+task backlog -- evidence B-001
+task backlog -- evidence --run 20260904-120000 B-001
+```
 
 ## Storage and validation
 
@@ -87,6 +98,6 @@ Every CLI mutation increments `backlog_revision` and dumps the database. Do not 
 task backlog -- validate
 ```
 
-Validation checks SQLite integrity, IDs and versions, card states, dependencies, Objective hierarchy, ACTIVE Constraint scope, Constraint relations, and assessment bindings.
+Validation checks SQLite integrity, IDs and versions, card states, READY contracts, dependencies, Objective hierarchy, ACTIVE Constraint scope, Constraint relations, and assessment bindings.
 
 See [backlog-workflow.md](backlog-workflow.md) for writer and state rules.

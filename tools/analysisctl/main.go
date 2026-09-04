@@ -70,6 +70,8 @@ var (
 	hostPattern  = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 )
 
+const importSchemaVersion = "3"
+
 func main() {
 	if err := runCLI(os.Args[1:], os.Stdout, os.Stderr); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -202,6 +204,14 @@ func (r runner) sync() error {
 	active, err := r.activeSources(dirs)
 	if err != nil {
 		return err
+	}
+	schemaCurrent, err := r.importSchemaCurrent()
+	if err != nil {
+		return err
+	}
+	if !schemaCurrent {
+		fmt.Fprintf(r.stdout, "%s の取り込みschema versionが古いため再構築します\n", r.db)
+		return r.rebuildRuns(runs)
 	}
 	missing, err := r.missingTables(active)
 	if err != nil {
@@ -437,6 +447,8 @@ func (r runner) buildImportSQL(active []sourceConfig, runIDs []string) string {
 	fmt.Fprintf(&out, "attach %s as db;\n", sqlString(r.db))
 	out.WriteString("begin transaction;\n")
 	out.WriteString("create or replace table db.runs as select * from runs;\n")
+	out.WriteString("create table if not exists db.analysis_metadata (key varchar primary key, value varchar not null);\n")
+	fmt.Fprintf(&out, "insert or replace into db.analysis_metadata values ('import_schema_version', %s);\n", sqlString(importSchemaVersion))
 	out.WriteString("create table if not exists db.ingested (run_id varchar primary key);\n")
 	for _, source := range active {
 		fmt.Fprintf(&out, "create table if not exists db.%s as select * from %s limit 0;\n", source.Table, source.View)
@@ -609,6 +621,21 @@ func (r runner) missingTables(active []sourceConfig) ([]string, error) {
 		}
 	}
 	return missing, nil
+}
+
+func (r runner) importSchemaCurrent() (bool, error) {
+	tableCount, err := r.queryCount("select count(*) from information_schema.tables where table_name = 'analysis_metadata'")
+	if err != nil {
+		return false, err
+	}
+	if tableCount == 0 {
+		return false, nil
+	}
+	output, err := r.duckdbOutput(nil, "-noheader", "-list", r.db, "-c", "select value from analysis_metadata where key = 'import_schema_version'")
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(output) == importSchemaVersion, nil
 }
 
 func (r runner) duckdbCommand(env []string, args ...string) error {

@@ -347,7 +347,6 @@ export type TimelineResponse = {
 
 export type BacklogCard = {
   id: string
-  kind: string
   status: string
   title: string
   closed: boolean
@@ -382,13 +381,27 @@ export type BacklogDependency = {
   required_status: string
   mode: string
   reason: string
-  kind: string
   status: string
+}
+
+export type BacklogObjectiveRelation = {
+  id: string
+  status: string
+  mode: string
+  title: string
+  rationale: string
+}
+
+export type BacklogConstraintRelation = {
+  id: string
+  status: string
+  title: string
+  role: string
+  rationale: string
 }
 
 export type BacklogCardDetail = {
   id: string
-  kind: string
   status: string
   title: string
   closed: boolean
@@ -401,15 +414,12 @@ export type BacklogCardDetail = {
   fingerprint: string
   updated: string
   updated_by: string
-  assessment_kind: string
-  assessment_detail: string
-  expected_score_effect: string
-  attribution: string
-  blocked_contract: string
   sections: BacklogSection[]
   history: BacklogHistoryEntry[]
   dependencies: BacklogDependency[]
   unblocks: BacklogDependency[]
+  objectives: BacklogObjectiveRelation[]
+  constraints: BacklogConstraintRelation[]
 }
 
 export type ReportInfo = {

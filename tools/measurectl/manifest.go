@@ -75,13 +75,13 @@ type BacklogSnapshot struct {
 }
 
 type AppliedSnapshotCard struct {
-	ID             string `json:"id"`
-	Kind           string `json:"kind"`
-	Status         string `json:"status"`
-	Version        int    `json:"version"`
-	Title          string `json:"title"`
-	Fingerprint    string `json:"fingerprint"`
-	DefinitionHash string `json:"definition_hash"`
+	ID            string `json:"id"`
+	Status        string `json:"status"`
+	Version       int    `json:"version"`
+	Title         string `json:"title"`
+	Fingerprint   string `json:"fingerprint"`
+	TreatmentHash string `json:"treatment_hash"`
+	DecisionHash  string `json:"decision_hash"`
 }
 
 // Roles はその走行時点のホスト役割。構成をまたぐ RUN 比較で必要になる。
@@ -179,15 +179,15 @@ func runManifestBegin(args []string) error {
 	if err := json.Unmarshal(body, &snapshot); err != nil {
 		return fmt.Errorf("APPLIED snapshotが不正です: %w", err)
 	}
-	if snapshot.Status != "ok" || snapshot.SchemaVersion < 1 {
+	if snapshot.Status != "ok" || snapshot.SchemaVersion != 2 {
 		return fmt.Errorf("APPLIED snapshotを利用できません: status=%q schema_version=%d", snapshot.Status, snapshot.SchemaVersion)
 	}
 	if snapshot.Cards == nil {
 		snapshot.Cards = []AppliedSnapshotCard{}
 	}
 	for _, card := range snapshot.Cards {
-		if card.ID == "" || card.Status != "APPLIED" || (card.Kind != "CHANGE" && card.Kind != "MEASUREMENT") || card.DefinitionHash == "" {
-			return fmt.Errorf("APPLIED snapshotのカードが不正です: id=%q status=%q kind=%q", card.ID, card.Status, card.Kind)
+		if card.ID == "" || card.Status != "APPLIED" || card.TreatmentHash == "" || card.DecisionHash == "" {
+			return fmt.Errorf("APPLIED snapshotのカードが不正です: id=%q status=%q", card.ID, card.Status)
 		}
 	}
 
@@ -257,10 +257,10 @@ func runManifestFinalize(args []string) error {
 	if err := json.Unmarshal(body, &m); err != nil {
 		return fmt.Errorf("run.jsonが不正です: %w", err)
 	}
-	if m.SchemaVersion < 2 || (m.Phase != "started" && m.Phase != "finalized") {
+	if m.SchemaVersion != 4 || (m.Phase != "started" && m.Phase != "finalized") {
 		return fmt.Errorf("run.jsonはmanifest beginで作成されたものではありません")
 	}
-	if m.BacklogSnapshot.Status != "ok" {
+	if m.BacklogSnapshot.Status != "ok" || m.BacklogSnapshot.SchemaVersion != 2 {
 		return fmt.Errorf("run.jsonに利用可能なAPPLIED snapshotがありません")
 	}
 	if *score != "" {
@@ -562,43 +562,47 @@ func compareManifest(target Manifest, compareRunDir string, allowedCards, allowe
 		CardDelta:    []string{},
 		RoleDelta:    []string{},
 	}
-	incompatible, unverified := false, false
-	addReason := func(reason string, hard bool) {
+	incompatible := false
+	addReason := func(reason string) {
 		result.Reasons = append(result.Reasons, reason)
-		if hard {
-			incompatible = true
-		} else {
-			unverified = true
-		}
+		incompatible = true
 	}
 	if control.Phase != "finalized" || control.Passed == nil || !*control.Passed {
-		addReason("control RUN is not finalized and passed", true)
+		addReason("control RUN is not finalized and passed")
 	}
-	if control.SchemaVersion < 3 {
-		addReason("control RUN predates the collector-clean comparison contract", false)
+	if control.SchemaVersion != 4 {
+		addReason(fmt.Sprintf("control RUN has unsupported manifest schema_version %d", control.SchemaVersion))
 	} else if !control.Preflight.CollectorClean {
-		addReason("control RUN did not pass the collector-clean gate", true)
+		addReason("control RUN did not pass the collector-clean gate")
 	}
-	if target.SchemaVersion < 3 || !target.Preflight.CollectorClean {
-		addReason("target RUN did not pass the collector-clean gate", true)
+	if target.SchemaVersion != 4 {
+		addReason(fmt.Sprintf("target RUN has unsupported manifest schema_version %d", target.SchemaVersion))
+	} else if !target.Preflight.CollectorClean {
+		addReason("target RUN did not pass the collector-clean gate")
+	}
+	if control.BacklogSnapshot.Status != "ok" || control.BacklogSnapshot.SchemaVersion != 2 {
+		addReason("control RUN has no current APPLIED snapshot")
+	}
+	if target.BacklogSnapshot.Status != "ok" || target.BacklogSnapshot.SchemaVersion != 2 {
+		addReason("target RUN has no current APPLIED snapshot")
 	}
 	if len(control.Artifacts) == 0 {
-		addReason("control RUN has no recorded artifacts", true)
+		addReason("control RUN has no recorded artifacts")
 	}
 	for _, artifact := range control.Artifacts {
 		if artifact.Status != "ok" {
-			addReason(fmt.Sprintf("control artifact %s is %s", artifact.Name, artifact.Status), true)
+			addReason(fmt.Sprintf("control artifact %s is %s", artifact.Name, artifact.Status))
 		}
 	}
 	if target.Source.Dirty || control.Source.Dirty {
-		addReason("target or control source is dirty", true)
+		addReason("target or control source is dirty")
 	}
 	if target.Source.Commit == "" || control.Source.Commit == "" {
-		addReason("target or control source commit is missing", true)
+		addReason("target or control source commit is missing")
 	}
 	if target.Phase == "finalized" {
 		if len(target.Artifacts) == 0 {
-			addReason("target RUN has no recorded artifacts", true)
+			addReason("target RUN has no recorded artifacts")
 		}
 		controlArtifactNames := map[string]bool{}
 		targetArtifactNames := map[string]bool{}
@@ -610,17 +614,17 @@ func compareManifest(target Manifest, compareRunDir string, allowedCards, allowe
 		}
 		for name := range controlArtifactNames {
 			if !targetArtifactNames[name] {
-				addReason(fmt.Sprintf("target RUN is missing control artifact %s", name), true)
+				addReason(fmt.Sprintf("target RUN is missing control artifact %s", name))
 			}
 		}
 		for name := range targetArtifactNames {
 			if !controlArtifactNames[name] {
-				addReason(fmt.Sprintf("target RUN has extra artifact %s", name), true)
+				addReason(fmt.Sprintf("target RUN has extra artifact %s", name))
 			}
 		}
 		for _, artifact := range target.Artifacts {
 			if artifact.Status != "ok" {
-				addReason(fmt.Sprintf("target artifact %s is %s", artifact.Name, artifact.Status), true)
+				addReason(fmt.Sprintf("target artifact %s is %s", artifact.Name, artifact.Status))
 			}
 		}
 	}
@@ -638,14 +642,14 @@ func compareManifest(target Manifest, compareRunDir string, allowedCards, allowe
 		}
 		result.RoleDelta = append(result.RoleDelta, role)
 		if !allowedRoleSet[role] {
-			addReason(fmt.Sprintf("role %s differs without allowance: target=%s control=%s", role, targetValue, controlValue), true)
+			addReason(fmt.Sprintf("role %s differs without allowance: target=%s control=%s", role, targetValue, controlValue))
 		}
 	}
 	for role := range allowedRoleSet {
 		if _, ok := targetRoles[role]; !ok {
-			addReason(fmt.Sprintf("unknown allowed role field %s", role), true)
+			addReason(fmt.Sprintf("unknown allowed role field %s", role))
 		} else if targetRoles[role] == controlRoles[role] {
-			addReason(fmt.Sprintf("allowed role %s has no actual delta", role), true)
+			addReason(fmt.Sprintf("allowed role %s has no actual delta", role))
 		}
 	}
 
@@ -668,19 +672,19 @@ func compareManifest(target Manifest, compareRunDir string, allowedCards, allowe
 		}
 		result.CardDelta = append(result.CardDelta, id)
 		if !allowedCardSet[id] {
-			addReason(fmt.Sprintf("APPLIED card %s differs without allowance", id), true)
+			addReason(fmt.Sprintf("APPLIED card %s differs without allowance", id))
 		}
 	}
 	for id := range allowedCardSet {
 		if !allCardIDs[id] {
-			addReason(fmt.Sprintf("allowed card %s is absent from both snapshots", id), true)
+			addReason(fmt.Sprintf("allowed card %s is absent from both snapshots", id))
 		} else if targetCards[id] == controlCards[id] {
-			addReason(fmt.Sprintf("allowed card %s has no actual delta", id), true)
+			addReason(fmt.Sprintf("allowed card %s has no actual delta", id))
 		}
 	}
 	if target.Source.Commit != "" && control.Source.Commit != "" && target.Source.Commit != control.Source.Commit {
 		if len(result.CardDelta) == 0 {
-			addReason(fmt.Sprintf("source commit differs without an APPLIED card delta: target=%s control=%s", target.Source.Commit, control.Source.Commit), true)
+			addReason(fmt.Sprintf("source commit differs without an APPLIED card delta: target=%s control=%s", target.Source.Commit, control.Source.Commit))
 		} else {
 			result.Reasons = append(result.Reasons, fmt.Sprintf("source commit difference is attributed to declared APPLIED card delta: target=%s control=%s", target.Source.Commit, control.Source.Commit))
 		}
@@ -690,8 +694,6 @@ func compareManifest(target Manifest, compareRunDir string, allowedCards, allowe
 	sort.Strings(result.RoleDelta)
 	if incompatible {
 		result.Status = "incompatible"
-	} else if unverified {
-		result.Status = "unverified"
 	}
 	return result, nil
 }
@@ -713,7 +715,7 @@ func roleValues(roles Roles) map[string]string {
 func snapshotCardHashes(cards []AppliedSnapshotCard) map[string]string {
 	result := map[string]string{}
 	for _, card := range cards {
-		result[strings.ToUpper(card.ID)] = card.DefinitionHash
+		result[strings.ToUpper(card.ID)] = card.TreatmentHash
 	}
 	return result
 }

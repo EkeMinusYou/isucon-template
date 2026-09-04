@@ -65,12 +65,12 @@ func TestManifestBeginAndFinalizePreserveSnapshotAndSource(t *testing.T) {
 	}
 	snapshotPath := filepath.Join(root, "snapshot.json")
 	snapshot := BacklogSnapshot{
-		SchemaVersion: 1,
+		SchemaVersion: 2,
 		Status:        "ok",
 		CapturedAt:    "2026-09-01T12:00:00+09:00",
 		Revision:      42,
 		Cards: []AppliedSnapshotCard{{
-			ID: "B-001", Kind: "MEASUREMENT", Status: "APPLIED", Version: 3, DefinitionHash: "sha256:test",
+			ID: "B-001", Status: "APPLIED", Version: 3, TreatmentHash: "sha256:treatment", DecisionHash: "sha256:decision",
 		}},
 	}
 	body, err := json.Marshal(snapshot)
@@ -129,6 +129,22 @@ func TestManifestBeginAndFinalizePreserveSnapshotAndSource(t *testing.T) {
 	}
 }
 
+func TestManifestBeginRejectsOutdatedAppliedSnapshot(t *testing.T) {
+	root := t.TempDir()
+	runDir := filepath.Join(root, "20260901-120000")
+	if err := os.MkdirAll(runDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	snapshotPath := filepath.Join(root, "snapshot.json")
+	if err := os.WriteFile(snapshotPath, []byte(`{"schema_version":1,"status":"ok","cards":[]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := runManifestBegin([]string{"-dir", runDir, "-applied-snapshot", snapshotPath})
+	if err == nil || !strings.Contains(err.Error(), "schema_version=1") {
+		t.Fatalf("outdated snapshot error = %v", err)
+	}
+}
+
 func TestManifestFinalizeRequiresBegin(t *testing.T) {
 	dir := t.TempDir()
 	if err := runManifestFinalize([]string{"-dir", dir}); err == nil {
@@ -167,15 +183,15 @@ func TestCompareManifestAcceptsOnlyDeclaredCardAndRoleDeltas(t *testing.T) {
 	}
 	passed := true
 	control := Manifest{
-		SchemaVersion: 3,
+		SchemaVersion: 4,
 		Phase:         "finalized",
 		RunID:         "20260901-120000",
 		Passed:        &passed,
 		Preflight:     Preflight{CollectorClean: true},
 		Source:        CodeSource{Commit: "abc123"},
 		Roles:         Roles{App: []string{"isucon-1"}, MySQL: "isucon-1"},
-		BacklogSnapshot: BacklogSnapshot{Cards: []AppliedSnapshotCard{
-			{ID: "B-001", DefinitionHash: "sha256:control"},
+		BacklogSnapshot: BacklogSnapshot{SchemaVersion: 2, Status: "ok", Cards: []AppliedSnapshotCard{
+			{ID: "B-001", TreatmentHash: "sha256:control", DecisionHash: "sha256:decision"},
 		}},
 		Artifacts: []Artifact{{Name: "alp", Status: "ok"}},
 	}
@@ -190,7 +206,7 @@ func TestCompareManifestAcceptsOnlyDeclaredCardAndRoleDeltas(t *testing.T) {
 	target.RunID = "20260901-130000"
 	target.Source.Commit = "def456"
 	target.Roles.MySQL = "isucon-2"
-	target.BacklogSnapshot.Cards = []AppliedSnapshotCard{{ID: "B-001", DefinitionHash: "sha256:target"}}
+	target.BacklogSnapshot.Cards = []AppliedSnapshotCard{{ID: "B-001", TreatmentHash: "sha256:target", DecisionHash: "sha256:decision"}}
 
 	allowed, err := compareManifest(target, controlDir, []string{"B-001"}, []string{"mysql"})
 	if err != nil {
@@ -206,6 +222,17 @@ func TestCompareManifestAcceptsOnlyDeclaredCardAndRoleDeltas(t *testing.T) {
 	}
 	if undeclared.Status != "incompatible" {
 		t.Fatalf("undeclared comparison = %#v", undeclared)
+	}
+
+	decisionOnly := control
+	decisionOnly.RunID = "20260901-140000"
+	decisionOnly.BacklogSnapshot.Cards = []AppliedSnapshotCard{{ID: "B-001", TreatmentHash: "sha256:control", DecisionHash: "sha256:changed"}}
+	decisionComparison, err := compareManifest(decisionOnly, controlDir, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decisionComparison.Status != "compatible" || len(decisionComparison.CardDelta) != 0 {
+		t.Fatalf("decision-only comparison = %#v", decisionComparison)
 	}
 
 	artifactMismatchTarget := target
@@ -235,7 +262,7 @@ func TestCompareManifestRejectsUncleanControl(t *testing.T) {
 	}
 	passed := true
 	control := Manifest{
-		SchemaVersion: 3,
+		SchemaVersion: 4,
 		Phase:         "finalized",
 		RunID:         "20260901-120000",
 		Passed:        &passed,
@@ -265,7 +292,7 @@ func TestCompareManifestRejectsEmptyArtifactsAndRunIDMismatch(t *testing.T) {
 	}
 	passed := true
 	control := Manifest{
-		SchemaVersion: 3,
+		SchemaVersion: 4,
 		Phase:         "finalized",
 		RunID:         "20260901-120000",
 		Passed:        &passed,

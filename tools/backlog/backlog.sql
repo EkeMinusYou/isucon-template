@@ -93,7 +93,7 @@ CREATE TABLE constraint_intervention_assessments (
     constraint_id TEXT NOT NULL REFERENCES constraints(id) ON DELETE CASCADE,
     assessment_json TEXT NOT NULL,
     constraint_definition_hash TEXT NOT NULL DEFAULT '',
-    card_definition_hash TEXT NOT NULL DEFAULT '',
+    card_treatment_hash TEXT NOT NULL DEFAULT '',
     updated TEXT NOT NULL DEFAULT '',
     updated_by TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (card_id, constraint_id)
@@ -143,7 +143,7 @@ CREATE TABLE adoption_events (
     passed INTEGER CHECK (passed IS NULL OR passed IN (0, 1)),
     comparison_run_id TEXT NOT NULL DEFAULT '',
     comparison_score INTEGER,
-    comparison_status TEXT NOT NULL CHECK (comparison_status IN ('none', 'compatible', 'incompatible', 'unverified')),
+    comparison_status TEXT NOT NULL CHECK (comparison_status IN ('none', 'compatible', 'incompatible')),
     delta INTEGER,
     manifest_sha256 TEXT NOT NULL CHECK (
         length(manifest_sha256) = 71
@@ -157,7 +157,7 @@ CREATE TABLE adoption_event_cards (
     card_id TEXT NOT NULL REFERENCES cards(id),
     origin TEXT NOT NULL DEFAULT '',
     fingerprint TEXT NOT NULL DEFAULT '',
-    definition_hash TEXT NOT NULL,
+    treatment_hash TEXT NOT NULL,
     PRIMARY KEY (adoption_event_id, card_id)
 );
 CREATE TABLE change_log (

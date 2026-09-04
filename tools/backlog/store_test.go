@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -19,9 +18,24 @@ func testStore(t *testing.T) *Store {
 
 func seedBacklog(t *testing.T, store *Store, revision int, nextID string, cards ...Card) {
 	t.Helper()
-	for _, card := range cards {
+	for index := range cards {
+		card := &cards[index]
 		if card.Status == "" {
 			card.Status = "INVESTIGATE"
+		}
+		if requiresReadyContract(card.Status) {
+			if strings.TrimSpace(card.Fingerprint) == "" {
+				card.Fingerprint = "test:" + card.ID
+			}
+			present := map[string]bool{}
+			for _, section := range card.Sections {
+				present[section.Name] = true
+			}
+			for _, name := range []string{sectionHypothesis, sectionChangeBoundary, sectionVerification, sectionSafety} {
+				if !present[name] {
+					card.Sections = append(card.Sections, Section{Name: name, Position: len(card.Sections), Body: "test " + strings.ToLower(name)})
+				}
+			}
 		}
 		_, err := store.db.Exec(`INSERT INTO cards(`+cardColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			card.ID, card.Version, card.Status, card.Title, card.Priority, card.Owner, card.Area,
@@ -48,6 +62,13 @@ func seedBacklog(t *testing.T, store *Store, revision int, nextID string, cards 
 		}
 	}
 	for _, card := range cards {
+		if requiresReadyContract(card.Status) {
+			if _, err := store.db.Exec(`INSERT INTO objective_interventions(objective_id, card_id, rationale) VALUES ('O-003', ?, 'test objective relation')`, card.ID); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	for _, card := range cards {
 		for _, dependency := range card.Dependencies {
 			if _, err := store.db.Exec(`INSERT INTO card_dependencies(card_id, depends_on_card_id, required_status, mode, reason) VALUES (?, ?, ?, ?, ?)`,
 				card.ID, dependency.DependsOnCardID, dependency.RequiredStatus, dependency.Mode, dependency.Reason); err != nil {
@@ -59,6 +80,23 @@ func seedBacklog(t *testing.T, store *Store, revision int, nextID string, cards 
 		t.Fatal(err)
 	}
 	if _, err := store.db.Exec(`UPDATE metadata SET value = ? WHERE key = 'next_id'`, nextID); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func prepareReadyContract(t *testing.T, store *Store, cardID string) {
+	t.Helper()
+	if _, err := store.db.Exec(`UPDATE cards SET fingerprint = ? WHERE id = ?`, "test:"+cardID, cardID); err != nil {
+		t.Fatal(err)
+	}
+	for position, name := range []string{sectionHypothesis, sectionChangeBoundary, sectionVerification, sectionSafety} {
+		if _, err := store.db.Exec(`INSERT INTO card_sections(card_id, name, position, body) VALUES (?, ?, ?, ?)
+			ON CONFLICT(card_id, name) DO UPDATE SET body=excluded.body`, cardID, name, position, "test "+strings.ToLower(name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := store.db.Exec(`INSERT INTO objective_interventions(objective_id, card_id, rationale) VALUES ('O-003', ?, 'test objective relation')
+		ON CONFLICT(objective_id, card_id) DO NOTHING`, cardID); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -183,6 +221,7 @@ func TestBlockedRecordsReasonInHistory(t *testing.T) {
 func TestReadyOwnerInvariant(t *testing.T) {
 	store := testStore(t)
 	seedBacklog(t, store, 0, "B-002", Card{ID: "B-001", Status: "INVESTIGATE", Owner: "skill:isucon-investigate", Title: "test"})
+	prepareReadyContract(t, store, "B-001")
 
 	if err := store.transitionCard("B-001", "READY", mutation{Actor: "skill:isucon-investigate", Operation: "transition", ExpectedCardVersion: intPtr(0)}, "promote card to the ready queue"); err != nil {
 		t.Fatal(err)
@@ -203,15 +242,121 @@ func TestReadyOwnerInvariant(t *testing.T) {
 	}
 }
 
+func TestReadyGateRequiresMinimalContract(t *testing.T) {
+	tests := []struct {
+		name    string
+		remove  string
+		wantErr string
+	}{
+		{"fingerprint", `UPDATE cards SET fingerprint='' WHERE id='B-001'`, "fingerprint"},
+		{"hypothesis", `DELETE FROM card_sections WHERE card_id='B-001' AND name='Hypothesis'`, "Hypothesis"},
+		{"change boundary", `DELETE FROM card_sections WHERE card_id='B-001' AND name='Change boundary'`, "Change boundary"},
+		{"verification", `DELETE FROM card_sections WHERE card_id='B-001' AND name='Verification'`, "Verification"},
+		{"safety", `DELETE FROM card_sections WHERE card_id='B-001' AND name='Safety'`, "Safety"},
+		{"active objective", `DELETE FROM objective_interventions WHERE card_id='B-001'`, "ACTIVE Objective"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store := testStore(t)
+			seedBacklog(t, store, 0, "B-002", Card{ID: "B-001", Status: "INVESTIGATE", Title: "candidate"})
+			prepareReadyContract(t, store, "B-001")
+			if _, err := store.db.Exec(test.remove); err != nil {
+				t.Fatal(err)
+			}
+			err := store.transitionCard("B-001", "READY", mutation{Actor: "skill:isucon-investigate", Operation: "transition", ExpectedCardVersion: intPtr(0)}, "check READY contract")
+			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("READY gate error = %v, want %q", err, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestReadyGateIgnoresOrderingDependencyButBlocksBlockingDependency(t *testing.T) {
+	for _, mode := range []string{"ORDERING", "BLOCKING"} {
+		t.Run(mode, func(t *testing.T) {
+			store := testStore(t)
+			seedBacklog(t, store, 0, "B-003",
+				Card{ID: "B-001", Status: "INVESTIGATE", Title: "candidate", Dependencies: []CardDependency{{DependsOnCardID: "B-002", RequiredStatus: "VERIFY", Mode: mode, Reason: "implementation sequence"}}},
+				Card{ID: "B-002", Status: "INVESTIGATE", Title: "prerequisite"})
+			prepareReadyContract(t, store, "B-001")
+			err := store.transitionCard("B-001", "READY", mutation{Actor: "skill:isucon-investigate", Operation: "transition", ExpectedCardVersion: intPtr(0)}, "check dependency gate")
+			if mode == "ORDERING" && err != nil {
+				t.Fatalf("ORDERING dependency blocked READY: %v", err)
+			}
+			if mode == "BLOCKING" && (err == nil || !strings.Contains(err.Error(), "requires VERIFY")) {
+				t.Fatalf("BLOCKING dependency error = %v", err)
+			}
+		})
+	}
+}
+
+func TestDependencyRegressionCannotInvalidateReadyCard(t *testing.T) {
+	store := testStore(t)
+	seedBacklog(t, store, 0, "B-003",
+		Card{ID: "B-001", Status: "READY", Title: "dependent", Dependencies: []CardDependency{{DependsOnCardID: "B-002", RequiredStatus: "APPLIED", Mode: "BLOCKING", Reason: "requires deployed prerequisite"}}},
+		Card{ID: "B-002", Status: "APPLIED", Title: "prerequisite"})
+	err := store.transitionCard("B-002", "DOING", mutation{Actor: "human:test", Operation: "transition", ExpectedCardVersion: intPtr(0)}, "roll back prerequisite")
+	if err == nil || !strings.Contains(err.Error(), "would invalidate dependent READY contract") {
+		t.Fatalf("dependency regression error = %v", err)
+	}
+	card, getErr := store.getCard("B-002")
+	if getErr != nil {
+		t.Fatal(getErr)
+	}
+	if card.Status != "APPLIED" || card.Version != 0 {
+		t.Fatalf("failed dependency regression was not rolled back: %#v", card)
+	}
+}
+
+func TestReadyContractProtectsLastActiveObjectiveRelation(t *testing.T) {
+	t.Run("unlink", func(t *testing.T) {
+		store := testStore(t)
+		seedBacklog(t, store, 0, "B-002", Card{ID: "B-001", Status: "READY", Title: "candidate"})
+		err := store.setObjectiveRelation("O-003", "B-001", "intervention", "", false, 0, mutation{Actor: "human:test", Operation: "objective.unlink"}, "remove objective relation")
+		if err == nil || !strings.Contains(err.Error(), "would invalidate READY contract") {
+			t.Fatalf("unlink error = %v", err)
+		}
+	})
+
+	t.Run("retire", func(t *testing.T) {
+		store := testStore(t)
+		seedBacklog(t, store, 0, "B-002", Card{ID: "B-001", Status: "READY", Title: "candidate"})
+		retired := "RETIRED"
+		err := store.updateObjective("O-003", ObjectivePatch{Status: &retired}, 0, mutation{Actor: "human:test", Operation: "objective.update"}, "retire score objective")
+		if err == nil || !strings.Contains(err.Error(), "would invalidate READY contract") {
+			t.Fatalf("retire error = %v", err)
+		}
+	})
+}
+
+func TestValidateRejectsReadyWithoutContract(t *testing.T) {
+	store := testStore(t)
+	if _, err := store.db.Exec(`INSERT INTO cards(id, status, title) VALUES ('B-001', 'READY', 'malformed card')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec(`UPDATE metadata SET value='B-002' WHERE key='next_id'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.validate(); err == nil || !strings.Contains(err.Error(), "fingerprint") {
+		t.Fatalf("validate malformed READY error = %v", err)
+	}
+}
+
 func TestResolveUpdatesAndTransitionsInOneMutation(t *testing.T) {
 	store := testStore(t)
 	seedBacklog(t, store, 7, "B-002", Card{ID: "B-001", Status: "INVESTIGATE", Owner: "skill:isucon-investigate", Title: "candidate"})
+	if _, err := store.db.Exec(`INSERT INTO objective_interventions(objective_id, card_id, rationale) VALUES ('O-003', 'B-001', 'increase throughput')`); err != nil {
+		t.Fatal(err)
+	}
 
 	woke, err := store.resolveCardAndWake("B-001", "READY", CardPatch{
-		Values: map[string]string{"status": "READY", "title": "bounded candidate"},
+		Values: map[string]string{"status": "READY", "title": "bounded candidate", "fingerprint": "query:v1"},
 		Sections: map[string]string{
-			sectionUnknowns:     "- Decision-blocking: none\n- Post-implementation: confirm score magnitude",
-			sectionVerification: `{"version":1,"checks":["run focused tests"],"note":"confirm score magnitude after implementation"}`,
+			sectionHypothesis:     "remove repeated query work to increase throughput",
+			sectionChangeBoundary: "replace the query and roll it back as one unit",
+			sectionVerification:   `{"version":1,"checks":["run focused tests"],"note":"confirm score magnitude after implementation"}`,
+			sectionSafety:         "stop on correctness errors and restore the original query",
+			sectionUnknowns:       "- Decision-blocking: none\n- Post-implementation: confirm score magnitude",
 		},
 	}, mutation{Actor: "skill:isucon-investigate", Operation: "resolve", ExpectedCardVersion: intPtr(0)}, "fast READY gate passed")
 	if err != nil {
@@ -242,7 +387,7 @@ func TestResolveFailureRollsBackContentAndTransition(t *testing.T) {
 
 	_, err := store.resolveCardAndWake("B-001", "READY", CardPatch{
 		Values:   map[string]string{"status": "READY", "title": "must not persist", "removed-field": "invalid"},
-		Sections: map[string]string{sectionVerification: "legacy free-form verification"},
+		Sections: map[string]string{sectionVerification: "free-form verification"},
 	}, mutation{Actor: "skill:isucon-investigate", Operation: "resolve", ExpectedCardVersion: intPtr(0)}, "invalid READY resolution")
 	if err == nil || !strings.Contains(err.Error(), "unsupported card field") {
 		t.Fatalf("resolve error = %v", err)
@@ -297,7 +442,7 @@ func TestStatusTransitionGraphAndAtomicClaim(t *testing.T) {
 	}
 }
 
-func TestAddReadyCardRejectsOwner(t *testing.T) {
+func TestAddCardCannotStartReady(t *testing.T) {
 	store := testStore(t)
 	_, err := store.addCard(NewCard{
 		Title:  "ready card",
@@ -308,8 +453,8 @@ func TestAddReadyCardRejectsOwner(t *testing.T) {
 			"owner":  "agent:test",
 		}},
 	}, mutation{Actor: "agent:test", Operation: "add"})
-	if err == nil || !strings.Contains(err.Error(), "READY cards must have an empty owner") {
-		t.Fatalf("add ready owner error = %v", err)
+	if err == nil || !strings.Contains(err.Error(), "must start as INVESTIGATE") {
+		t.Fatalf("add READY error = %v", err)
 	}
 }
 
@@ -323,7 +468,7 @@ func TestAddCardRejectsNonQueueStatus(t *testing.T) {
 			"status": "DOING",
 		}},
 	}, mutation{Actor: "agent:test", Operation: "add"})
-	if err == nil || !strings.Contains(err.Error(), "must start as INVESTIGATE or READY") {
+	if err == nil || !strings.Contains(err.Error(), "must start as INVESTIGATE") {
 		t.Fatalf("add DOING card error = %v", err)
 	}
 }
@@ -454,7 +599,7 @@ func TestConstraintLifecycleAndCardLink(t *testing.T) {
 	if len(card.ActiveConstraintIDs) != 1 || card.ActiveConstraintIDs[0] != constraintID {
 		t.Fatalf("active constraint IDs = %#v", card.ActiveConstraintIDs)
 	}
-	if err := store.updateCard(cardID, CardPatch{Sections: map[string]string{sectionChangeBoundary: "changed after assessment"}}, mutation{Actor: "skill:test", Operation: "update", ExpectedCardVersion: intPtr(0)}, "attempt stale boundary update"); err == nil || !strings.Contains(err.Error(), "card Change boundary") {
+	if err := store.updateCard(cardID, CardPatch{Sections: map[string]string{sectionChangeBoundary: "changed after assessment"}}, mutation{Actor: "skill:test", Operation: "update", ExpectedCardVersion: intPtr(0)}, "attempt stale boundary update"); err == nil || !strings.Contains(err.Error(), "card fingerprint or change boundary") {
 		t.Fatalf("stale card binding error = %v", err)
 	}
 	changedEvidence := "new limiting-axis snapshot"
@@ -522,6 +667,7 @@ func TestMergedConstraintRequiresLiveSurvivor(t *testing.T) {
 func TestInvestigatedChangeCanBecomeReadyWithoutConstraint(t *testing.T) {
 	store := testStore(t)
 	seedBacklog(t, store, 0, "B-002", Card{ID: "B-001", Status: "INVESTIGATE", Title: "candidate"})
+	prepareReadyContract(t, store, "B-001")
 	_, err := store.resolveCardAndWake("B-001", "READY", CardPatch{}, mutation{
 		Actor: "skill:isucon-investigate", Operation: "resolve", ExpectedCardVersion: intPtr(0),
 	}, "safe boundary is ready")
@@ -668,6 +814,7 @@ func TestDependencyCycleIsRejected(t *testing.T) {
 func TestReadyStatusIsGatedForSkillActors(t *testing.T) {
 	store := testStore(t)
 	seedBacklog(t, store, 0, "B-002", Card{ID: "B-001", Status: "INVESTIGATE", Title: "candidate"})
+	prepareReadyContract(t, store, "B-001")
 
 	for _, actor := range []string{"skill:isucon-analyze-alp", "skill:isucon-dashboard-triage", "agent:isucon-strategy"} {
 		err := store.transitionCard("B-001", "READY", mutation{Actor: actor, Operation: "transition", ExpectedCardVersion: intPtr(0)}, "attempt direct promotion")
@@ -693,7 +840,7 @@ func TestReadyStatusIsGatedForSkillActors(t *testing.T) {
 			"status": "READY",
 		}},
 	}, mutation{Actor: "skill:isucon-special-sauce", Operation: "add"})
-	if err == nil || !strings.Contains(err.Error(), "only as skill:isucon-investigate") {
+	if err == nil || !strings.Contains(err.Error(), "must start as INVESTIGATE") {
 		t.Fatalf("add READY by another skill error = %v", err)
 	}
 }
@@ -733,23 +880,15 @@ func TestValidateRejectsReadyCardWithOwner(t *testing.T) {
 	}
 }
 
-func TestValidateRejectsMalformedOwnerOnOpenCard(t *testing.T) {
+func TestValidateRejectsMalformedOwner(t *testing.T) {
 	for _, owner := range []string{"none", "NONE", "null", "-", " agent:test "} {
 		t.Run(owner, func(t *testing.T) {
 			store := testStore(t)
 			seedBacklog(t, store, 0, "B-002", Card{ID: "B-001", Status: "INVESTIGATE", Owner: owner, Title: "invalid owner"})
-			if err := store.validate(); err == nil || !strings.Contains(err.Error(), "invalid open-card owner") {
+			if err := store.validate(); err == nil || !strings.Contains(err.Error(), "invalid owner") {
 				t.Fatalf("validate malformed owner %q error = %v", owner, err)
 			}
 		})
-	}
-}
-
-func TestValidateAllowsLegacyMalformedOwnerOnClosedCard(t *testing.T) {
-	store := testStore(t)
-	seedBacklog(t, store, 0, "B-002", Card{ID: "B-001", Status: "VALIDATED", Owner: "none", Title: "legacy audit owner"})
-	if err := store.validate(); err != nil {
-		t.Fatalf("validate closed legacy owner error = %v", err)
 	}
 }
 
@@ -759,7 +898,7 @@ func TestVerificationAcceptsFreeTextAndStructuredJSON(t *testing.T) {
 
 	err := store.updateCard("B-001", CardPatch{Sections: map[string]string{
 		sectionVerification: "run a focused test",
-	}}, mutation{Actor: "agent:test", Operation: "update", ExpectedCardVersion: intPtr(0)}, "write legacy verification")
+	}}, mutation{Actor: "agent:test", Operation: "update", ExpectedCardVersion: intPtr(0)}, "write free-text verification")
 	if err != nil {
 		t.Fatalf("free-text Verification update error = %v", err)
 	}
@@ -773,11 +912,12 @@ func TestVerificationAcceptsFreeTextAndStructuredJSON(t *testing.T) {
 
 func TestReadyGateAcceptsFreeTextVerification(t *testing.T) {
 	store := testStore(t)
-	legacy := Section{Name: sectionVerification, Body: "run a focused test"}
+	verification := Section{Name: sectionVerification, Body: "run a focused test"}
 	seedBacklog(t, store, 0, "B-002",
-		Card{ID: "B-001", Status: "INVESTIGATE", Title: "candidate", Sections: []Section{legacy}})
+		Card{ID: "B-001", Status: "INVESTIGATE", Title: "candidate", Sections: []Section{verification}})
+	prepareReadyContract(t, store, "B-001")
 
-	err := store.transitionCard("B-001", "READY", mutation{Actor: "skill:isucon-investigate", Operation: "transition", ExpectedCardVersion: intPtr(0)}, "promote legacy contract")
+	err := store.transitionCard("B-001", "READY", mutation{Actor: "skill:isucon-investigate", Operation: "transition", ExpectedCardVersion: intPtr(0)}, "promote free-text contract")
 	if err != nil {
 		t.Fatalf("free-text READY transition error = %v", err)
 	}
@@ -808,163 +948,6 @@ func TestHistoryAppendDoesNotChangeCardVersion(t *testing.T) {
 	}
 	if card.Version != 0 || len(card.History) != 1 {
 		t.Fatalf("history append changed card version or history: version=%d history=%d", card.Version, len(card.History))
-	}
-}
-
-func TestPromoteAppliedCards(t *testing.T) {
-	store := testStore(t)
-	seedBacklog(t, store, 7, "B-004",
-		Card{ID: "B-001", Status: "APPLIED", Title: "first"},
-		Card{ID: "B-002", Status: "APPLIED", Title: "second"},
-		Card{ID: "B-003", Status: "READY", Title: "untouched"})
-
-	promoted, err := store.promoteAppliedCards([]string{"B-002"}, "task:backlog-pass", "benchmark passed")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(promoted) != 1 || promoted[0].ID != "B-002" {
-		t.Fatalf("promoted cards = %#v", promoted)
-	}
-	card, err := store.getCard("B-001")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if card.Status != "APPLIED" || card.Closed {
-		t.Fatalf("unselected card = %#v", card)
-	}
-	card, err = store.getCard("B-002")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if card.Status != "VALIDATED" || !card.Closed || card.UpdatedBy != "task:backlog-pass" {
-		t.Fatalf("promoted card = %#v", card)
-	}
-	card, err = store.getCard("B-003")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if card.Status != "READY" || card.Closed {
-		t.Fatalf("untouched card = %#v", card)
-	}
-	if revision, err := store.revision(); err != nil || revision != 8 {
-		t.Fatalf("revision = %d, err = %v", revision, err)
-	}
-	if err := store.validate(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestPromoteAppliedCardsRejectsVerify(t *testing.T) {
-	store := testStore(t)
-	seedBacklog(t, store, 0, "B-002", Card{ID: "B-001", Status: "VERIFY", Title: "not applied"})
-	if _, err := store.promoteAppliedCards([]string{"B-001"}, "task:backlog-pass", "benchmark passed"); err == nil || !strings.Contains(err.Error(), "expected APPLIED") {
-		t.Fatalf("promote VERIFY error = %v", err)
-	}
-}
-
-func TestPromoteAppliedCardsRejectsSnapshotDefinitionMismatch(t *testing.T) {
-	store := testStore(t)
-	seedBacklog(t, store, 0, "B-002", Card{ID: "B-001", Status: "APPLIED", Title: "changed after benchmark", Fingerprint: "change:v2"})
-	if _, err := store.promoteAppliedCardsMatching([]string{"B-001"}, map[string]string{"B-001": "sha256:old"}, "task:pass", "benchmark passed"); err == nil || !strings.Contains(err.Error(), "definition differs") {
-		t.Fatalf("definition mismatch error = %v", err)
-	}
-	card, err := store.getCard("B-001")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if card.Status != "APPLIED" {
-		t.Fatalf("card status = %s, want APPLIED", card.Status)
-	}
-}
-
-func TestExistingDatabaseMigratesDerivedFieldsAndPreservesSections(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "backlog.sqlite3")
-	db, err := sql.Open("sqlite", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	legacySchema := `
-CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-CREATE TABLE cards (
-    id TEXT PRIMARY KEY,
-    status TEXT NOT NULL CHECK (status IN ('INVESTIGATE', 'READY', 'DOING', 'VERIFY', 'BLOCKED', 'VALIDATED', 'REJECTED')),
-    title TEXT NOT NULL,
-    closed INTEGER NOT NULL DEFAULT 0 CHECK (closed IN (0, 1)),
-    priority TEXT NOT NULL DEFAULT '', owner TEXT NOT NULL DEFAULT '', area TEXT NOT NULL DEFAULT '',
-    source_runs TEXT NOT NULL DEFAULT '', compare_run TEXT NOT NULL DEFAULT '', observed_runs TEXT NOT NULL DEFAULT '',
-    fingerprint TEXT NOT NULL DEFAULT '', touches TEXT NOT NULL DEFAULT '', depends_on TEXT NOT NULL DEFAULT '', conflicts_with TEXT NOT NULL DEFAULT '',
-    updated TEXT NOT NULL DEFAULT '', updated_by TEXT NOT NULL DEFAULT '', assessment TEXT NOT NULL DEFAULT '',
-    result_score TEXT NOT NULL DEFAULT '', attribution TEXT NOT NULL DEFAULT ''
-);
-CREATE TABLE card_sections (card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE, name TEXT NOT NULL, position INTEGER NOT NULL, body TEXT NOT NULL DEFAULT '', PRIMARY KEY (card_id, name));
-CREATE TABLE card_metadata (
-    card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
-    name TEXT NOT NULL,
-    value TEXT NOT NULL DEFAULT '',
-    raw_value TEXT NOT NULL DEFAULT '',
-    position INTEGER NOT NULL,
-    PRIMARY KEY (card_id, name)
-);`
-	if _, err := db.Exec(legacySchema); err != nil {
-		db.Close()
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`INSERT INTO metadata(key, value) VALUES ('backlog_revision', '0'), ('next_id', 'B-002')`); err != nil {
-		db.Close()
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`INSERT INTO cards(id, status, title, closed, depends_on, result_score) VALUES ('B-001', 'VERIFY', 'legacy', 0, 'free-form legacy dependency', '100 -> 200')`); err != nil {
-		db.Close()
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`INSERT INTO card_metadata(card_id, name, value, raw_value, position) VALUES ('B-001', 'Legacy', 'value', 'value', 0)`); err != nil {
-		db.Close()
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`INSERT INTO card_sections(card_id, name, position, body) VALUES
-        ('B-001', 'Legacy note', 0, 'preserved section body'),
-        ('B-001', 'Result', 1, '- Score: 100 -> 200')`); err != nil {
-		db.Close()
-		t.Fatal(err)
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	store, err := openStore(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
-	if err := store.transitionCard("B-001", "APPLIED", mutation{Actor: "agent:test", Operation: "transition"}, "deploy applied"); err != nil {
-		t.Fatalf("transition to APPLIED after migration: %v", err)
-	}
-	card, err := store.getCard("B-001")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if card.Status != "APPLIED" || card.Version != 1 {
-		t.Fatalf("migrated card = %#v", card)
-	}
-	if got := sectionBody(card.Sections, "Legacy note"); got != "preserved section body" {
-		t.Fatalf("preserved section = %q", got)
-	}
-	if got := sectionBody(card.Sections, sectionResult); got != "- Score: 100 -> 200" {
-		t.Fatalf("historical Result = %q", got)
-	}
-	var metadataTableCount int
-	if err := store.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'card_metadata'`).Scan(&metadataTableCount); err != nil {
-		t.Fatal(err)
-	}
-	if metadataTableCount != 0 {
-		t.Fatal("card_metadata table still exists")
-	}
-	var legacyDependencyColumn int
-	if err := store.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('cards') WHERE name = 'depends_on'`).Scan(&legacyDependencyColumn); err != nil {
-		t.Fatal(err)
-	}
-	if legacyDependencyColumn != 0 {
-		t.Fatal("legacy depends_on column still exists")
 	}
 }
 

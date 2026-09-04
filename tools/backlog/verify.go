@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"sort"
 	"strings"
 )
@@ -50,15 +49,18 @@ type verificationTSV struct {
 }
 
 type verifyManifest struct {
-	RunID     string           `json:"run_id"`
-	Phase     string           `json:"phase"`
-	StartedAt string           `json:"started_at"`
-	Score     *int64           `json:"score"`
-	Passed    *bool            `json:"passed"`
-	Roles     verifyRoles      `json:"roles"`
-	Source    verifyCodeSource `json:"source"`
-	Artifacts []verifyArtifact `json:"artifacts"`
-	Dir       string           `json:"-"`
+	SchemaVersion   int              `json:"schema_version"`
+	RunID           string           `json:"run_id"`
+	Phase           string           `json:"phase"`
+	StartedAt       string           `json:"started_at"`
+	Score           *int64           `json:"score"`
+	Passed          *bool            `json:"passed"`
+	Roles           verifyRoles      `json:"roles"`
+	Source          verifyCodeSource `json:"source"`
+	Artifacts       []verifyArtifact `json:"artifacts"`
+	Comparison      runComparison    `json:"comparison"`
+	BacklogSnapshot AppliedSnapshot  `json:"backlog_snapshot"`
+	Dir             string           `json:"-"`
 }
 
 type verifyRoles struct {
@@ -135,7 +137,7 @@ type profileSummary struct {
 }
 
 func runEvidence(config cliConfig, args []string) {
-	format, idsArg, err := parseVerifyArgs(args)
+	format, runID, idsArg, err := parseVerifyArgs(args)
 	if err != nil {
 		fatal(err)
 	}
@@ -159,7 +161,11 @@ func runEvidence(config cliConfig, args []string) {
 		if err != nil {
 			fatal(err)
 		}
-		summary, err := buildVerificationSummary(config.root, card, manifests)
+		target, err := selectEvidenceManifest(card.ID, runID, manifests)
+		if err != nil {
+			fatal(err)
+		}
+		summary, err := buildVerificationSummary(config.root, card, target, manifests)
 		if err != nil {
 			fatal(fmt.Errorf("%s: %w", id, err))
 		}
@@ -176,28 +182,35 @@ func runEvidence(config cliConfig, args []string) {
 	printVerificationSummaries(summaries)
 }
 
-func parseVerifyArgs(args []string) (string, string, error) {
+func parseVerifyArgs(args []string) (string, string, string, error) {
 	format := "text"
+	runID := ""
 	var positional []string
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "-format", "--format":
 			if i+1 >= len(args) {
-				return "", "", errors.New("-format requires text or json")
+				return "", "", "", errors.New("-format requires text or json")
 			}
 			i++
 			format = strings.ToLower(args[i])
+		case "-run", "--run":
+			if i+1 >= len(args) {
+				return "", "", "", errors.New("--run requires a RUN ID")
+			}
+			i++
+			runID = strings.TrimSpace(args[i])
 		default:
 			positional = append(positional, args[i])
 		}
 	}
 	if format != "text" && format != "json" {
-		return "", "", fmt.Errorf("unknown format %q", format)
+		return "", "", "", fmt.Errorf("unknown format %q", format)
 	}
 	if len(positional) != 1 {
-		return "", "", errors.New("evidence requires one comma-separated card ID argument")
+		return "", "", "", errors.New("evidence requires one comma-separated card ID argument")
 	}
-	return format, positional[0], nil
+	return format, runID, positional[0], nil
 }
 
 func loadVerifyManifests(runsDir string) ([]verifyManifest, error) {
@@ -215,8 +228,15 @@ func loadVerifyManifests(runsDir string) ([]verifyManifest, error) {
 		if err := json.Unmarshal(body, &manifest); err != nil {
 			return nil, fmt.Errorf("read %s: %w", path, err)
 		}
-		if manifest.Phase == "started" {
+		if manifest.SchemaVersion != 4 {
 			continue
+		}
+		if manifest.Phase != "finalized" {
+			continue
+		}
+		directoryRunID := filepath.Base(filepath.Dir(path))
+		if manifest.RunID == "" || manifest.RunID != directoryRunID {
+			return nil, fmt.Errorf("read %s: run_id %q does not match directory %q", path, manifest.RunID, directoryRunID)
 		}
 		manifest.Dir = filepath.Dir(path)
 		manifests = append(manifests, manifest)
@@ -225,21 +245,28 @@ func loadVerifyManifests(runsDir string) ([]verifyManifest, error) {
 	return manifests, nil
 }
 
-func buildVerificationSummary(root string, card Card, manifests []verifyManifest) (verificationSummary, error) {
-	target := manifests[len(manifests)-1]
-	compare := selectCompareManifest(card.CompareRun, target, manifests)
+func buildVerificationSummary(root string, card Card, target verifyManifest, manifests []verifyManifest) (verificationSummary, error) {
+	compare, comparisonWarning := selectDeclaredCompareManifest(target, manifests)
 	summary := verificationSummary{
 		CardID: card.ID, Title: card.Title, Status: card.Status,
 		TargetRun: summarizeRun(root, target), Contract: "missing",
 	}
-	if compare != nil {
+	if comparisonWarning != "" {
+		summary.Warnings = append(summary.Warnings, comparisonWarning)
+	} else if compare != nil {
 		r := summarizeRun(root, *compare)
 		summary.CompareRun = &r
-	} else {
-		summary.Warnings = append(summary.Warnings, "比較可能なRUNがありません")
 	}
-	if card.Status != "APPLIED" {
-		summary.Warnings = append(summary.Warnings, "カード状態はAPPLIEDではありません: "+card.Status)
+	if card.Status != "APPLIED" && card.Status != "VALIDATED" {
+		summary.Warnings = append(summary.Warnings, "カード状態はAPPLIED/VALIDATEDではありません: "+card.Status)
+	}
+	if snapshotCard, ok := appliedSnapshotCard(target.BacklogSnapshot, card.ID); ok {
+		if snapshotCard.TreatmentHash != cardTreatmentHash(card) {
+			summary.Warnings = append(summary.Warnings, "現在の実装対象は対象RUNのsnapshotから変更されています")
+		}
+		if snapshotCard.DecisionHash != cardDecisionHash(card) {
+			summary.Warnings = append(summary.Warnings, "現在の仮説・検証・安全条件は対象RUNのsnapshotから変更されています")
+		}
 	}
 	if target.Passed == nil {
 		summary.Warnings = append(summary.Warnings, "対象RUNのpass判定がありません")
@@ -304,24 +331,55 @@ func parseVerificationContract(body string) (verificationContract, error) {
 	return contract, nil
 }
 
-func selectCompareManifest(value string, target verifyManifest, manifests []verifyManifest) *verifyManifest {
-	wanted := strings.TrimSpace(value)
-	if wanted != "" {
-		wanted = filepath.Base(strings.TrimSuffix(wanted, "/"))
-		for i := range manifests {
-			if manifests[i].RunID == wanted && manifests[i].RunID != target.RunID {
-				return &manifests[i]
-			}
+func appliedSnapshotCard(snapshot AppliedSnapshot, cardID string) (AppliedSnapshotCard, bool) {
+	if snapshot.Status != "ok" || snapshot.SchemaVersion != 2 {
+		return AppliedSnapshotCard{}, false
+	}
+	for _, card := range snapshot.Cards {
+		if card.ID == cardID && card.Status == "APPLIED" {
+			return card, true
 		}
-		return nil
+	}
+	return AppliedSnapshotCard{}, false
+}
+
+func selectEvidenceManifest(cardID, requestedRunID string, manifests []verifyManifest) (verifyManifest, error) {
+	if requestedRunID != "" {
+		for _, manifest := range manifests {
+			if manifest.RunID != requestedRunID {
+				continue
+			}
+			if _, ok := appliedSnapshotCard(manifest.BacklogSnapshot, cardID); !ok {
+				return verifyManifest{}, fmt.Errorf("card %s was not APPLIED in RUN %s snapshot", cardID, requestedRunID)
+			}
+			return manifest, nil
+		}
+		return verifyManifest{}, fmt.Errorf("finalized RUN %s not found", requestedRunID)
 	}
 	for i := len(manifests) - 1; i >= 0; i-- {
-		candidate := &manifests[i]
-		if candidate.RunID < target.RunID && reflect.DeepEqual(candidate.Roles, target.Roles) {
-			return candidate
+		if _, ok := appliedSnapshotCard(manifests[i].BacklogSnapshot, cardID); ok {
+			return manifests[i], nil
 		}
 	}
-	return nil
+	return verifyManifest{}, fmt.Errorf("no finalized RUN snapshot contains APPLIED card %s", cardID)
+}
+
+func selectDeclaredCompareManifest(target verifyManifest, manifests []verifyManifest) (*verifyManifest, string) {
+	if target.Comparison.RunID == "" || target.Comparison.Status == "none" {
+		return nil, "対象RUNに比較RUNは宣言されていません"
+	}
+	if target.Comparison.Status != "compatible" {
+		return nil, fmt.Sprintf("対象RUNの比較 %s は %s です", target.Comparison.RunID, target.Comparison.Status)
+	}
+	if target.Comparison.RunID == target.RunID {
+		return nil, "対象RUN自身を比較RUNとして使用できません"
+	}
+	for i := range manifests {
+		if manifests[i].RunID == target.Comparison.RunID {
+			return &manifests[i], ""
+		}
+	}
+	return nil, fmt.Sprintf("宣言された比較RUN %s のfinalized manifestがありません", target.Comparison.RunID)
 }
 
 func summarizeRun(root string, manifest verifyManifest) runSummary {

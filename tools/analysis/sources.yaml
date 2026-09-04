@@ -69,10 +69,10 @@ sources:
     schema: schema/endpoints-ingress.sql
     match: alp-by-ingress.tsv
     view: endpoints_by_ingress
-  - table: user_transitions
+  - table: user_transition_edges
     schema: schema/user-transitions.sql
     match: user-transitions.json
-    view: user_transitions
+    view: user_transition_edges
   - table: user_transition_scenarios
     schema: schema/user-transitions.sql
     match: user-transitions.json

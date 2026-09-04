@@ -10,7 +10,6 @@ import (
 
 type backlogCard struct {
 	ID        string `json:"id"`
-	Kind      string `json:"kind"`
 	Status    string `json:"status"`
 	Title     string `json:"title"`
 	Closed    bool   `json:"closed"`
@@ -45,43 +44,53 @@ type backlogDependency struct {
 	RequiredStatus  string `json:"required_status"`
 	Mode            string `json:"mode"`
 	Reason          string `json:"reason"`
-	Kind            string `json:"kind"`
 	Status          string `json:"status"`
 }
 
+type backlogObjectiveRelation struct {
+	ID        string `json:"id"`
+	Status    string `json:"status"`
+	Mode      string `json:"mode"`
+	Title     string `json:"title"`
+	Rationale string `json:"rationale"`
+}
+
+type backlogConstraintRelation struct {
+	ID        string `json:"id"`
+	Status    string `json:"status"`
+	Title     string `json:"title"`
+	Role      string `json:"role"`
+	Rationale string `json:"rationale"`
+}
+
 type backlogCardDetail struct {
-	ID                  string                `json:"id"`
-	Kind                string                `json:"kind"`
-	Status              string                `json:"status"`
-	Title               string                `json:"title"`
-	Closed              bool                  `json:"closed"`
-	Priority            string                `json:"priority"`
-	Owner               string                `json:"owner"`
-	Area                string                `json:"area"`
-	SourceRuns          string                `json:"source_runs"`
-	CompareRun          string                `json:"compare_run"`
-	ObservedRuns        string                `json:"observed_runs"`
-	Fingerprint         string                `json:"fingerprint"`
-	Updated             string                `json:"updated"`
-	UpdatedBy           string                `json:"updated_by"`
-	AssessmentKind      string                `json:"assessment_kind"`
-	AssessmentDetail    string                `json:"assessment_detail"`
-	ExpectedScoreEffect string                `json:"expected_score_effect"`
-	Attribution         string                `json:"attribution"`
-	BlockedContract     string                `json:"blocked_contract"`
-	Sections            []backlogSection      `json:"sections"`
-	History             []backlogHistoryEntry `json:"history"`
-	Dependencies        []backlogDependency   `json:"dependencies"`
-	Unblocks            []backlogDependency   `json:"unblocks"`
+	ID           string                      `json:"id"`
+	Status       string                      `json:"status"`
+	Title        string                      `json:"title"`
+	Closed       bool                        `json:"closed"`
+	Priority     string                      `json:"priority"`
+	Owner        string                      `json:"owner"`
+	Area         string                      `json:"area"`
+	SourceRuns   string                      `json:"source_runs"`
+	CompareRun   string                      `json:"compare_run"`
+	ObservedRuns string                      `json:"observed_runs"`
+	Fingerprint  string                      `json:"fingerprint"`
+	Updated      string                      `json:"updated"`
+	UpdatedBy    string                      `json:"updated_by"`
+	Sections     []backlogSection            `json:"sections"`
+	History      []backlogHistoryEntry       `json:"history"`
+	Dependencies []backlogDependency         `json:"dependencies"`
+	Unblocks     []backlogDependency         `json:"unblocks"`
+	Objectives   []backlogObjectiveRelation  `json:"objectives"`
+	Constraints  []backlogConstraintRelation `json:"constraints"`
 }
 
 const backlogCardColumns = `
-	c.id, c.kind, c.status, c.title, c.priority, c.owner, c.area,
+		c.id, c.status, c.title, c.priority, c.owner, c.area,
 	COALESCE((SELECT group_concat(run_id, ',') FROM (SELECT run_id FROM card_runs WHERE card_id=c.id AND relation='SOURCE' ORDER BY position)), ''),
 	COALESCE((SELECT group_concat(run_id, ',') FROM (SELECT run_id FROM card_runs WHERE card_id=c.id AND relation='COMPARE' ORDER BY position)), ''),
 	COALESCE((SELECT group_concat(run_id, ',') FROM (SELECT run_id FROM card_runs WHERE card_id=c.id AND relation='OBSERVED' ORDER BY position)), ''),
-	c.fingerprint, c.updated, c.updated_by, c.assessment_kind, c.assessment_detail,
-	c.expected_score_effect, c.attribution, c.blocked_contract`
+		c.fingerprint, c.updated, c.updated_by`
 
 // queryBacklogCard mirrors tools/backlog's getCardFrom/loadCardContent query
 // shape (core columns + card_sections + card_history) but is
@@ -97,10 +106,9 @@ func queryBacklogCard(dbPath, id string) (*backlogCardDetail, error) {
 	var d backlogCardDetail
 	row := db.QueryRow(`SELECT `+backlogCardColumns+` FROM cards c WHERE c.id = ?`, id)
 	err = row.Scan(
-		&d.ID, &d.Kind, &d.Status, &d.Title, &d.Priority, &d.Owner, &d.Area,
+		&d.ID, &d.Status, &d.Title, &d.Priority, &d.Owner, &d.Area,
 		&d.SourceRuns, &d.CompareRun, &d.ObservedRuns, &d.Fingerprint,
-		&d.Updated, &d.UpdatedBy, &d.AssessmentKind, &d.AssessmentDetail,
-		&d.ExpectedScoreEffect, &d.Attribution, &d.BlockedContract,
+		&d.Updated, &d.UpdatedBy,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -150,7 +158,7 @@ func queryBacklogCard(dbPath, id string) (*backlogCardDetail, error) {
 
 	d.Dependencies = []backlogDependency{}
 	dependencyRows, err := db.Query(`SELECT dep.card_id, dep.depends_on_card_id, dep.required_status, dep.mode, dep.reason,
-        target.kind, target.status
+	        target.status
         FROM card_dependencies dep JOIN cards target ON target.id = dep.depends_on_card_id
         WHERE dep.card_id = ? ORDER BY dep.depends_on_card_id`, id)
 	if err != nil {
@@ -159,7 +167,7 @@ func queryBacklogCard(dbPath, id string) (*backlogCardDetail, error) {
 	for dependencyRows.Next() {
 		var dependency backlogDependency
 		if err := dependencyRows.Scan(&dependency.CardID, &dependency.DependsOnCardID, &dependency.RequiredStatus,
-			&dependency.Mode, &dependency.Reason, &dependency.Kind, &dependency.Status); err != nil {
+			&dependency.Mode, &dependency.Reason, &dependency.Status); err != nil {
 			dependencyRows.Close()
 			return nil, err
 		}
@@ -173,7 +181,7 @@ func queryBacklogCard(dbPath, id string) (*backlogCardDetail, error) {
 
 	d.Unblocks = []backlogDependency{}
 	unblockRows, err := db.Query(`SELECT dep.card_id, dep.depends_on_card_id, dep.required_status, dep.mode, dep.reason,
-        dependent.kind, dependent.status
+	        dependent.status
         FROM card_dependencies dep JOIN cards dependent ON dependent.id = dep.card_id
         WHERE dep.depends_on_card_id = ? ORDER BY dep.card_id`, id)
 	if err != nil {
@@ -182,7 +190,7 @@ func queryBacklogCard(dbPath, id string) (*backlogCardDetail, error) {
 	for unblockRows.Next() {
 		var dependency backlogDependency
 		if err := unblockRows.Scan(&dependency.CardID, &dependency.DependsOnCardID, &dependency.RequiredStatus,
-			&dependency.Mode, &dependency.Reason, &dependency.Kind, &dependency.Status); err != nil {
+			&dependency.Mode, &dependency.Reason, &dependency.Status); err != nil {
 			unblockRows.Close()
 			return nil, err
 		}
@@ -193,6 +201,52 @@ func queryBacklogCard(dbPath, id string) (*backlogCardDetail, error) {
 		return nil, err
 	}
 	unblockRows.Close()
+
+	d.Objectives = []backlogObjectiveRelation{}
+	objectiveRows, err := db.Query(`SELECT o.id, o.status, o.mode, o.title, oi.rationale
+		FROM objective_interventions oi JOIN objectives o ON o.id = oi.objective_id
+		WHERE oi.card_id = ? ORDER BY o.id`, id)
+	if err != nil {
+		return nil, err
+	}
+	for objectiveRows.Next() {
+		var relation backlogObjectiveRelation
+		if err := objectiveRows.Scan(&relation.ID, &relation.Status, &relation.Mode, &relation.Title, &relation.Rationale); err != nil {
+			objectiveRows.Close()
+			return nil, err
+		}
+		d.Objectives = append(d.Objectives, relation)
+	}
+	if err := objectiveRows.Err(); err != nil {
+		objectiveRows.Close()
+		return nil, err
+	}
+	if err := objectiveRows.Close(); err != nil {
+		return nil, err
+	}
+
+	d.Constraints = []backlogConstraintRelation{}
+	constraintRows, err := db.Query(`SELECT c.id, c.status, c.title, ci.role, ci.rationale
+		FROM constraint_interventions ci JOIN constraints c ON c.id = ci.constraint_id
+		WHERE ci.card_id = ? ORDER BY c.id`, id)
+	if err != nil {
+		return nil, err
+	}
+	for constraintRows.Next() {
+		var relation backlogConstraintRelation
+		if err := constraintRows.Scan(&relation.ID, &relation.Status, &relation.Title, &relation.Role, &relation.Rationale); err != nil {
+			constraintRows.Close()
+			return nil, err
+		}
+		d.Constraints = append(d.Constraints, relation)
+	}
+	if err := constraintRows.Err(); err != nil {
+		constraintRows.Close()
+		return nil, err
+	}
+	if err := constraintRows.Close(); err != nil {
+		return nil, err
+	}
 
 	return &d, nil
 }
@@ -211,7 +265,7 @@ func queryBacklog(dbPath string, includeClosed bool) (*backlogResponse, error) {
 	defer db.Close()
 
 	query := `
-		SELECT id, kind, status, title, priority, owner, area, updated, updated_by
+			SELECT id, status, title, priority, owner, area, updated, updated_by
 		FROM cards
 	`
 	if !includeClosed {
@@ -228,7 +282,7 @@ func queryBacklog(dbPath string, includeClosed bool) (*backlogResponse, error) {
 	resp := &backlogResponse{Counts: map[string]int{}, Cards: []backlogCard{}}
 	for rows.Next() {
 		var c backlogCard
-		if err := rows.Scan(&c.ID, &c.Kind, &c.Status, &c.Title, &c.Priority, &c.Owner, &c.Area, &c.Updated, &c.UpdatedBy); err != nil {
+		if err := rows.Scan(&c.ID, &c.Status, &c.Title, &c.Priority, &c.Owner, &c.Area, &c.Updated, &c.UpdatedBy); err != nil {
 			return nil, err
 		}
 		c.Closed = isDashboardClosedStatus(c.Status)

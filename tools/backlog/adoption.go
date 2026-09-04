@@ -27,7 +27,7 @@ type AdoptionEvent struct {
 	SnapshotRevision int
 }
 
-func (s *Store) adoptCardsMatching(ids []string, definitionHashes map[string]string, event AdoptionEvent, reason string) ([]Card, error) {
+func (s *Store) adoptCardsMatching(ids []string, treatmentHashes map[string]string, event AdoptionEvent, reason string) ([]Card, error) {
 	if err := ensureReason(event.Actor, reason); err != nil {
 		return nil, err
 	}
@@ -45,7 +45,7 @@ func (s *Store) adoptCardsMatching(ids []string, definitionHashes map[string]str
 	if event.AdoptedAt == "" || event.ComparisonStatus == "" || event.ManifestSHA256 == "" || event.SnapshotRevision < 0 {
 		return nil, errors.New("adoption event is missing timestamp, comparison status, manifest hash, or snapshot revision")
 	}
-	if !map[string]bool{"none": true, "compatible": true, "incompatible": true, "unverified": true}[event.ComparisonStatus] {
+	if !map[string]bool{"none": true, "compatible": true, "incompatible": true}[event.ComparisonStatus] {
 		return nil, fmt.Errorf("invalid adoption comparison status %q", event.ComparisonStatus)
 	}
 	digest, ok := strings.CutPrefix(event.ManifestSHA256, "sha256:")
@@ -83,8 +83,8 @@ func (s *Store) adoptCardsMatching(ids []string, definitionHashes map[string]str
 		if card.Status != "APPLIED" {
 			return rollback(fmt.Errorf("card %s has status %s; expected APPLIED", id, card.Status))
 		}
-		if definitionHashes[id] != cardDefinitionHash(card) {
-			return rollback(fmt.Errorf("card %s definition differs from the evidence RUN snapshot", id))
+		if treatmentHashes[id] != cardTreatmentHash(card) {
+			return rollback(fmt.Errorf("card %s treatment differs from the evidence RUN snapshot", id))
 		}
 		requested = append(requested, card)
 	}
@@ -122,8 +122,8 @@ func (s *Store) adoptCardsMatching(ids []string, definitionHashes map[string]str
 			origin = card.History[0].Actor
 		}
 		if _, err := tx.Exec(`INSERT INTO adoption_event_cards(
-            adoption_event_id, card_id, origin, fingerprint, definition_hash
-        ) VALUES (?, ?, ?, ?, ?)`, eventID, card.ID, origin, card.Fingerprint, definitionHashes[card.ID]); err != nil {
+            adoption_event_id, card_id, origin, fingerprint, treatment_hash
+        ) VALUES (?, ?, ?, ?, ?)`, eventID, card.ID, origin, card.Fingerprint, treatmentHashes[card.ID]); err != nil {
 			return rollback(err)
 		}
 		newlyWoke, err := wakeDependentsTx(tx, card.ID, event.Actor)
