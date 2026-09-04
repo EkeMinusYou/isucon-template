@@ -230,3 +230,47 @@ func TestRunRejectsActiveBenchmark(t *testing.T) {
 		t.Fatalf("run error = %v, want active benchmark rejection", err)
 	}
 }
+
+func TestCheckRolesBuildsExpectedServiceStates(t *testing.T) {
+	fake := &planExecutor{}
+	runner := deployRunner{
+		sshUser: "ubuntu",
+		roles: map[string][]string{
+			"all": {"isucon-1", "isucon-2"}, "app": {"isucon-1"},
+			"nginx": {"isucon-1"}, "mysql": {"isucon-2"},
+		},
+		parallel: 2,
+		exec:     fake,
+	}
+	if err := runner.checkRoles("app"); err != nil {
+		t.Fatal(err)
+	}
+	if len(fake.calls) != 2 {
+		t.Fatalf("role check calls = %d, want 2", len(fake.calls))
+	}
+	joined := fake.calls[0].stdin + "\n" + fake.calls[1].stdin
+	for _, expected := range []string{
+		"check_unit 'app' active", "check_unit 'app' inactive",
+		"check_unit nginx active", "check_unit nginx inactive",
+		"check_unit mysql active", "check_unit mysql inactive",
+	} {
+		if !strings.Contains(joined, expected) {
+			t.Errorf("role scripts do not contain %q:\n%s", expected, joined)
+		}
+	}
+}
+
+func TestRunCheckRolesDoesNotRejectActiveBenchmark(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "current-run-id")
+	if err := os.WriteFile(marker, []byte("20260829-120000\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := runCheckRoles([]string{
+		"-run-state-file", marker, "-dry-run", "-ssh-user", "ubuntu",
+		"-role", "all=isucon-1", "-role", "app=isucon-1", "-role", "nginx=isucon-1", "-role", "mysql=isucon-1",
+		"-var", "service=app",
+	})
+	if err != nil {
+		t.Fatalf("read-only role check rejected active benchmark: %v", err)
+	}
+}

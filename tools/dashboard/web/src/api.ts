@@ -8,7 +8,7 @@ export type RunInfo = {
 
 export type ScoreEntry = {
   run_id: string
-  score: number
+  score: number | null
   app: string
   nginx: string
   mysql: string

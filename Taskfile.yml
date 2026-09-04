@@ -62,6 +62,12 @@ vars:
   NGINX_ONCPU_PROFILER_DIR: tools/nginx-oncpu-profiler
   NGINX_ONCPU_HOST: '{{.ENTRY_HOST}}'
   NGINX_ONCPU_PROBE_URL: http://127.0.0.1/
+  PPROF_BASE_URL: http://127.0.0.1:6060/debug/pprof
+  FGPROF_URL: http://127.0.0.1:6060/debug/fgprof?seconds=30
+  PROFILE_DELAY: 10s
+  SNAPSHOT_PROFILE_DELAY: 40s
+  PROFILE_SECONDS: '30'
+  PROFILE_TIMEOUT_SECONDS: '40'
   NGINX_BACKEND_REPORT_DIR: tools/nginx-backend-report
   JSON_METRICS_COLLECTOR_DIR: tools/json-metrics-collector
   USER_TRANSITION_METRICS_DIR: tools/user-transition-metrics
@@ -84,9 +90,17 @@ vars:
     -role entry={{.ENTRY_HOST}}
     -role nginx_profile={{.ENTRY_HOST}}
     -role mysql={{.MYSQL_HOST}}
-  MEASURECTL_VARS: '-var services={{.SERVICE}},nginx,mysql -var profile_url=http://127.0.0.1:6060/debug/fgprof?seconds=60'
-  MEASURECTL_COMMON: '{{.MEASURECTL_FLAGS}} {{.MEASURECTL_SSH}} {{.MEASURECTL_ROLES}} {{.MEASURECTL_VARS}}'
-  MEASURECTL_COLLECT: '{{default "" .MEASURECTL_COLLECT_FLAGS}} {{.MEASURECTL_COMMON}}'
+  MEASURECTL_VARS: >-
+    -var services={{.SERVICE}},nginx,mysql
+    -var app_service={{.SERVICE}}
+    -var pprof_base_url={{.PPROF_BASE_URL}}
+    -var fgprof_url={{.FGPROF_URL}}
+    -var profile_delay={{.PROFILE_DELAY}}
+    -var snapshot_profile_delay={{.SNAPSHOT_PROFILE_DELAY}}
+    -var profile_seconds={{.PROFILE_SECONDS}}
+    -var profile_timeout_seconds={{.PROFILE_TIMEOUT_SECONDS}}
+  MEASURECTL_REMOTE: '{{.MEASURECTL_SSH}} {{.MEASURECTL_ROLES}} {{.MEASURECTL_VARS}}'
+  MEASURECTL_COMMON: '{{.MEASURECTL_FLAGS}} {{.MEASURECTL_REMOTE}}'
 
   DEPLOYCTL_FLAGS: ''
   DEPLOYCTL_COMMON: >-
@@ -478,78 +492,20 @@ tasks:
 
   check-roles:
     desc: service状態がTaskfileの役割定義と一致することを確認
-    env:
-      ISUCON_ALL_HOSTS: '{{.ALL_HOSTS}}'
-      ISUCON_APP_HOSTS: '{{.APP_HOSTS}}'
-      ISUCON_NGINX_HOSTS: '{{.NGINX_HOSTS}}'
-      ISUCON_MYSQL_HOST: '{{.MYSQL_HOST}}'
+    deps: [build-deployctl]
     cmds:
-      - |
-        set -eu
-        contains_host() { case " $1 " in *" $2 "*) return 0;; *) return 1;; esac; }
-        for host in $ISUCON_ALL_HOSTS; do
-          app=inactive; nginx=inactive; mysql=inactive
-          contains_host "$ISUCON_APP_HOSTS" "$host" && app=active
-          contains_host "$ISUCON_NGINX_HOSTS" "$host" && nginx=active
-          [ "$ISUCON_MYSQL_HOST" != "$host" ] || mysql=active
-          {{.SSH}} {{.SSH_USER}}@"$host" "
-            set -eu
-            check_unit() {
-              unit=\$1
-              expected=\$2
-              actual=\$(systemctl is-active \"\$unit\" 2>/dev/null || true)
-              if [ \"\$expected\" = active ]; then
-                [ \"\$actual\" = active ] || { echo \"[$host] \$unit: expected active, got \${actual:-missing}\" >&2; exit 1; }
-              else
-                [ \"\$actual\" != active ] || { echo \"[$host] \$unit: expected inactive, got active\" >&2; exit 1; }
-              fi
-            }
-            check_unit {{.SERVICE}} $app
-            check_unit nginx $nginx
-            check_unit mysql $mysql
-          "
-          echo "[$host] roles OK"
-        done
+      - '{{.DEPLOYCTL_DIR}}/deployctl check-roles {{.DEPLOYCTL_COMMON}}'
 
   bench:
     desc: 計測開始→BENCH_HOSTでベンチ→回収
+    env: &bench_runner_env
+      ISUCON_BENCH_RUN_STATE_FILE: '{{.RUN_STATE_FILE}}'
+      ISUCON_BENCH_RESULTS_DIR: '{{.RESULT_DIR}}'
+      ISUCON_BENCH_COLLECT_FLAGS: '{{default "" .MEASURECTL_COLLECT_FLAGS}}'
     cmds:
-      - task: before-bench
-      - |
-        set -u
-        active_run_id=$(sh tools/bench/active-run-id.sh '{{.RUN_STATE_FILE}}')
-        run_dir='{{.RESULT_DIR}}/'"$active_run_id"
-        bench_output="$run_dir/.bench-output"
-        collect_flags='{{default "" .MEASURECTL_COLLECT_FLAGS}}'
-        finalized=0
-        finalize() {
-          [ "$finalized" -eq 0 ] || return 0
-          finalized=1
-          if [ -f "$bench_output" ]; then
-            tee -a "$run_dir/bench.log" < "$bench_output"
-            rm -f "$bench_output"
-          fi
-          task after-bench MEASURECTL_COLLECT_FLAGS="$collect_flags"
-        }
-        trap finalize EXIT
-        trap 'exit 130' INT
-        trap 'exit 143' HUP TERM
-
-        printf '%s\tBENCHMARK_START\n' "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" | tee "$run_dir/bench.log"
-        bench_status=0
-        {{.SSH}} {{.SSH_USER}}@{{.BENCH_HOST}} \
-          "sudo -u {{.ISUCON_USER}} -i bash -lc 'cd {{.REMOTE_HOME}} && {{.BENCH_COMMAND}}'" \
-          >"$bench_output" 2>&1 || bench_status=$?
-        tee -a "$run_dir/bench.log" < "$bench_output"
-        rm -f "$bench_output"
-        printf '%s\tBENCHMARK_END\n' "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" | tee -a "$run_dir/bench.log"
-        [ "$bench_status" -eq 0 ] || printf 'BENCHMARK_FAIL\texit_status=%s\n' "$bench_status" | tee -a "$run_dir/bench.log"
-
-        finalize_status=0
-        finalize || finalize_status=$?
-        trap - EXIT HUP INT TERM
-        [ "$bench_status" -eq 0 ] || exit "$bench_status"
-        exit "$finalize_status"
+      - >-
+        sh tools/bench/run.sh auto -- {{.SSH}} {{.SSH_USER}}@{{.BENCH_HOST}}
+        "sudo -u {{.ISUCON_USER}} -i bash -lc 'cd {{.REMOTE_HOME}} && {{.BENCH_COMMAND}}'"
 
   bench-no-collectors:
     desc: collector負荷比較用に標準collectorを止めてベンチ・ログ回収
@@ -560,39 +516,9 @@ tasks:
   bench-manual:
     desc: ポータルベンチ用。計測開始後、スコア入力を待って回収
     interactive: true
+    env: *bench_runner_env
     cmds:
-      - task: before-bench
-      - |
-        set -u
-        active_run_id=$(sh tools/bench/active-run-id.sh '{{.RUN_STATE_FILE}}')
-        run_dir='{{.RESULT_DIR}}/'"$active_run_id"
-        collect_flags='{{default "" .MEASURECTL_COLLECT_FLAGS}}'
-        score=''
-        finalized=0
-        finalize() {
-          [ "$finalized" -eq 0 ] || return 0
-          finalized=1
-          task after-bench SCORE="$score" MEASURECTL_COLLECT_FLAGS="$collect_flags"
-        }
-        trap finalize EXIT
-        trap 'exit 130' INT
-        trap 'exit 143' HUP TERM
-
-        printf '%s\tBENCHMARK_START\n' "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" > "$run_dir/bench.log"
-        echo "ポータルからベンチを実行してください。"
-        printf '完了後にスコアを入力してください（空欄可）: '
-        read -r score || score=''
-        printf '整合性チェックまで成功した場合は y を入力してください: '
-        read -r passed || passed=''
-        printf '%s\tBENCHMARK_END\n' "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" >> "$run_dir/bench.log"
-        case "$passed" in
-          y|Y|yes|YES) echo 'BENCHMARK_PASS' >> "$run_dir/bench.log";;
-          *) echo 'BENCHMARK_FAIL' >> "$run_dir/bench.log";;
-        esac
-        finalize_status=0
-        finalize || finalize_status=$?
-        trap - EXIT HUP INT TERM
-        exit "$finalize_status"
+      - sh tools/bench/run.sh manual
 
   bench-manual-no-collectors:
     desc: ポータルベンチでcollector負荷を比較するため標準collectorを無効化
@@ -604,85 +530,29 @@ tasks:
   before-bench:
     desc: RUNを採番し、ログローテートとcollector起動を行う
     silent: true
-    deps: [build-measurectl]
+    deps: [build-measurectl, build-proc-metrics, build-mysql-metrics]
     cmds:
       - |
         set -eu
         mkdir -p '{{.RAW_DIR}}'
-        test ! -f '{{.RUN_STATE_FILE}}' || { echo "unfinished RUN exists" >&2; exit 1; }
-        {{.MEASURECTL_DIR}}/measurectl collect check-clean {{.MEASURECTL_COMMON}}
-        mkdir -p '{{.RUN_DIR}}'
         snapshot='{{.RAW_DIR}}/applied-snapshot-{{.RUN_ID}}.json'
+        trap 'rm -f "$snapshot"' EXIT HUP INT TERM
         (cd tools/backlog && go run . -root '{{.ROOT_DIR}}' -db '{{.ROOT_DIR}}/{{.BACKLOG_DB}}' snapshot-applied --output '{{.ROOT_DIR}}/'"$snapshot")
-        compare=''
-        [ -z '{{.COMPARE_RUN}}' ] || compare='{{.RESULT_DIR}}/{{.COMPARE_RUN}}'
-        {{.MEASURECTL_DIR}}/measurectl manifest begin \
-          -dir '{{.RUN_DIR}}' -applied-snapshot "$snapshot" -collector-clean \
-          -compare-run-dir "$compare" -compare-allow-cards '{{.COMPARE_ALLOWED_CARDS}}' \
-          -compare-allow-roles '{{.COMPARE_ALLOWED_ROLES}}' \
-          -app '{{splitList " " .APP_HOSTS | join ","}}' \
-          -app-traffic '{{splitList " " .APP_TRAFFIC_HOSTS | join ","}}' \
-          -nginx '{{splitList " " .NGINX_HOSTS | join ","}}' -entry '{{.ENTRY_HOST}}' -mysql '{{.MYSQL_HOST}}'
-        printf '%s\n' '{{.RUN_ID}}' > '{{.RUN_STATE_FILE}}'
-        rm -f "$snapshot"
-      - |
-        set -u
-        collect_flags='{{default "" .MEASURECTL_COLLECT_FLAGS}}'
-        prepare_status=0
-        task metrics-prepare || prepare_status=$?
-        if [ "$prepare_status" -ne 0 ]; then
-          task abort-run || true
-          exit "$prepare_status"
-        fi
-        start_status=0
-        task metrics-start MEASURECTL_COLLECT_FLAGS="$collect_flags" || start_status=$?
-        if [ "$start_status" -ne 0 ]; then
-          task abort-run || true
-          exit "$start_status"
-        fi
+        {{.MEASURECTL_DIR}}/measurectl run begin -run-id '{{.RUN_ID}}' \
+          -results '{{.RESULT_DIR}}' -raw-dir '{{.RAW_DIR}}' -run-state-file '{{.RUN_STATE_FILE}}' \
+          -applied-snapshot "$snapshot" -compare-run '{{.COMPARE_RUN}}' \
+          -compare-allow-cards '{{.COMPARE_ALLOWED_CARDS}}' -compare-allow-roles '{{.COMPARE_ALLOWED_ROLES}}' \
+          -collector-flags '{{.MEASURECTL_FLAGS}} {{default "" .MEASURECTL_COLLECT_FLAGS}}' {{.MEASURECTL_REMOTE}}
 
   after-bench:
     desc: 進行中RUNのcollector・ログ・集計・manifestを回収
-    vars:
-      ACTIVE_RUN_ID:
-        sh: sh tools/bench/active-run-id.sh '{{.RUN_STATE_FILE}}'
-      ACTIVE_RUN_DIR: '{{.RESULT_DIR}}/{{.ACTIVE_RUN_ID}}'
-    cmds:
-      - task: metrics-stop
-        ignore_error: true
-      - task: digest
-        ignore_error: true
-        vars: { RUN_DIR: '{{.ACTIVE_RUN_DIR}}' }
-      - '{{.MEASURECTL_DIR}}/measurectl manifest finalize -dir {{.ACTIVE_RUN_DIR}} -scores {{.RESULT_DIR}}/scores.tsv -score "{{.SCORE}}" -collectors tools/measurectl/collectors.yaml -digesters tools/measurectl/digesters.yaml'
-      - mv -f '{{.RUN_STATE_FILE}}' '{{.RAW_DIR}}/last-run-id'
-      - echo "RUN_ID={{.ACTIVE_RUN_ID}} collection completed"
-
-  digest:
-    internal: true
     deps: [build-measurectl, build-nginx-backend-report, build-user-transition-metrics]
     cmds:
-      - '{{.MEASURECTL_DIR}}/measurectl digest -run-dir {{.RUN_DIR}} -raw-dir {{.RAW_DIR}} {{.MEASURECTL_DIGEST_FLAGS}} {{.MEASURECTL_SSH}} {{.MEASURECTL_ROLES}}'
-
-  metrics-prepare:
-    internal: true
-    deps: [build-measurectl]
-    cmds: ['{{.MEASURECTL_DIR}}/measurectl collect prepare {{.MEASURECTL_COMMON}}']
-
-  metrics-start:
-    internal: true
-    deps: [build-measurectl, build-proc-metrics, build-mysql-metrics]
-    vars:
-      ACTIVE_RUN_ID:
-        sh: sh tools/bench/active-run-id.sh '{{.RUN_STATE_FILE}}'
-    cmds: ['{{.MEASURECTL_DIR}}/measurectl collect start -run-id {{.ACTIVE_RUN_ID}} {{.MEASURECTL_COLLECT}}']
-
-  metrics-stop:
-    internal: true
-    deps: [build-measurectl]
-    vars:
-      ACTIVE_RUN_ID:
-        sh: sh tools/bench/active-run-id.sh '{{.RUN_STATE_FILE}}'
-    cmds: ['{{.MEASURECTL_DIR}}/measurectl collect stop -run-id {{.ACTIVE_RUN_ID}} -run-dir {{.RESULT_DIR}}/{{.ACTIVE_RUN_ID}} {{.MEASURECTL_COLLECT}}']
+      - >-
+        {{.MEASURECTL_DIR}}/measurectl run finalize -results '{{.RESULT_DIR}}' -raw-dir '{{.RAW_DIR}}'
+        -run-state-file '{{.RUN_STATE_FILE}}' -scores '{{.RESULT_DIR}}/scores.tsv' -score '{{.SCORE}}'
+        -collector-flags '{{.MEASURECTL_FLAGS}} {{default "" .MEASURECTL_COLLECT_FLAGS}}'
+        -digester-flags '{{.MEASURECTL_DIGEST_FLAGS}}' {{.MEASURECTL_REMOTE}}
 
   fgprof-collect:
     desc: 進行中RUNへfgprofを収集
@@ -691,6 +561,22 @@ tasks:
       ACTIVE_RUN_ID:
         sh: sh tools/bench/active-run-id.sh '{{.RUN_STATE_FILE}}'
     cmds: ['{{.MEASURECTL_DIR}}/measurectl collect oneshot -only fgprof -run-id {{.ACTIVE_RUN_ID}} -run-dir {{.RESULT_DIR}}/{{.ACTIVE_RUN_ID}} {{.MEASURECTL_COMMON}}']
+
+  go-profiles-collect:
+    desc: 進行中RUNへGo CPU・heap・allocs・goroutine profileを並列収集
+    deps: [build-measurectl]
+    vars:
+      ACTIVE_RUN_ID:
+        sh: sh tools/bench/active-run-id.sh '{{.RUN_STATE_FILE}}'
+    cmds: ['{{.MEASURECTL_DIR}}/measurectl collect oneshot -only go-cpu,go-heap,go-allocs,go-goroutine -run-id {{.ACTIVE_RUN_ID}} -run-dir {{.RESULT_DIR}}/{{.ACTIVE_RUN_ID}} {{.MEASURECTL_COMMON}}']
+
+  go-profile-top:
+    desc: 保存済みGo profileをgo tool pprof -topで表示（PROFILE=isucon-1-go-cpu.pprof）
+    requires: { vars: [PROFILE] }
+    preconditions:
+      - sh: test -n '{{.RUN}}' -a -f '{{.RUN}}/{{.PROFILE}}'
+        msg: 指定したGo profileがありません
+    cmds: ['go tool pprof -top {{.RUN}}/{{.PROFILE}}']
 
   abort-run:
     desc: 進行中RUNを破棄しcollectorを掃除（破壊的）
@@ -723,77 +609,17 @@ tasks:
     cmds: ['go run . -root {{.ROOT_DIR}} -db {{.ROOT_DIR}}/{{.BACKLOG_DB}} {{.CLI_ARGS}}']
 
   pass:
-    desc: 最新RUNのAPPLIED InterventionをVALIDATEDへ昇格し、スコア差分を記録
+    desc: 最新RUNのAPPLIED Interventionを安全条件付きでVALIDATEDへ昇格（例外はFORCE=true）
     silent: true
     dir: tools/backlog
     vars:
       TARGETS: '{{.CLI_ARGS | default "all"}}'
+      FORCE: '{{.FORCE | default "false"}}'
     cmds:
-      - |
-        set -eu
-        scores='{{.ROOT_DIR}}/{{.RESULT_DIR}}/scores.tsv'
-        outcomes='{{.ROOT_DIR}}/{{.RESULT_DIR}}/outcomes.tsv'
-
-        if [ ! -s "$scores" ]; then
-          echo "$scores がありません。先に task after-bench でスコアを記録してください" >&2
-          exit 1
-        fi
-
-        latest=$(awk 'NR > 1 && NF > 0' "$scores" | tail -1)
-        previous=$(awk 'NR > 1 && NF > 0' "$scores" | tail -2 | head -1)
-        latest_run=$(printf '%s' "$latest" | cut -f1)
-        latest_score=$(printf '%s' "$latest" | cut -f2)
-        previous_run=$(printf '%s' "$previous" | cut -f1)
-        previous_score=$(printf '%s' "$previous" | cut -f2)
-        if [ -z "$latest_run" ]; then
-          echo "$scores にデータ行がありません" >&2
-          exit 1
-        fi
-        if [ "$latest_run" = "$previous_run" ]; then
-          previous_run=''
-          previous_score=''
-        fi
-
-        config_changed=unknown
-        if [ -n "$previous_run" ]; then
-          latest_config=$(printf '%s' "$latest" | cut -f3-)
-          previous_config=$(printf '%s' "$previous" | cut -f3-)
-          config_changed=no
-          [ "$latest_config" = "$previous_config" ] || config_changed=yes
-        fi
-
-        delta=unknown
-        if printf '%s' "$latest_score" | grep -Eq '^-?[0-9]+$' && \
-           printf '%s' "$previous_score" | grep -Eq '^-?[0-9]+$'; then
-          delta=$((latest_score - previous_score))
-        fi
-
-        reason="benchmark passed: ${previous_run:-none} ${previous_score:-none} -> $latest_run ${latest_score:-none} (delta $delta, config_changed=$config_changed)"
-        output=$(go run . -root '{{.ROOT_DIR}}' -db '{{.ROOT_DIR}}/{{.BACKLOG_DB}}' \
-          pass '{{.TARGETS}}' --evidence-run "$latest_run" --actor task:pass --reason "$reason")
-        printf '%s\n' "$output"
-
-        ids=$(printf '%s\n' "$output" | awk '/^validated / {sub(/:$/, "", $2); print $2}')
-        if [ -z "$ids" ]; then
-          echo '昇格したカードがないため outcomes.tsv へ追記しません'
-          exit 0
-        fi
-
-        count=$(printf '%s\n' "$ids" | grep -c .)
-        if [ ! -f "$outcomes" ]; then
-          printf 'promoted_at\tcard_id\torigin\tfingerprint\trun_id\tscore\tprev_run_id\tprev_score\tdelta\tcards_in_pass\tconfig_changed\n' > "$outcomes"
-        fi
-        promoted_at=$(date '+%Y-%m-%dT%H:%M:%S%z')
-        for id in $ids; do
-          card=$(go run . -root '{{.ROOT_DIR}}' -db '{{.ROOT_DIR}}/{{.BACKLOG_DB}}' -no-color show "$id")
-          origin=$(printf '%s\n' "$card" | awk '/^History/ {history=1; next} history && /\[/ {match($0, /\[[^]]+\]/); print substr($0, RSTART+1, RLENGTH-2); exit}')
-          fingerprint=$(printf '%s\n' "$card" | awk -F'Fingerprint:' '/Fingerprint:/ {print $2; exit}' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-          printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-            "$promoted_at" "$id" "${origin:-unknown}" "${fingerprint:-unknown}" \
-            "$latest_run" "${latest_score:-none}" "${previous_run:-none}" "${previous_score:-none}" \
-            "$delta" "$count" "$config_changed" >> "$outcomes"
-        done
-        echo "$outcomes へ $count 件を記録しました (delta=$delta, config_changed=$config_changed)"
+      - >-
+        go run . -root '{{.ROOT_DIR}}' -db '{{.ROOT_DIR}}/{{.BACKLOG_DB}}'
+        pass '{{.TARGETS}}' --actor task:pass --reason 'benchmark result adopted'
+        --force='{{.FORCE}}' --outcomes '{{.ROOT_DIR}}/{{.RESULT_DIR}}/outcomes.tsv'
 
   q:
     desc: RUN横断DuckDBクエリ

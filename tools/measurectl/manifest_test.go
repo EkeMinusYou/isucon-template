@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -132,6 +133,30 @@ func TestManifestFinalizeRequiresBegin(t *testing.T) {
 	dir := t.TempDir()
 	if err := runManifestFinalize([]string{"-dir", dir}); err == nil {
 		t.Fatal("finalize without begin unexpectedly succeeded")
+	}
+}
+
+func TestAppendScoresDistinguishesUnknownFromZero(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "scores.tsv")
+	if err := appendScores(path, Manifest{RunID: "20260901-120000"}); err != nil {
+		t.Fatal(err)
+	}
+	zero := int64(0)
+	if err := appendScores(path, Manifest{RunID: "20260901-120100", Score: &zero}); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSuffix(string(body), "\n"), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("scores lines = %q", lines)
+	}
+	unknown := strings.Split(lines[1], "\t")
+	realZero := strings.Split(lines[2], "\t")
+	if unknown[1] != "" || realZero[1] != "0" {
+		t.Fatalf("unknown=%q zero=%q", unknown[1], realZero[1])
 	}
 }
 

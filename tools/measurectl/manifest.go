@@ -381,12 +381,13 @@ func appendScores(path string, m Manifest) error {
 	}
 	defer f.Close()
 
-	// スコアが読めなかった走行も 0 として残す (行が欠けるとRUNの連番が飛ぶ)。
-	var score int64
+	// Unknown is an empty field, not zero. A real zero score and a run whose
+	// score could not be obtained have different meanings.
+	score := ""
 	if m.Score != nil {
-		score = *m.Score
+		score = strconv.FormatInt(*m.Score, 10)
 	}
-	_, err = fmt.Fprintf(f, "%s\t%d\t%s\t%s\t%s\t%s\n",
+	_, err = fmt.Fprintf(f, "%s\t%s\t%s\t%s\t%s\t%s\n",
 		m.RunID, score,
 		strings.Join(m.Roles.App, ","),
 		strings.Join(m.Roles.Nginx, ","),

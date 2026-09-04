@@ -20,6 +20,8 @@ func main() {
 	}
 	var err error
 	switch os.Args[1] {
+	case "run":
+		err = runLifecycle(os.Args[2:])
 	case "manifest":
 		err = runManifest(os.Args[2:])
 	case "collect":
@@ -46,6 +48,8 @@ func usage() {
 	fmt.Fprint(os.Stderr, `measurectl — ISUCON 計測サイクルの実行と記録
 
 usage:
+  measurectl run begin [flags]                 RUN作成、manifest、prepare、collector起動を一括実行する
+  measurectl run finalize [flags]              collector停止、digest、manifest確定を一括実行する
   measurectl collect prepare [flags]           走行前の下ごしらえ (ログのローテートなど) を流す
   measurectl collect start  [flags]            collectors.yaml の collector を全ホストで起動する
   measurectl collect stop   [flags]            collector を止めて runs/<RUN_ID>/ へ回収する

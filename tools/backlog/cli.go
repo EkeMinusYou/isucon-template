@@ -1210,7 +1210,9 @@ func runPass(config cliConfig, args []string) {
 	fs := flag.NewFlagSet("pass", flag.ExitOnError)
 	actor := fs.String("actor", "", "internal writer identity")
 	reason := fs.String("reason", "benchmark passed; promote selected APPLIED cards", "history/change reason")
-	evidenceRun := fs.String("evidence-run", "", "finalized benchmark RUN containing the APPLIED snapshot")
+	evidenceRun := fs.String("evidence-run", "latest", "finalized benchmark RUN containing the APPLIED snapshot, or latest")
+	force := fs.Bool("force", false, "override pass, score, and comparison compatibility checks")
+	outcomes := fs.String("outcomes", filepath.Join(config.root, "runs", "outcomes.tsv"), "derived adoption outcome TSV")
 	if err := fs.Parse(args); err != nil {
 		fatal(err)
 	}
@@ -1220,12 +1222,16 @@ func runPass(config cliConfig, args []string) {
 	if *actor != "task:pass" {
 		fatal(errors.New("the backlog pass subcommand is internal; use top-level 'task pass' so runs/outcomes.tsv is recorded"))
 	}
-	if strings.TrimSpace(*evidenceRun) == "" {
-		fatal(errors.New("--evidence-run is required for pass"))
+	if strings.TrimSpace(*evidenceRun) == "" || *evidenceRun == "latest" {
+		latest, err := latestRunID(config.root)
+		if err != nil {
+			fatal(err)
+		}
+		*evidenceRun = latest
 	}
 	store := openCLIStore(config)
 	defer store.Close()
-	run, err := loadRunAppliedSnapshot(config.root, *evidenceRun)
+	run, err := loadRunAppliedSnapshot(config.root, *evidenceRun, *force)
 	if err != nil {
 		fatal(err)
 	}
@@ -1234,6 +1240,9 @@ func runPass(config cliConfig, args []string) {
 		fatal(err)
 	}
 	if len(ids) == 0 {
+		if err := store.writeOutcomes(*outcomes); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: outcomes TSV could not be regenerated: %v\n", err)
+		}
 		revision, err := store.revision()
 		if err != nil {
 			fatal(err)
@@ -1241,14 +1250,54 @@ func runPass(config cliConfig, args []string) {
 		fmt.Printf("pass: 0 cards, revision %d\n", revision)
 		return
 	}
-	passReason := fmt.Sprintf("%s (evidence_run=%s, snapshot_revision=%d)", strings.TrimSpace(*reason), run.RunID, run.BacklogSnapshot.Revision)
-	cards, err := store.promoteAppliedCardsMatching(ids, snapshotDefinitionHashes(run), *actor, passReason)
+	score := formatOptionalInt64(run.Score)
+	comparisonRun, comparisonScore, delta := "", "unknown", "unknown"
+	var comparisonScoreValue, deltaValue *int64
+	comparisonStatus := run.Comparison.Status
+	if comparisonStatus == "" {
+		comparisonStatus = "none"
+	}
+	if run.Comparison.RunID != "" {
+		comparisonRun = run.Comparison.RunID
+		control, loadErr := loadPassedRunSnapshot(config.root, run.Comparison.RunID, false)
+		if loadErr != nil {
+			if !*force {
+				fatal(fmt.Errorf("load declared control RUN: %w", loadErr))
+			}
+			fmt.Fprintf(os.Stderr, "warning: forced pass could not load declared control RUN: %v\n", loadErr)
+		} else {
+			comparisonRun = control.RunID
+			comparisonScoreValue = control.Score
+			comparisonScore = formatOptionalInt64(control.Score)
+			if run.Score != nil && control.Score != nil && comparisonStatus == "compatible" {
+				value := *run.Score - *control.Score
+				deltaValue = &value
+				delta = strconv.FormatInt(value, 10)
+			}
+		}
+	}
+	passReason := fmt.Sprintf("%s (evidence_run=%s, score=%s, comparison_run=%s, comparison_score=%s, delta=%s, comparison_status=%s, forced=%t, snapshot_revision=%d)",
+		strings.TrimSpace(*reason), run.RunID, score, valueOr(comparisonRun, "none"), comparisonScore, delta, comparisonStatus, *force, run.BacklogSnapshot.Revision)
+	event := AdoptionEvent{
+		RunID: run.RunID, AdoptedAt: now(), Actor: *actor, Forced: *force,
+		Score: run.Score, Passed: run.Passed, ComparisonRunID: comparisonRun,
+		ComparisonScore: comparisonScoreValue, ComparisonStatus: comparisonStatus, Delta: deltaValue,
+		ManifestSHA256: run.ManifestSHA256, SnapshotRevision: run.BacklogSnapshot.Revision,
+	}
+	cards, err := store.adoptCardsMatching(ids, snapshotDefinitionHashes(run), event, passReason)
 	if err != nil {
 		fatal(err)
+	}
+	if err := store.writeOutcomes(*outcomes); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: adoption committed but outcomes TSV could not be regenerated: %v\n", err)
+	} else {
+		fmt.Printf("outcomes: %s\n", *outcomes)
 	}
 	for _, card := range cards {
 		fmt.Printf("validated %s: %s\n", card.ID, card.Title)
 	}
+	fmt.Printf("pass-context run_id=%s score=%s comparison_run_id=%s comparison_score=%s delta=%s comparison_status=%s forced=%t\n",
+		run.RunID, score, valueOr(comparisonRun, "none"), comparisonScore, delta, comparisonStatus, *force)
 	if err := store.validate(); err != nil {
 		fatal(err)
 	}
@@ -1257,6 +1306,20 @@ func runPass(config cliConfig, args []string) {
 		fatal(err)
 	}
 	fmt.Printf("pass: %d cards, revision %d\n", len(cards), revision)
+}
+
+func valueOr(value, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
+}
+
+func formatOptionalInt64(value *int64) string {
+	if value == nil {
+		return "unknown"
+	}
+	return strconv.FormatInt(*value, 10)
 }
 
 func passSnapshotCardIDs(store *Store, run runSnapshotEnvelope, value string) ([]string, error) {
@@ -1365,7 +1428,8 @@ Commands:
   constraint link CONSTRAINT_ID --card CARD_ID --role RESOLVES|MITIGATES [--assessment-json JSON] --expect-constraint-version N --actor ACTOR --reason REASON
   constraint unlink CONSTRAINT_ID --card CARD_ID --expect-constraint-version N --actor ACTOR --reason REASON
   history add CARD_ID --actor ACTOR --message MESSAGE
-  pass CARD_ID[,CARD_ID...]|all --actor task:pass --evidence-run RUN_ID [--reason REASON]  internal command used by top-level 'task pass'
+  pass CARD_ID[,CARD_ID...]|all --actor task:pass [--evidence-run RUN_ID|latest] [--outcomes FILE] [--reason REASON] [--force]
+                                          internal command used by top-level 'task pass'
   evidence [-format text|json] CARD_ID[,CARD_ID...]  summarize normal benchmark evidence without writes
   validate
 

@@ -87,7 +87,11 @@ func runCollect(args []string) error {
 				return err
 			}
 		} else {
-			cfg.Collectors, err = enabledCollectors(cfg.Collectors, includeNames)
+			if action == "oneshot" {
+				cfg.Oneshots, err = enabledOneshots(cfg.Oneshots, includeNames)
+			} else {
+				cfg.Collectors, err = enabledCollectors(cfg.Collectors, includeNames)
+			}
 			if err != nil {
 				return err
 			}
@@ -164,6 +168,22 @@ func enabledCollectors(collectors []Collector, include map[string]bool) ([]Colle
 	for _, collector := range collectors {
 		if collector.enabledByDefault() || include[collector.Name] {
 			selected = append(selected, collector)
+		}
+	}
+	return selected, nil
+}
+
+func enabledOneshots(oneshots []Oneshot, include map[string]bool) ([]Oneshot, error) {
+	known := oneshotNames(oneshots)
+	for name := range include {
+		if !known[name] {
+			return nil, fmt.Errorf("-include に一致する oneshot %q がありません", name)
+		}
+	}
+	selected := make([]Oneshot, 0, len(oneshots))
+	for _, oneshot := range oneshots {
+		if oneshot.enabledByDefault() || include[oneshot.Name] {
+			selected = append(selected, oneshot)
 		}
 	}
 	return selected, nil

@@ -11,7 +11,7 @@ import (
 
 type scoreEntry struct {
 	RunID      string `json:"run_id"`
-	Score      int64  `json:"score"`
+	Score      *int64 `json:"score"`
 	App        string `json:"app"`
 	Nginx      string `json:"nginx"`
 	Mysql      string `json:"mysql"`
@@ -48,7 +48,10 @@ func parseScores(path string) ([]scoreEntry, error) {
 		if len(cols) < 2 {
 			continue
 		}
-		score, _ := strconv.ParseInt(cols[1], 10, 64)
+		var score *int64
+		if parsed, parseErr := strconv.ParseInt(strings.TrimSpace(cols[1]), 10, 64); parseErr == nil {
+			score = &parsed
+		}
 		e := scoreEntry{RunID: cols[0], Score: score}
 		if len(cols) > 2 {
 			e.App = cols[2]

@@ -118,11 +118,12 @@ type Source struct {
 // Digester は集計 1 件。ベンチ後の集計は「入力を確かめる → 外部ツールを確かめる →
 // タイムアウト付きで実行する → 失敗なら理由を残して既定値で埋める」形が共通なので、
 // 違うのはここに書ける宣言だけになる。
-// Remote はリモートで SQL などを流し、その標準出力を集計とする指定。
-// source の代わりに使う (ローカルの生ログを入力に取らない集計のため)。
+// Remote runs SQL, journalctl, or another script on a remote role and stores stdout.
+// PerHost runs it on every host in the role and maps each result through output {host}.
 type Remote struct {
-	Role   string `yaml:"role"`
-	Script string `yaml:"script"`
+	Role    string `yaml:"role"`
+	PerHost bool   `yaml:"per_host"`
+	Script  string `yaml:"script"`
 }
 
 type Digester struct {
@@ -196,6 +197,13 @@ func loadDigestConfig(path string) (*DigestConfig, error) {
 			if d.Remote.Role == "" || d.Remote.Script == "" {
 				return nil, fmt.Errorf("digester %q の remote に role / script のいずれかが足りません", d.Name)
 			}
+			if d.Remote.PerHost {
+				for _, output := range d.Outputs {
+					if !strings.Contains(output.File, "{host}") {
+						return nil, fmt.Errorf("digester %q のper-host output %qに{host}がありません", d.Name, output.File)
+					}
+				}
+			}
 		default:
 			return nil, fmt.Errorf("digester %q に source も remote もありません", d.Name)
 		}
@@ -239,7 +247,10 @@ func (e expander) expand(s string) string {
 		case "run_id":
 			return e.runID
 		}
-		return e.vars[strings.TrimPrefix(key, "var:")]
+		if value, ok := e.vars[strings.TrimPrefix(key, "var:")]; ok {
+			return value
+		}
+		return m
 	})
 }
 

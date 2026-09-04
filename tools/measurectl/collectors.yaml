@@ -10,8 +10,12 @@ prepare:
       if sudo test -e "$log"; then
         sudo mv -f "$log" "${log}.old"
       fi
+      error_log=/var/log/nginx/error.log
+      if sudo test -e "$error_log"; then
+        sudo mv -f "$error_log" "${error_log}.old"
+      fi
       sudo nginx -s reopen
-      echo "nginx log rotated"
+      echo "nginx access and error logs rotated"
 
   - name: mysql-log
     label: MySQL slow log and performance_schema digest
@@ -34,10 +38,46 @@ oneshots:
     label: wall-clock profile
     enabled_by_default: false
     hosts: app
-    delay: 20s
-    run: curl -fsS -o {remote_out} '{var:profile_url}'
+    delay: '{var:profile_delay}'
+    run: curl -fsS --max-time {var:profile_timeout_seconds} -o {remote_out} '{var:fgprof_url}'
     remote_out: /tmp/fgprof.pprof
     output: '{host}-fgprof.pprof'
+
+  - name: go-cpu
+    label: Go CPU profile
+    enabled_by_default: false
+    hosts: app
+    delay: '{var:profile_delay}'
+    run: curl -fsS --max-time {var:profile_timeout_seconds} -o {remote_out} '{var:pprof_base_url}/profile?seconds={var:profile_seconds}'
+    remote_out: /tmp/go-cpu.pprof
+    output: '{host}-go-cpu.pprof'
+
+  - name: go-heap
+    label: Go heap profile
+    enabled_by_default: false
+    hosts: app
+    delay: '{var:snapshot_profile_delay}'
+    run: curl -fsS --max-time 15 -o {remote_out} '{var:pprof_base_url}/heap'
+    remote_out: /tmp/go-heap.pprof
+    output: '{host}-go-heap.pprof'
+
+  - name: go-allocs
+    label: Go allocation profile
+    enabled_by_default: false
+    hosts: app
+    delay: '{var:snapshot_profile_delay}'
+    run: curl -fsS --max-time 15 -o {remote_out} '{var:pprof_base_url}/allocs'
+    remote_out: /tmp/go-allocs.pprof
+    output: '{host}-go-allocs.pprof'
+
+  - name: go-goroutine
+    label: Go goroutine profile
+    enabled_by_default: false
+    hosts: app
+    delay: '{var:snapshot_profile_delay}'
+    run: curl -fsS --max-time 15 -o {remote_out} '{var:pprof_base_url}/goroutine'
+    remote_out: /tmp/go-goroutine.pprof
+    output: '{host}-go-goroutine.pprof'
 
 collectors:
   - name: proc
@@ -51,17 +91,30 @@ collectors:
       -services {var:services}
       -service-output {remote_dir}/service-metrics.tsv
       -disk-output {remote_dir}/disk-metrics.tsv
-      -task-output {remote_dir}/task-states.tsv
-      -task-interval 250ms
     outputs:
       metrics.tsv: '{host}-proc-metrics.tsv'
       service-metrics.tsv: '{host}-service-metrics.tsv'
       disk-metrics.tsv: '{host}-disk-metrics.tsv'
-      task-states.tsv: '{host}-task-states.tsv'
     stderr: '{host}-proc-metrics.stderr'
 
+  - name: task-state
+    label: high-frequency blocked task state
+    enabled_by_default: false
+    hosts: all
+    binary: tools/proc-metrics/proc-metrics
+    remote_root: /tmp/isucon-task-state
+    stdout: /dev/null
+    args: >-
+      -interval 10s
+      -services ''
+      -task-output {remote_dir}/task-states.tsv
+      -task-interval 250ms
+    outputs:
+      task-states.tsv: '{host}-task-states.tsv'
+    stderr: '{host}-task-states.stderr'
+
   - name: mysql
-    label: MySQL status and lock waits
+    label: MySQL status
     hosts: mysql
     binary: tools/mysql-metrics/mysql-metrics
     remote_root: /tmp/isucon-mysql-metrics
@@ -69,13 +122,26 @@ collectors:
     args: >-
       -interval 1s
       -output {remote_dir}/metrics.tsv
+    outputs:
+      metrics.tsv: mysql-status.tsv
+    stderr: mysql-status.stderr
+
+  - name: mysql-locks
+    label: high-frequency MySQL lock waits
+    enabled_by_default: false
+    hosts: mysql
+    binary: tools/mysql-metrics/mysql-metrics
+    remote_root: /tmp/isucon-mysql-locks
+    stdout: /dev/null
+    args: >-
+      -interval 10s
+      -output /dev/null
       -lock-output {remote_dir}/lock-waits.tsv
       -lock-interval 50ms
       -lock-query-timeout 40ms
     outputs:
-      metrics.tsv: mysql-status.tsv
       lock-waits.tsv: mysql-lock-waits.tsv
-    stderr: mysql-status.stderr
+    stderr: mysql-lock-waits.stderr
 
   - name: nginx-oncpu
     label: nginx worker on-CPU profile

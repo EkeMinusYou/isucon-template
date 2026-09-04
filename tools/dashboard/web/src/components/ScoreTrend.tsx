@@ -25,7 +25,8 @@ export function ScoreTrend({ scores }: Props) {
   }
 
   const data = scores.map((s) => ({ ...s, label: s.run_id.slice(4, 13) }))
-  const best = scores.reduce((a, b) => (b.score > a.score ? b : a))
+  const scored = scores.filter((s): s is ScoreEntry & { score: number } => s.score != null)
+  const best = scored.length > 0 ? scored.reduce((a, b) => (b.score > a.score ? b : a)) : null
   const latest = scores[scores.length - 1]
 
   return (
@@ -33,13 +34,13 @@ export function ScoreTrend({ scores }: Props) {
     <div className="stats stats-horizontal w-full overflow-x-auto border border-base-300 bg-base-100">
       <div className="stat px-4 py-2">
         <div className="stat-title text-sm">最新スコア</div>
-        <div className="stat-value text-2xl tabular-nums">{latest.score.toLocaleString()}</div>
+        <div className="stat-value text-2xl tabular-nums">{latest.score?.toLocaleString() ?? '不明'}</div>
         <div className="stat-desc font-mono text-xs">{latest.run_id}</div>
       </div>
       <div className="stat px-4 py-2">
         <div className="stat-title text-sm">ベストスコア</div>
-        <div className="stat-value text-2xl tabular-nums text-success">{best.score.toLocaleString()}</div>
-        <div className="stat-desc font-mono text-xs">{best.run_id}</div>
+        <div className="stat-value text-2xl tabular-nums text-success">{best?.score.toLocaleString() ?? '不明'}</div>
+        <div className="stat-desc font-mono text-xs">{best?.run_id ?? '—'}</div>
       </div>
       <div className="stat px-4 py-2">
         <div className="stat-title text-sm">RUN数</div>

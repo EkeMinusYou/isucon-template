@@ -9,18 +9,32 @@
 -- getenv は未設定時に空文字を返すので nullif で潰す。
 set variable run_glob = coalesce(nullif(getenv('ISUCON_RUN_GLOB'), ''), 'runs/*');
 
--- RUN の索引。役割構成は scores.tsv が唯一の記録なので、ホスト名が
--- ファイル名に出ない MySQL collector の host 解決にも使う。
+-- RUN index. scores.tsv owns the role history, while run.json owns the declared
+-- adoption control. MySQL artifacts also use this view to resolve their host.
 -- ここだけは常に全 RUN を読む (差分取り込みでも構成の参照先が要る)。
 create or replace view runs as
+with score_rows as (
+    select *
+    from read_csv('runs/scores.tsv', delim = '\t', header = true,
+                  types = {'run_id': 'VARCHAR', 'score': 'BIGINT'})
+), comparison_context as (
+    select
+        json_extract_string(content, '$.run_id') as run_id,
+        json_extract_string(content, '$.comparison.run_id') as comparison_run_id,
+        json_extract_string(content, '$.comparison.status') as comparison_status
+    from read_text('runs/*/run.json')
+)
 select
-    run_id,
-    score,
-    strptime(run_id, '%Y%m%d-%H%M%S')      as started_at,
-    string_split(app, ',')                 as app_hosts,
-    string_split(nginx, ',')               as nginx_hosts,
-    mysql                                  as mysql_host,
-    string_split(app_traffic, ',')         as app_traffic_hosts,
-    score - lag(score) over (order by run_id) as score_delta
-from read_csv('runs/scores.tsv', delim = '\t', header = true,
-              types = {'run_id': 'VARCHAR', 'score': 'BIGINT'});
+    target.run_id,
+    target.score,
+    strptime(target.run_id, '%Y%m%d-%H%M%S') as started_at,
+    string_split(target.app, ',')             as app_hosts,
+    string_split(target.nginx, ',')           as nginx_hosts,
+    target.mysql                              as mysql_host,
+    string_split(target.app_traffic, ',')     as app_traffic_hosts,
+    case when context.comparison_status = 'compatible'
+         then target.score - control.score
+         else null end                        as score_delta
+from score_rows target
+left join comparison_context context using (run_id)
+left join score_rows control on control.run_id = context.comparison_run_id;

@@ -133,6 +133,33 @@ CREATE TABLE card_history (
     raw TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (card_id, position)
 );
+CREATE TABLE adoption_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL CHECK (run_id <> ''),
+    adopted_at TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    forced INTEGER NOT NULL CHECK (forced IN (0, 1)),
+    score INTEGER,
+    passed INTEGER CHECK (passed IS NULL OR passed IN (0, 1)),
+    comparison_run_id TEXT NOT NULL DEFAULT '',
+    comparison_score INTEGER,
+    comparison_status TEXT NOT NULL CHECK (comparison_status IN ('none', 'compatible', 'incompatible', 'unverified')),
+    delta INTEGER,
+    manifest_sha256 TEXT NOT NULL CHECK (
+        length(manifest_sha256) = 71
+        AND substr(manifest_sha256, 1, 7) = 'sha256:'
+        AND substr(manifest_sha256, 8) NOT GLOB '*[^0-9a-f]*'
+    ),
+    snapshot_revision INTEGER NOT NULL CHECK (snapshot_revision >= 0)
+);
+CREATE TABLE adoption_event_cards (
+    adoption_event_id INTEGER NOT NULL REFERENCES adoption_events(id) ON DELETE CASCADE,
+    card_id TEXT NOT NULL REFERENCES cards(id),
+    origin TEXT NOT NULL DEFAULT '',
+    fingerprint TEXT NOT NULL DEFAULT '',
+    definition_hash TEXT NOT NULL,
+    PRIMARY KEY (adoption_event_id, card_id)
+);
 CREATE TABLE change_log (
     revision INTEGER PRIMARY KEY,
     occurred_at TEXT NOT NULL,
@@ -146,6 +173,8 @@ CREATE INDEX idx_cards_area ON cards(area);
 CREATE INDEX idx_cards_priority ON cards(priority);
 CREATE INDEX idx_card_runs_run ON card_runs(run_id, relation, card_id);
 CREATE INDEX idx_history_card ON card_history(card_id, position);
+CREATE INDEX idx_adoption_events_run ON adoption_events(run_id, id);
+CREATE INDEX idx_adoption_event_cards_card ON adoption_event_cards(card_id, adoption_event_id);
 CREATE INDEX idx_sections_card ON card_sections(card_id, position);
 CREATE INDEX idx_dependencies_target ON card_dependencies(depends_on_card_id, card_id);
 CREATE INDEX idx_constraints_status ON constraints(status);

@@ -80,7 +80,11 @@ Missing confidence, incomplete investigation, unknown effect size, or desire for
 
 ### VALIDATED and REJECTED
 
-Use top-level `task pass` after a successful manual benchmark. It validates only APPLIED cards present in that RUN's before-bench snapshot with unchanged definitions.
+Use top-level `task pass` after a successful manual benchmark. It requires a finalized RUN with `passed=true` and a known score, and validates only APPLIED cards present in that RUN's before-bench snapshot with unchanged definitions. When a control RUN is declared, the final comparison must remain `compatible` and the outcome delta uses that control rather than the immediately preceding RUN.
+
+Use `task pass FORCE=true` only for an explicit exceptional adoption. It bypasses the pass, known-score, and comparison-compatibility gates, but never finalization, snapshot integrity, or card-definition checks. The forced decision remains visible in History.
+
+Adoption decisions are stored as immutable SQLite events in the same transaction as the card transitions. Score and comparison values in an event are evidence snapshots read from the finalized `run.json`; the manifest remains the source of truth for the RUN itself. `runs/outcomes.tsv` is regenerated from these events.
 
 Do not reject or rollback from a single score fluctuation alone. Correctness failure, official-spec violation, operational failure, or evidence that refutes the causal path can justify rollback and REJECTED. Record the relevant RUN, mechanism evidence, and rollback result.
 

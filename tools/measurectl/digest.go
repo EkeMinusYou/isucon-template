@@ -28,8 +28,10 @@ type digestRunner struct {
 	dryRun  bool
 	// bench.log が preflight 失敗を示しているか。skip_if_bench_failed の判定に使う。
 	benchFailed bool
+	loadWindow  LoadWindow
 	// fetchFn is used by focused tests; production fetches through rsyncFrom.
-	fetchFn func(host, remote, local string) error
+	fetchFn     func(host, remote, local string) error
+	sshScriptFn func(host, script string) (string, string, error)
 }
 
 func runDigest(args []string) error {
@@ -75,6 +77,8 @@ func runDigest(args []string) error {
 		dryRun:  *dryRun,
 	}
 	r.benchFailed = benchFailed(filepath.Join(*runDir, "bench.log"))
+	benchLog, _ := os.ReadFile(filepath.Join(*runDir, "bench.log"))
+	r.loadWindow = resolveLoadWindow(benchLog)
 
 	if !*dryRun {
 		if err := os.MkdirAll(*runDir, 0o755); err != nil {
@@ -284,38 +288,87 @@ func (r *digestRunner) digest(d Digester) error {
 // スクリプトが非 0 で終われば (performance_schema が無効なときなど) スキップ扱いにし、
 // 標準エラーの中身をそのまま理由にする。
 func (r *digestRunner) digestRemote(d Digester) error {
+	if (strings.Contains(d.Remote.Script, "{load_start}") || strings.Contains(d.Remote.Script, "{load_end}")) && r.loadWindow.Status != "ok" {
+		return fmt.Errorf("%s requires a valid benchmark load window: %s", d.Name, r.loadWindow.Reason)
+	}
 	hosts, ok := r.roles[d.Remote.Role]
 	if !ok || len(hosts) == 0 {
 		return fmt.Errorf("remote が指す役割 %q のホストが -role で渡されていません", d.Remote.Role)
 	}
-	host := hosts[0]
-
-	if r.dryRun {
-		fmt.Printf("[dry-run] ssh %s sh -s <<'EOF'\n%sEOF\n", host, d.Remote.Script)
+	if !d.Remote.PerHost {
+		hosts = hosts[:1]
+	}
+	return parallelIndex(len(hosts), func(index int) error {
+		host := hosts[index]
+		script := r.expand(d.Remote.Script, host)
+		if missing := unresolved(script); len(missing) > 0 {
+			return fmt.Errorf("[%s] remote script has unresolved placeholders: %s", host, strings.Join(missing, " "))
+		}
+		if r.dryRun {
+			fmt.Printf("[dry-run] ssh %s sh -s <<'EOF'\n%sEOF\n", host, script)
+			return nil
+		}
+		sshScript := r.sshScript
+		if r.sshScriptFn != nil {
+			sshScript = r.sshScriptFn
+		}
+		out, stderr, err := sshScript(host, script)
+		if err != nil {
+			reason := strings.TrimSpace(stderr)
+			if reason == "" {
+				reason = err.Error()
+			}
+			return r.skipRemoteHost(d, host, fmt.Sprintf("[%s] %s skipped: %s", host, d.Name, reason))
+		}
+		for _, o := range d.Outputs {
+			path := filepath.Join(r.runDir, r.expand(o.File, host))
+			body := out
+			if o.Header != "" {
+				body = unescape(o.Header) + "\n" + body
+			}
+			if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+				return err
+			}
+			fmt.Printf("%s 集計（%d 行）\n", path, strings.Count(strings.TrimSpace(out), "\n")+1)
+		}
 		return nil
-	}
+	})
+}
 
-	out, stderr, err := r.sshScript(host, d.Remote.Script)
-	if err != nil {
-		reason := strings.TrimSpace(stderr)
-		if reason == "" {
-			reason = err.Error()
+func (r *digestRunner) skipRemoteHost(d Digester, host, reason string) error {
+	r.appendStderr(d, reason)
+	for _, output := range d.Outputs {
+		if output.OnSkip == "" {
+			continue
 		}
-		return r.skip(d, fmt.Sprintf("%s skipped: %s", d.Name, reason))
-	}
-
-	for _, o := range d.Outputs {
-		path := filepath.Join(r.runDir, o.File)
-		body := out
-		if o.Header != "" {
-			body = unescape(o.Header) + "\n" + body
-		}
-		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		path := filepath.Join(r.runDir, r.expand(output.File, host))
+		if err := os.WriteFile(path, []byte(unescape(output.OnSkip)+"\n"), 0o644); err != nil {
 			return err
 		}
-		fmt.Printf("%s 集計（%d 行）\n", path, strings.Count(strings.TrimSpace(out), "\n")+1)
 	}
+	fmt.Printf("%s の集計をスキップ（%s）\n", d.Name, reason)
 	return nil
+}
+
+func parallelIndex(count int, fn func(int) error) error {
+	var (
+		wg   sync.WaitGroup
+		mu   sync.Mutex
+		errs []error
+	)
+	for index := 0; index < count; index++ {
+		wg.Add(1)
+		go func(index int) {
+			defer wg.Done()
+			if err := fn(index); err != nil {
+				mu.Lock()
+				errs = append(errs, err)
+				mu.Unlock()
+			}
+		}(index)
+	}
+	wg.Wait()
+	return errors.Join(errs...)
 }
 
 // skipReason は集計を飛ばす理由を返す。飛ばさないなら空文字。
@@ -576,9 +629,15 @@ func (r *digestRunner) expand(s, host string) string {
 		"{run_dir}", r.runDir,
 		"{raw_dir}", r.rawDir,
 		"{host}", host,
+		"{load_start}", r.loadWindow.StartedAt,
+		"{load_end}", r.loadWindow.EndedAt,
 	).Replace(s)
 	return placeholderRe.ReplaceAllStringFunc(expanded, func(key string) string {
-		return r.vars[strings.TrimSuffix(strings.TrimPrefix(key, "{var:"), "}")]
+		name := strings.TrimSuffix(strings.TrimPrefix(key, "{var:"), "}")
+		if value, ok := r.vars[name]; ok {
+			return value
+		}
+		return key
 	})
 }
 

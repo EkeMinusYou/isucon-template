@@ -81,9 +81,55 @@ func TestLoadRunAppliedSnapshotRejectsLegacyAndStartedRuns(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(dir, "run.json"), []byte(test.body), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := loadRunAppliedSnapshot(root, test.runID); err == nil {
+		if _, err := loadRunAppliedSnapshot(root, test.runID, false); err == nil {
 			t.Fatalf("run %s unexpectedly accepted", test.runID)
 		}
+		if _, err := loadRunAppliedSnapshot(root, test.runID, true); err == nil {
+			t.Fatalf("unfinished run %s unexpectedly accepted with force", test.runID)
+		}
+	}
+}
+
+func TestLoadRunAppliedSnapshotRequiresPassedKnownScoreAndCompatibleComparison(t *testing.T) {
+	root := t.TempDir()
+	runID := "20260901-120010"
+	dir := filepath.Join(root, "runs", runID)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write := func(body string) error {
+		return os.WriteFile(filepath.Join(dir, "run.json"), []byte(body), 0o644)
+	}
+	base := `{"schema_version":4,"phase":"finalized","run_id":"20260901-120010","backlog_snapshot":{"schema_version":1,"status":"ok","cards":[]}`
+	for name, suffix := range map[string]string{
+		"failed":               `,"score":100,"passed":false}`,
+		"unknown pass":         `,"score":100,"passed":null}`,
+		"unknown score":        `,"score":null,"passed":true}`,
+		"incompatible control": `,"score":100,"passed":true,"comparison":{"run_id":"20260901-110000","status":"incompatible"}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := write(base + suffix); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := loadRunAppliedSnapshot(root, runID, false); err == nil {
+				t.Fatalf("%s RUN unexpectedly accepted", name)
+			}
+			if _, err := loadRunAppliedSnapshot(root, runID, true); err != nil {
+				t.Fatalf("%s RUN was not accepted with force: %v", name, err)
+			}
+		})
+	}
+	if err := write(base + `,"score":0,"passed":true,"comparison":{"status":"none"}}`); err != nil {
+		t.Fatal(err)
+	}
+	if run, err := loadRunAppliedSnapshot(root, runID, false); err != nil || run.Score == nil || *run.Score != 0 {
+		t.Fatalf("valid zero-score RUN rejected: run=%#v err=%v", run, err)
+	}
+	if err := write(`{"schema_version":4,"phase":"finalized","run_id":"20260901-120010","passed":false,"backlog_snapshot":{"schema_version":1,"status":"error","cards":[]}}`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadRunAppliedSnapshot(root, runID, true); err == nil {
+		t.Fatal("force accepted a RUN without a usable APPLIED snapshot")
 	}
 }
 

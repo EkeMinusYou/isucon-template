@@ -122,6 +122,30 @@ func TestEnabledCollectorsRejectsUnknownInclude(t *testing.T) {
 	}
 }
 
+func TestEnabledOneshotsDefaultsAndInclude(t *testing.T) {
+	ones := []Oneshot{
+		{Name: "default"},
+		{Name: "go-cpu", EnabledByDefault: boolPointer(false)},
+	}
+	got, err := enabledOneshots(ones, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Name != "default" {
+		t.Fatalf("default oneshots = %#v", got)
+	}
+	got, err = enabledOneshots(ones, map[string]bool{"go-cpu": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[1].Name != "go-cpu" {
+		t.Fatalf("included oneshots = %#v", got)
+	}
+	if _, err := enabledOneshots(ones, map[string]bool{"typo": true}); err == nil {
+		t.Fatal("enabledOneshots accepted an unknown include")
+	}
+}
+
 func TestOnlyCanSelectDisabledCollector(t *testing.T) {
 	collectors := []Collector{
 		{Name: "proc"},
@@ -162,6 +186,16 @@ func TestCollectRejectsUnknownOneshotOnly(t *testing.T) {
 	err := runCollect([]string{"oneshot", "-config", writeOneshotConfig(t), "-run-dir", t.TempDir(), "-only", "unknown"})
 	if err == nil || !strings.Contains(err.Error(), "unknown") {
 		t.Fatalf("unknown oneshot -only error = %v", err)
+	}
+}
+
+func TestCollectRejectsMissingOneshotVariable(t *testing.T) {
+	err := runCollect([]string{
+		"oneshot", "-config", writeOneshotConfig(t), "-run-dir", t.TempDir(),
+		"-only", "fgprof", "-role", "app=isucon-1", "-dry-run",
+	})
+	if err == nil || !strings.Contains(err.Error(), "{var:profile_url}") {
+		t.Fatalf("missing oneshot variable error = %v", err)
 	}
 }
 

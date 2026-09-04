@@ -30,6 +30,74 @@ sources:
     compress: false
 
 digesters:
+  - name: app-journal
+    label: application journal for benchmark window
+    remote:
+      role: app
+      per_host: true
+      script: |
+        set -eu
+        printf '# host={host} unit={var:app_service} load_window={load_start}..{load_end}\n'
+        sudo journalctl -u '{var:app_service}' --since '{load_start}' --until '{load_end}' --no-pager -o short-iso-precise
+    stderr: app-journal.stderr
+    outputs:
+      - file: '{host}-app-journal.log'
+
+  - name: nginx-error
+    label: nginx journal and error log for benchmark window
+    remote:
+      role: nginx
+      per_host: true
+      script: |
+        set -eu
+        printf '# host={host} unit=nginx load_window={load_start}..{load_end}\n'
+        sudo journalctl -u nginx --since '{load_start}' --until '{load_end}' --no-pager -o short-iso-precise
+        printf '# /var/log/nginx/error.log filtered to the same load window\n'
+        if sudo test -r /var/log/nginx/error.log; then
+          start=$(date -d '{load_start}' '+%Y/%m/%d %H:%M:%S')
+          end=$(date -d '{load_end}' '+%Y/%m/%d %H:%M:%S')
+          sudo awk -v start="$start" -v end="$end" '
+            length($0) >= 19 {
+              timestamp = substr($0, 1, 19)
+              if (timestamp >= start && timestamp <= end) print
+            }
+          ' /var/log/nginx/error.log 2>&1 || true
+        else
+          printf '# nginx error log is unavailable\n'
+        fi
+    stderr: nginx-error.stderr
+    outputs:
+      - file: '{host}-nginx-error.log'
+
+  - name: kernel-journal
+    label: kernel journal for benchmark window
+    remote:
+      role: all
+      per_host: true
+      script: |
+        set -eu
+        printf '# host={host} kernel load_window={load_start}..{load_end}\n'
+        sudo journalctl -k --since '{load_start}' --until '{load_end}' --no-pager -o short-iso-precise
+    stderr: kernel-journal.stderr
+    outputs:
+      - file: '{host}-kernel.log'
+
+  - name: oom-events
+    label: OOM events for benchmark window
+    remote:
+      role: all
+      per_host: true
+      script: |
+        set -eu
+        printf '# host={host} OOM events load_window={load_start}..{load_end}\n'
+        tmp=$(mktemp)
+        trap 'rm -f "$tmp"' EXIT HUP INT TERM
+        sudo journalctl -k --since '{load_start}' --until '{load_end}' --no-pager -o short-iso-precise > "$tmp"
+        grep -E -i 'out of memory|oom-kill|killed process|memory cgroup out of memory' "$tmp" || true
+    stderr: oom-events.stderr
+    outputs:
+      - file: '{host}-oom.log'
+
   - name: alp
     label: alp
     source: access

@@ -75,7 +75,9 @@ Unknown effect magnitude, absence of a current Constraint, or lack of a direct m
 
 `READY -> DOING` sets Owner atomically. Targeted writes require `--expect-card-version`; Constraint and Objective writes use their own version checks. Dependencies always specify `required-status` and `mode` explicitly.
 
-After a successful manual benchmark, use `task pass` or `task pass -- B-001,B-002`. Only cards in the finalized RUN's before-bench APPLIED snapshot with the same definition hash are promoted and recorded in `runs/outcomes.tsv`.
+After a successful manual benchmark, use `task pass` or `task pass -- B-001,B-002`. The RUN must be finalized, have `passed=true`, and have a known score. If a control RUN was declared, its final comparison status must be `compatible`; the recorded delta uses that control rather than the previous TSV row. `task pass FORCE=true` overrides only the pass, known-score, and comparison-compatibility gates; finalization, a usable APPLIED snapshot, and unchanged card definitions remain mandatory. Forced adoption is recorded in History.
+
+Each pass writes one immutable `adoption_events` row and its `adoption_event_cards` rows in the same SQLite transaction as every card promotion. The event snapshots score, pass state, declared control, delta, manifest hash, and backlog revision from `run.json`. `runs/outcomes.tsv` is an atomically regenerated projection, not a source of truth.
 
 ## Storage and validation
 

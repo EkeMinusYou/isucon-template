@@ -37,7 +37,16 @@ type runSnapshotEnvelope struct {
 	SchemaVersion   int             `json:"schema_version"`
 	Phase           string          `json:"phase"`
 	RunID           string          `json:"run_id"`
+	Score           *int64          `json:"score"`
+	Passed          *bool           `json:"passed"`
+	Comparison      runComparison   `json:"comparison"`
 	BacklogSnapshot AppliedSnapshot `json:"backlog_snapshot"`
+	ManifestSHA256  string          `json:"-"`
+}
+
+type runComparison struct {
+	RunID  string `json:"run_id"`
+	Status string `json:"status"`
 }
 
 func (s *Store) appliedSnapshot() (AppliedSnapshot, error) {
@@ -167,7 +176,40 @@ func writeFileAtomic(path string, body []byte, mode os.FileMode) error {
 	return os.Rename(tmpPath, path)
 }
 
-func loadRunAppliedSnapshot(root, runID string) (runSnapshotEnvelope, error) {
+func loadRunAppliedSnapshot(root, runID string, force bool) (runSnapshotEnvelope, error) {
+	return loadRunSnapshot(root, runID, true, force)
+}
+
+func latestRunID(root string) (string, error) {
+	entries, err := os.ReadDir(filepath.Join(root, "runs"))
+	if err != nil {
+		return "", fmt.Errorf("read RUN directory: %w", err)
+	}
+	var ids []string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		id := entry.Name()
+		if _, err := parseRunIDsStrict(id); err != nil {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(root, "runs", id, "run.json")); err == nil {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		return "", errors.New("no RUN manifest found; run a benchmark first")
+	}
+	sort.Strings(ids)
+	return ids[len(ids)-1], nil
+}
+
+func loadPassedRunSnapshot(root, runID string, requireCompatibleComparison bool) (runSnapshotEnvelope, error) {
+	return loadRunSnapshot(root, runID, requireCompatibleComparison, false)
+}
+
+func loadRunSnapshot(root, runID string, requireCompatibleComparison, force bool) (runSnapshotEnvelope, error) {
 	runID = strings.TrimSpace(runID)
 	if runID == "" || filepath.Base(runID) != runID || strings.Contains(runID, string(filepath.Separator)) {
 		return runSnapshotEnvelope{}, fmt.Errorf("invalid evidence RUN %q", runID)
@@ -181,11 +223,24 @@ func loadRunAppliedSnapshot(root, runID string) (runSnapshotEnvelope, error) {
 	if err := json.Unmarshal(body, &run); err != nil {
 		return runSnapshotEnvelope{}, fmt.Errorf("parse evidence RUN manifest: %w", err)
 	}
+	manifestHash := sha256.Sum256(body)
+	run.ManifestSHA256 = "sha256:" + hex.EncodeToString(manifestHash[:])
 	if run.RunID != runID {
 		return runSnapshotEnvelope{}, fmt.Errorf("evidence RUN ID mismatch: manifest=%q requested=%q", run.RunID, runID)
 	}
 	if run.Phase != "finalized" {
 		return runSnapshotEnvelope{}, fmt.Errorf("evidence RUN %s is not finalized", runID)
+	}
+	if !force {
+		if run.Passed == nil || !*run.Passed {
+			return runSnapshotEnvelope{}, fmt.Errorf("evidence RUN %s did not pass the benchmark and final checks", runID)
+		}
+		if run.Score == nil {
+			return runSnapshotEnvelope{}, fmt.Errorf("evidence RUN %s has no recorded score", runID)
+		}
+		if requireCompatibleComparison && run.Comparison.RunID != "" && run.Comparison.Status != "compatible" {
+			return runSnapshotEnvelope{}, fmt.Errorf("evidence RUN %s comparison with %s is %s, expected compatible", runID, run.Comparison.RunID, run.Comparison.Status)
+		}
 	}
 	if run.BacklogSnapshot.Status != "ok" || run.BacklogSnapshot.SchemaVersion < 1 {
 		return runSnapshotEnvelope{}, fmt.Errorf("evidence RUN %s has no usable APPLIED snapshot", runID)

@@ -114,7 +114,8 @@ task after-bench SCORE=12345
 
 `before-bench`後に中断した場合だけ`task abort-run`を使います。通常の回収は必ず`after-bench`です。
 `task bench`と`task bench-manual`は、ベンチ失敗や割り込みでも可能な限り`after-bench`を実行し、
-失敗RUNをEvidenceとしてfinalizeします。
+失敗RUNをEvidenceとしてfinalizeします。共通の開始・終了・trap処理は`tools/bench/run.sh`、
+RUN状態遷移とcollector・digest・manifest処理は`measurectl run begin/finalize`が担当します。
 
 collector負荷は、同じ構成で通常RUNと次のRUNを取り、スコアとホストメトリクスを比較します。
 
@@ -126,14 +127,23 @@ task bench-manual-no-collectors
 
 no-collector RUNでproc/MySQL collector成果物が`missing`になるのは意図どおりです。
 
+250msのtask-state走査と50msのMySQL lock wait取得は、計測負荷を確認するまで既定では無効です。
+利用する場合は`tools/measurectl/collectors.yaml`の`task-state`と`mysql-locks`について
+`enabled_by_default: true`へ変更します。設定変更後は通常の`task bench` / `task bench-manual`で収集されます。
+
+collector負荷の比較が終わるまでは`false`を維持し、採用・非採用の判断と実測RUNを設定変更のEvidenceとして残します。
+
 主な成果物:
 
 - `runs/<RUN_ID>/run.json` — source、役割、APPLIED snapshot、score、成果物状態、計測窓
 - `alp.txt` / `alp.json` / `alp-by-ingress.tsv`
 - `pt-query-digest.log` / `slp.tsv` / `mysql-digest.tsv`
-- `<host>-proc-metrics.tsv` / service / disk / task-state
-- `mysql-status.tsv` / `mysql-lock-waits.tsv`
+- `<host>-proc-metrics.tsv` / service / disk / task-state（task-stateは高頻度collector明示時）
+- `mysql-status.tsv` / `mysql-lock-waits.tsv`（lock waitは高頻度collector明示時）
 - `<host>-fgprof.pprof`
+- `<host>-go-cpu.pprof` / heap / allocs / goroutine（明示収集時）
+- `<host>-app-journal.log` / `<host>-nginx-error.log`
+- `<host>-kernel.log` / `<host>-oom.log`
 - `upstream-breakdown*.tsv`
 - `user-transitions.json` — `routes.json`を当日のAPIへ合わせた場合
 
@@ -150,6 +160,23 @@ task artifacts-run RUN=runs/<RUN_ID>
 
 `task artifacts`は宣言と読み手の整合、`task artifacts-run`は実RUNの必須成果物を検査します。
 完全に生成されなかった必須成果物も`run.json`へ`status: missing`として記録されます。
+
+Goアプリが標準`net/http/pprof` endpointを計測用portで公開している場合、進行中RUNへprofileを収集できます。
+CPU profileは`PROFILE_DELAY`後から`PROFILE_SECONDS`秒、heap・allocs・goroutineは
+`SNAPSHOT_PROFILE_DELAY`後に同時取得します。公開先は`PPROF_BASE_URL`を当日の構成へ合わせてください。
+
+```shell
+task go-profiles-collect
+task go-profile-top RUN=runs/<RUN_ID> PROFILE=isucon-1-go-cpu.pprof
+```
+
+`scores.tsv`の空欄はスコア不明、`0`は実際の0点です。採否はTSVの直前行ではなく`run.json`を正本とし、
+`task pass`は`passed=true`かつスコア既知の最新RUNだけを受け付けます。`COMPARE_RUN`がある場合は、
+finalize後も`comparison.status=compatible`であることを要求し、そのcontrol RUNとの差分を記録します。
+例外的に採用する場合は`task pass FORCE=true`を使います。forceでもfinalized状態、APPLIED snapshot、
+カード定義の一致は必須であり、強制採用であることはカードのHistoryへ記録されます。
+採用時点のscore、passed、control、delta、manifest hashはBacklog SQLiteのadoption eventとして
+カード昇格と同じtransactionに保存され、`outcomes.tsv`はそこから再生成されます。
 
 ## 分析
 

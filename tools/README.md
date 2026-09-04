@@ -32,13 +32,13 @@
 | --- | --- | --- |
 | `analysis/` | 条件付き | 標準RUN成果物なら変更不要。成果物名・列・DB種別・スコア内訳を増減する場合は`sources.yaml`、schema、queryを同時に更新する |
 | `analysisctl/` | 原則不要 | `analysis/sources.yaml`を読む汎用core。DuckDB CLIとRUNディレクトリが利用できることを確認する |
-| `backlog/` | Objective追加 | coreは変更しない。公式採点仕様からスコア要素、ペナルティ、必須条件をObjectiveへ追加する |
-| `bench/` | 一部確認 | `active-run-id.sh`はそのまま使う。nginx on-CPU profilerを使う場合はOS、package manager、kernel用`perf`、probe URLを確認する |
+| `backlog/` | Objective追加 | coreは変更しない。公式採点仕様からスコア要素、ペナルティ、必須条件をObjectiveへ追加する。採用時点のRUN値はadoption eventへ固定される |
+| `bench/` | 一部確認 | `run.sh`が自動・手動ベンチ共通のload windowとfinalizeを担う。nginx on-CPU profilerを使う場合はOS、package manager、kernel用`perf`、probe URLを確認する |
 | `browser/` | 原則不要 | ローカルdashboard確認専用。必要な場合だけ`task browser-install`を実行し、競技サーバーへ配布しない |
 | `dashboard/` | 条件付き | 標準成果物なら変更不要。独自collector、独自スコア列、追加ロールを表示する場合だけserver APIとweb UIを拡張する |
-| `deployctl/` | 毎回確認 | `deployments.yaml`のlocal/remote path、systemd unit、activation、role、依存順を実構成へ合わせる。coreは変更しない |
+| `deployctl/` | 毎回確認 | `deployments.yaml`のlocal/remote path、systemd unit、activation、role、依存順を実構成へ合わせる。`check-roles`も同じrole入力を使う |
 | `json-metrics-collector/` | 利用時のみ実装 | 既定では無効。アプリ側にboundedなenable/snapshot/disable endpointを実装し、metric、scope、上限を決めてcollector宣言を追加する |
-| `measurectl/` | 毎回確認 | `collectors.yaml`と`digesters.yaml`のrole、service、ログパス、profile endpoint、実行コマンド、出力を確認する |
+| `measurectl/` | 毎回確認 | `run begin/finalize`がRUN lifecycleを担う。`collectors.yaml`と`digesters.yaml`のrole、service、journal権限、ログパス、profile endpoint、実行コマンド、出力を確認する |
 | `mysql-metrics/` | 接続・互換性確認 | `-dsn`、認証、socket/port、MySQL version、`performance_schema.data_lock_waits`の利用可否を確認する |
 | `nginx-backend-report/` | log列確認 | nginx JSON logに`status`、`response_time`、`upstream_time`、`upstream_addr`、`upstream_status`、`cache_status`を出す |
 | `nginx-oncpu-profiler/` | 利用時のみ環境調整 | 既定では無効。`perf`権限、kernel package、worker数、delay、duration、frequency、出力上限を確認する |
@@ -79,8 +79,13 @@
 - MySQL performance schemaのqueryが当日のversionで利用できるか
 - 成果物を追加・削除したときに、fallback headerと分析側のschemaが一致しているか
 
-標準設定ではproc/service/disk、MySQL status/lock、nginx access log、slow queryを収集する。
-50msのlock wait、250msのtask stateなど短い間隔は、対象環境で負荷を測ってから採用する。
+標準設定ではproc/service/disk、MySQL status、nginx access log、slow query、ベンチ時間窓のapp/nginx/kernel journalを収集する。
+50msのlock waitと250msのtask stateは既定無効であり、対象環境で負荷を測ったうえで
+`tools/measurectl/collectors.yaml`の各`enabled_by_default`を`true`へ変更して採用する。
+
+GoのCPU、heap、allocs、goroutine profileも既定無効である。アプリがboundedな計測用portで
+`net/http/pprof`を公開していること、profile取得時間がベンチ時間内に収まることを確認してから
+`task go-profiles-collect`で収集する。公開用traffic portへ無条件にpprofを露出しない。
 
 ### access log
 
@@ -142,3 +147,5 @@ Go Task自身の`task --dry`はコマンドを表示するだけで、deploy宣�
 - optional機能は、有効化理由、負荷、停止・cleanup手順が確認できている。
 - baseline RUNで必要な成果物が同じRUN IDへ集まり、欠損理由が`run.json`へ記録される。
 - baseline RUNを`task artifacts-run`で検査し、collectorあり／なしの対になるRUNで計測負荷を確認できる。
+- app journal、nginx error、kernel/OOM logが`run.json.load_window`と同じ時間窓で回収できる。
+- `task pass`が失敗・未判定・スコア不明・不整合なcontrol比較を拒否する。
