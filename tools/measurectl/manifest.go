@@ -101,7 +101,7 @@ type CodeSource struct {
 	Dirty  bool   `json:"dirty"`
 }
 
-// Artifact は回収物 1 件。status は ok / empty / failed のいずれか。
+// Artifact は回収物 1 件。status は ok / empty / failed / missing のいずれか。
 // failed のときは対応する .stderr の中身を reason に入れる。
 type Artifact struct {
 	Name    string          `json:"name"`
@@ -240,6 +240,8 @@ func runManifestFinalize(args []string) error {
 	dir := fs.String("dir", "", "走行ディレクトリ (runs/<RUN_ID>)")
 	score := fs.String("score", "", "ポータルのスコア。省略時は bench.log から読む")
 	scores := fs.String("scores", "", "スコアと構成の履歴を追記する TSV (省略時は追記しない)")
+	collectors := fs.String("collectors", defaultMeasureConfigPath("collectors.yaml"), "collector の宣言")
+	digesters := fs.String("digesters", defaultMeasureConfigPath("digesters.yaml"), "集計の宣言")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -285,8 +287,16 @@ func runManifestFinalize(args []string) error {
 	if err != nil {
 		return err
 	}
+	specs, err := loadArtifactSpecs(*collectors, *digesters)
+	if err != nil {
+		return err
+	}
 	if artifacts == nil {
 		artifacts = []Artifact{}
+	}
+	artifacts, err = appendMissingArtifacts(*dir, artifacts, specs)
+	if err != nil {
+		return err
 	}
 	artifacts = assessArtifactQuality(*dir, m.LoadWindow, artifacts)
 	m.Artifacts = artifacts

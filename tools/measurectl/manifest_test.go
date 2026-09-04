@@ -116,6 +116,16 @@ func TestManifestBeginAndFinalizePreserveSnapshotAndSource(t *testing.T) {
 	if finalized.BacklogSnapshot.Revision != started.BacklogSnapshot.Revision || finalized.Source != started.Source || finalized.Roles.MySQL != "isucon-3" {
 		t.Fatalf("begin fields changed: started=%#v finalized=%#v", started, finalized)
 	}
+	artifactStatuses := map[string]string{}
+	for _, artifact := range finalized.Artifacts {
+		artifactStatuses[artifact.Name] = artifact.Status
+	}
+	if artifactStatuses["alp.json"] != "missing" || artifactStatuses["raw/access-*.log.zst"] != "missing" {
+		t.Fatalf("required missing artifacts were not recorded: %#v", artifactStatuses)
+	}
+	if _, exists := artifactStatuses["*-fgprof.pprof"]; exists {
+		t.Fatalf("optional fgprof was recorded as missing: %#v", artifactStatuses)
+	}
 }
 
 func TestManifestFinalizeRequiresBegin(t *testing.T) {

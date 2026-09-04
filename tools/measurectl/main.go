@@ -61,6 +61,7 @@ usage:
 
 -dry-run を付けると、実際に流す ssh / rsync のコマンドだけを表示する。
 既定無効の collector は collect start / stop に -include <name> を付けて有効化する。
+-no-collectors は prepare とdigestを維持したまま常駐collectorだけを無効にする。
 
 `)
 }

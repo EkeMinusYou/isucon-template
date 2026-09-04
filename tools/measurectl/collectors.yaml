@@ -32,6 +32,7 @@ prepare:
 oneshots:
   - name: fgprof
     label: wall-clock profile
+    enabled_by_default: false
     hosts: app
     delay: 20s
     run: curl -fsS -o {remote_out} '{var:profile_url}'

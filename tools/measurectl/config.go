@@ -41,13 +41,26 @@ type Prepare struct {
 // Oneshot は走行中に 1 回だけ実行して回収するもの。collector と違って
 // 常駐しないので、pid の管理も後片付けも要らない。
 type Oneshot struct {
-	Name      string `yaml:"name"`
-	Label     string `yaml:"label"`
-	Hosts     string `yaml:"hosts"`
-	Delay     string `yaml:"delay"`      // 実行前に待つ時間
-	Run       string `yaml:"run"`        // リモートで実行するコマンド
-	RemoteOut string `yaml:"remote_out"` // リモートでの出力先
-	Output    string `yaml:"output"`     // runs/<RUN_ID>/ での保存名
+	Name             string `yaml:"name"`
+	Label            string `yaml:"label"`
+	EnabledByDefault *bool  `yaml:"enabled_by_default"` // Defaults to true; false makes its artifact optional.
+	Hosts            string `yaml:"hosts"`
+	Delay            string `yaml:"delay"`      // 実行前に待つ時間
+	Run              string `yaml:"run"`        // リモートで実行するコマンド
+	RemoteOut        string `yaml:"remote_out"` // リモートでの出力先
+	Output           string `yaml:"output"`     // runs/<RUN_ID>/ での保存名
+}
+
+func (o Oneshot) enabledByDefault() bool {
+	return o.EnabledByDefault == nil || *o.EnabledByDefault
+}
+
+func defaultMeasureConfigPath(name string) string {
+	repositoryPath := "tools/measurectl/" + name
+	if _, err := os.Stat(repositoryPath); err == nil {
+		return repositoryPath
+	}
+	return name
 }
 
 type Config struct {

@@ -127,8 +127,74 @@ func TestOnlyCanSelectDisabledCollector(t *testing.T) {
 		{Name: "proc"},
 		{Name: "nginx-oncpu", EnabledByDefault: boolPointer(false)},
 	}
-	got := filterCollectors(collectors, map[string]bool{"nginx-oncpu": true})
+	got, err := filterCollectors(collectors, map[string]bool{"nginx-oncpu": true})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if want := []string{"nginx-oncpu"}; !reflect.DeepEqual(collectorNames(got), want) {
 		t.Fatalf("only collectors = %v, want %v", collectorNames(got), want)
+	}
+}
+
+func TestOnlyRejectsUnknownCollector(t *testing.T) {
+	if _, err := filterCollectors([]Collector{{Name: "proc"}}, map[string]bool{"none": true}); err == nil {
+		t.Fatal("filterCollectors accepted an unknown collector")
+	}
+}
+
+func TestCollectAcceptsKnownOneshotOnly(t *testing.T) {
+	config := writeOneshotConfig(t)
+	err := runCollect([]string{
+		"oneshot",
+		"-config", config,
+		"-run-dir", t.TempDir(),
+		"-only", "fgprof",
+		"-role", "app=isucon-1",
+		"-var", "profile_url=http://127.0.0.1:6060/debug/fgprof?seconds=60",
+		"-dry-run",
+	})
+	if err != nil {
+		t.Fatalf("known oneshot -only was rejected: %v", err)
+	}
+}
+
+func TestCollectRejectsUnknownOneshotOnly(t *testing.T) {
+	err := runCollect([]string{"oneshot", "-config", writeOneshotConfig(t), "-run-dir", t.TempDir(), "-only", "unknown"})
+	if err == nil || !strings.Contains(err.Error(), "unknown") {
+		t.Fatalf("unknown oneshot -only error = %v", err)
+	}
+}
+
+func writeOneshotConfig(t *testing.T) string {
+	t.Helper()
+	config := filepath.Join(t.TempDir(), "collectors.yaml")
+	body := `oneshots:
+  - name: fgprof
+    hosts: app
+    run: curl -o {remote_out} '{var:profile_url}'
+    remote_out: /tmp/fgprof.pprof
+    output: '{host}-fgprof.pprof'
+`
+	if err := os.WriteFile(config, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return config
+}
+
+func TestNoCollectorsStartsWithoutRolesOrSSH(t *testing.T) {
+	config := filepath.Join(t.TempDir(), "collectors.yaml")
+	body := `collectors:
+  - name: proc
+    hosts: all
+    binary: proc-metrics
+    remote_root: /tmp/proc
+    outputs: {metrics.tsv: metrics.tsv}
+    stderr: metrics.stderr
+`
+	if err := os.WriteFile(config, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := runCollect([]string{"start", "-config", config, "-run-id", "20260904-120000", "-no-collectors"}); err != nil {
+		t.Fatalf("no-collector start failed: %v", err)
 	}
 }

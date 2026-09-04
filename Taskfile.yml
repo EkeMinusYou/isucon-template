@@ -13,10 +13,18 @@ vars:
   REMOTE_HOME: /home/isucon
   LISTEN_PORT: '8080'
 
+  # Confirm these contest-specific gates before running setup-check.
+  TARGET_OS: linux
+  TARGET_ARCH: amd64
+  SCHEMA_PATHS: ''
+  SCHEMA_IN_WEBAPP: 'false'
+  CONFIG_CHECK_COMMAND: ''
+  SETUP_SECRET_ALLOWLIST: ''
+
   SSH_MUX: -o ControlMaster=auto -o ControlPath=/tmp/.isucon-ssh-%C -o ControlPersist=600
   SSH: ssh -o RequestTTY=no -o LogLevel=ERROR {{.SSH_MUX}}
   RSYNC: rsync -az --rsync-path="sudo rsync" -e "ssh -o RequestTTY=no -o LogLevel=ERROR {{.SSH_MUX}}"
-  GO_BUILD_ENV: CGO_ENABLED=0 GOOS=linux GOARCH=amd64
+  GO_BUILD_ENV: CGO_ENABLED=0 GOOS={{.TARGET_OS}} GOARCH={{.TARGET_ARCH}}
 
   # Contest topology. Keep host roles and private addresses here only.
   ALL_HOSTS: isucon-1 isucon-2 isucon-3
@@ -36,6 +44,7 @@ vars:
   ENTRY_IP: '{{index .IP (splitList " " .NGINX_HOSTS | first)}}'
   MYSQL_IP: '{{index .IP .MYSQL_HOST}}'
   APP_IPS: '{{$ips := list}}{{range (splitList " " .APP_TRAFFIC_HOSTS)}}{{$ips = append $ips (index $.IP .)}}{{end}}{{join " " $ips}}'
+  ALL_HOST_IPS: '{{range (splitList " " .ALL_HOSTS)}}{{.}}={{index $.IP .}} {{end}}'
 
   BENCH_TARGET: http://{{.ENTRY_IP}}
   BENCH_COMMAND: ./bench_linux_amd64 run --target {{.BENCH_TARGET}}
@@ -150,8 +159,15 @@ tasks:
     cmds:
       - mkdir -p etc/systemd/system/mysql.service.d
       - '{{.RSYNC}} {{.SSH_USER}}@{{.CONF_SRC}}:/etc/systemd/system/{{.SERVICE}}.service etc/systemd/system/'
-      - '{{.SSH}} {{.SSH_USER}}@{{.MYSQL_HOST}} "sudo mkdir -p /etc/systemd/system/mysql.service.d && sudo touch /etc/systemd/system/mysql.service.d/limits.conf"'
-      - '{{.RSYNC}} {{.SSH_USER}}@{{.MYSQL_HOST}}:/etc/systemd/system/mysql.service.d/limits.conf etc/systemd/system/mysql.service.d/'
+      - |
+        if {{.SSH}} {{.SSH_USER}}@{{.MYSQL_HOST}} "sudo test -f /etc/systemd/system/mysql.service.d/limits.conf"; then
+          {{.RSYNC}} {{.SSH_USER}}@{{.MYSQL_HOST}}:/etc/systemd/system/mysql.service.d/limits.conf etc/systemd/system/mysql.service.d/
+        elif [ ! -e etc/systemd/system/mysql.service.d/limits.conf ]; then
+          : > etc/systemd/system/mysql.service.d/limits.conf
+          echo "remote MySQL limits drop-in is absent; created an empty local baseline"
+        else
+          echo "remote MySQL limits drop-in is absent; preserved the existing local file"
+        fi
 
   setup-sysctl:
     desc: /etc/sysctl.conf を取得
@@ -160,7 +176,7 @@ tasks:
       - '{{.RSYNC}} {{.SSH_USER}}@{{.CONF_SRC}}:/etc/sysctl.conf etc/'
 
   build:
-    desc: Goアプリをローカルでlinux/amd64へクロスコンパイル
+    desc: GoアプリをローカルでTARGET_OS/TARGET_ARCHへクロスコンパイル
     dir: '{{.APP_DIR}}'
     cmds:
       - '{{.GO_BUILD_ENV}} go build -trimpath -ldflags "-s -w" -o {{.APP_NAME}} .'
@@ -186,14 +202,14 @@ tasks:
     cmds: ['{{.GO_BUILD_ENV}} go build -trimpath -ldflags "-s -w" -o mysql-metrics .']
 
   build-nginx-oncpu-profiler:
-    desc: optional nginx on-CPU profilerをlinux/amd64へビルド
+    desc: optional nginx on-CPU profilerをTARGET_OS/TARGET_ARCHへビルド
     dir: '{{.NGINX_ONCPU_PROFILER_DIR}}'
     sources: ['*.go', go.mod]
     generates: [nginx-oncpu-profiler]
     cmds: ['{{.GO_BUILD_ENV}} go build -trimpath -ldflags "-s -w" -o nginx-oncpu-profiler .']
 
   build-json-metrics-collector:
-    desc: optional JSON snapshot metrics collectorをlinux/amd64へビルド
+    desc: optional JSON snapshot metrics collectorをTARGET_OS/TARGET_ARCHへビルド
     dir: '{{.JSON_METRICS_COLLECTOR_DIR}}'
     sources: ['*.go', go.mod]
     generates: [json-metrics-collector]
@@ -243,6 +259,103 @@ tasks:
       TOOL_MODULES:
         sh: find tools -name go.mod -exec dirname {} \; | sort
 
+  inspect-hosts:
+    desc: 全ホストの構成を読み取り専用SSHで表示
+    cmds:
+      - for: { var: ALL_HOSTS }
+        cmd: |
+          echo "[{{.ITEM}}]"
+          {{.SSH}} {{.SSH_USER}}@{{.ITEM}} '
+            set -u
+            hostname
+            uname -srmo
+            command -v nproc >/dev/null 2>&1 && nproc || true
+            command -v free >/dev/null 2>&1 && free -h || true
+            command -v ip >/dev/null 2>&1 && ip -brief address || true
+            systemctl is-active {{.SERVICE}} nginx mysql 2>/dev/null || true
+            systemctl cat {{.SERVICE}} nginx mysql 2>/dev/null || true
+          '
+
+  setup-check:
+    desc: 競技固有値・取得物・ローカル検証・deploy dry-runを一括確認
+    env:
+      ISUCON_ALL_HOSTS: '{{.ALL_HOSTS}}'
+      ISUCON_APP_HOSTS: '{{.APP_HOSTS}}'
+      ISUCON_APP_TRAFFIC_HOSTS: '{{.APP_TRAFFIC_HOSTS}}'
+      ISUCON_NGINX_HOSTS: '{{.NGINX_HOSTS}}'
+      ISUCON_MYSQL_HOST: '{{.MYSQL_HOST}}'
+      ISUCON_HOST_IPS: '{{.ALL_HOST_IPS}}'
+      ISUCON_APP_DIR: '{{.APP_DIR}}'
+      ISUCON_SERVICE: '{{.SERVICE}}'
+      ISUCON_SCHEMA_PATHS: '{{.SCHEMA_PATHS}}'
+      ISUCON_SCHEMA_IN_WEBAPP: '{{.SCHEMA_IN_WEBAPP}}'
+      ISUCON_CONFIG_CHECK_COMMAND: '{{.CONFIG_CHECK_COMMAND}}'
+      ISUCON_SECRET_ALLOWLIST: '{{.SETUP_SECRET_ALLOWLIST}}'
+    cmds:
+      - |
+        set -u
+        failures=0
+        fail() { echo "setup-check: $*" >&2; failures=$((failures + 1)); }
+        contains_host() { case " $1 " in *" $2 "*) return 0;; *) return 1;; esac; }
+
+        for tool in task go ssh rsync alp pt-query-digest zstd zstdcat duckdb; do
+          command -v "$tool" >/dev/null 2>&1 || fail "required local tool is missing: $tool"
+        done
+        command -v slp >/dev/null 2>&1 || echo "setup-check: optional digester is unavailable: slp" >&2
+
+        if ! find docs/official -type f ! -name README.md -print -quit 2>/dev/null | grep -q .; then
+          fail "docs/official has no contest manual or application specification"
+        fi
+
+        for host in $ISUCON_APP_HOSTS $ISUCON_APP_TRAFFIC_HOSTS $ISUCON_NGINX_HOSTS $ISUCON_MYSQL_HOST; do
+          contains_host "$ISUCON_ALL_HOSTS" "$host" || fail "role host is not in ALL_HOSTS: $host"
+        done
+        for pair in $ISUCON_HOST_IPS; do
+          host=${pair%%=*}
+          ip=${pair#*=}
+          [ -n "$ip" ] || fail "IP is empty for $host"
+          case "$ip" in 192.0.2.*|198.51.100.*|203.0.113.*) fail "documentation-only IP remains for $host: $ip";; esac
+        done
+
+        [ -d "$ISUCON_APP_DIR" ] || fail "application directory is missing: $ISUCON_APP_DIR"
+        [ -d nginx ] || fail "nginx configuration has not been acquired"
+        [ -d mysql ] || fail "MySQL configuration has not been acquired"
+        [ -f "etc/systemd/system/$ISUCON_SERVICE.service" ] || fail "application systemd unit is missing"
+        [ -f etc/sysctl.conf ] || fail "sysctl configuration is missing"
+
+        if [ -n "$ISUCON_SCHEMA_PATHS" ]; then
+          for schema_path in $ISUCON_SCHEMA_PATHS; do
+            [ -e "$schema_path" ] || fail "declared schema path is missing: $schema_path"
+          done
+        elif [ "$ISUCON_SCHEMA_IN_WEBAPP" != true ]; then
+          fail "set SCHEMA_PATHS, or set SCHEMA_IN_WEBAPP=true after confirming initialization assets are included in webapp"
+        fi
+
+        secret_candidates=''
+        for root in webapp nginx mysql etc; do
+          [ -e "$root" ] || continue
+          found=$(find "$root" -type f \( -name .env -o -name '*.key' -o -name '*private*.pem' -o -name debian.cnf \) -print 2>/dev/null || true)
+          for candidate in $found; do
+            if contains_host "$ISUCON_SECRET_ALLOWLIST" "$candidate"; then
+              echo "setup-check: explicitly allowed credential-like file: $candidate" >&2
+            else
+              secret_candidates=$(printf '%s\n%s\n' "$secret_candidates" "$candidate")
+            fi
+          done
+        done
+        [ -z "$secret_candidates" ] || fail "credential-like files require an explicit keep/redact decision before commit:\n$secret_candidates"
+
+        [ -n "$ISUCON_CONFIG_CHECK_COMMAND" ] || fail "CONFIG_CHECK_COMMAND is empty; configure local nginx/MySQL/application syntax checks"
+        [ "$failures" -eq 0 ] || exit 1
+      - sh -c "$ISUCON_CONFIG_CHECK_COMMAND"
+      - task: build
+      - task: test-tools
+      - task: artifacts
+      - task: backlog
+        vars: { CLI_ARGS: validate }
+      - task: deploy-app-dry
+      - task: deploy-all-dry
+
   gen:
     desc: 役割定義からnginx upstreamを生成
     silent: true
@@ -276,6 +389,20 @@ tasks:
       - task: build
       - task: deploy-plan
         vars: { PLAN: deploy-all }
+
+  deploy-app-dry:
+    desc: app deployの転送先・role・activationを実行せず表示
+    deps: [build-deployctl]
+    cmds:
+      - '{{.DEPLOYCTL_DIR}}/deployctl apply app -dry-run -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
+
+  deploy-all-dry:
+    desc: deploy-allの転送先・role・activation graphを実行せず表示
+    deps: [build-deployctl]
+    cmds:
+      - task: gen
+      - task: build
+      - '{{.DEPLOYCTL_DIR}}/deployctl apply-plan deploy-all -dry-run -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
 
   deploy-app:
     desc: アプリをAPP_HOSTSへ配布・再起動
@@ -349,19 +476,86 @@ tasks:
       - for: { var: APP_HOSTS }
         cmd: '{{.SSH}} {{.SSH_USER}}@{{.ITEM}} "timeout 2 bash -c \"</dev/tcp/{{.MYSQL_IP}}/3306\"" && echo "[{{.ITEM}}] mysql OK"'
 
+  check-roles:
+    desc: service状態がTaskfileの役割定義と一致することを確認
+    env:
+      ISUCON_ALL_HOSTS: '{{.ALL_HOSTS}}'
+      ISUCON_APP_HOSTS: '{{.APP_HOSTS}}'
+      ISUCON_NGINX_HOSTS: '{{.NGINX_HOSTS}}'
+      ISUCON_MYSQL_HOST: '{{.MYSQL_HOST}}'
+    cmds:
+      - |
+        set -eu
+        contains_host() { case " $1 " in *" $2 "*) return 0;; *) return 1;; esac; }
+        for host in $ISUCON_ALL_HOSTS; do
+          app=inactive; nginx=inactive; mysql=inactive
+          contains_host "$ISUCON_APP_HOSTS" "$host" && app=active
+          contains_host "$ISUCON_NGINX_HOSTS" "$host" && nginx=active
+          [ "$ISUCON_MYSQL_HOST" != "$host" ] || mysql=active
+          {{.SSH}} {{.SSH_USER}}@"$host" "
+            set -eu
+            check_unit() {
+              unit=\$1
+              expected=\$2
+              actual=\$(systemctl is-active \"\$unit\" 2>/dev/null || true)
+              if [ \"\$expected\" = active ]; then
+                [ \"\$actual\" = active ] || { echo \"[$host] \$unit: expected active, got \${actual:-missing}\" >&2; exit 1; }
+              else
+                [ \"\$actual\" != active ] || { echo \"[$host] \$unit: expected inactive, got active\" >&2; exit 1; }
+              fi
+            }
+            check_unit {{.SERVICE}} $app
+            check_unit nginx $nginx
+            check_unit mysql $mysql
+          "
+          echo "[$host] roles OK"
+        done
+
   bench:
     desc: 計測開始→BENCH_HOSTでベンチ→回収
     cmds:
       - task: before-bench
       - |
-        printf '%s\tBENCHMARK_START\n' "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" | tee '{{.RUN_DIR}}/bench.log'
-      - |
+        set -u
+        active_run_id=$(sh tools/bench/active-run-id.sh '{{.RUN_STATE_FILE}}')
+        run_dir='{{.RESULT_DIR}}/'"$active_run_id"
+        bench_output="$run_dir/.bench-output"
+        collect_flags='{{default "" .MEASURECTL_COLLECT_FLAGS}}'
+        finalized=0
+        finalize() {
+          [ "$finalized" -eq 0 ] || return 0
+          finalized=1
+          if [ -f "$bench_output" ]; then
+            tee -a "$run_dir/bench.log" < "$bench_output"
+            rm -f "$bench_output"
+          fi
+          task after-bench MEASURECTL_COLLECT_FLAGS="$collect_flags"
+        }
+        trap finalize EXIT
+        trap 'exit 130' INT
+        trap 'exit 143' HUP TERM
+
+        printf '%s\tBENCHMARK_START\n' "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" | tee "$run_dir/bench.log"
+        bench_status=0
         {{.SSH}} {{.SSH_USER}}@{{.BENCH_HOST}} \
           "sudo -u {{.ISUCON_USER}} -i bash -lc 'cd {{.REMOTE_HOME}} && {{.BENCH_COMMAND}}'" \
-          2>&1 | tee -a '{{.RUN_DIR}}/bench.log'
-      - |
-        printf '%s\tBENCHMARK_END\n' "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" | tee -a '{{.RUN_DIR}}/bench.log'
-      - task: after-bench
+          >"$bench_output" 2>&1 || bench_status=$?
+        tee -a "$run_dir/bench.log" < "$bench_output"
+        rm -f "$bench_output"
+        printf '%s\tBENCHMARK_END\n' "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" | tee -a "$run_dir/bench.log"
+        [ "$bench_status" -eq 0 ] || printf 'BENCHMARK_FAIL\texit_status=%s\n' "$bench_status" | tee -a "$run_dir/bench.log"
+
+        finalize_status=0
+        finalize || finalize_status=$?
+        trap - EXIT HUP INT TERM
+        [ "$bench_status" -eq 0 ] || exit "$bench_status"
+        exit "$finalize_status"
+
+  bench-no-collectors:
+    desc: collector負荷比較用に標準collectorを止めてベンチ・ログ回収
+    cmds:
+      - task: bench
+        vars: { MEASURECTL_COLLECT_FLAGS: -no-collectors }
 
   bench-manual:
     desc: ポータルベンチ用。計測開始後、スコア入力を待って回収
@@ -369,15 +563,43 @@ tasks:
     cmds:
       - task: before-bench
       - |
-        printf '%s\tBENCHMARK_START\n' "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" > '{{.RUN_DIR}}/bench.log'
+        set -u
+        active_run_id=$(sh tools/bench/active-run-id.sh '{{.RUN_STATE_FILE}}')
+        run_dir='{{.RESULT_DIR}}/'"$active_run_id"
+        collect_flags='{{default "" .MEASURECTL_COLLECT_FLAGS}}'
+        score=''
+        finalized=0
+        finalize() {
+          [ "$finalized" -eq 0 ] || return 0
+          finalized=1
+          task after-bench SCORE="$score" MEASURECTL_COLLECT_FLAGS="$collect_flags"
+        }
+        trap finalize EXIT
+        trap 'exit 130' INT
+        trap 'exit 143' HUP TERM
+
+        printf '%s\tBENCHMARK_START\n' "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" > "$run_dir/bench.log"
         echo "ポータルからベンチを実行してください。"
         printf '完了後にスコアを入力してください（空欄可）: '
         read -r score || score=''
         printf '整合性チェックまで成功した場合は y を入力してください: '
         read -r passed || passed=''
-        printf '%s\tBENCHMARK_END\n' "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" >> '{{.RUN_DIR}}/bench.log'
-        case "$passed" in y|Y|yes|YES) echo 'BENCHMARK_PASS' >> '{{.RUN_DIR}}/bench.log';; esac
-        task after-bench SCORE="$score"
+        printf '%s\tBENCHMARK_END\n' "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" >> "$run_dir/bench.log"
+        case "$passed" in
+          y|Y|yes|YES) echo 'BENCHMARK_PASS' >> "$run_dir/bench.log";;
+          *) echo 'BENCHMARK_FAIL' >> "$run_dir/bench.log";;
+        esac
+        finalize_status=0
+        finalize || finalize_status=$?
+        trap - EXIT HUP INT TERM
+        exit "$finalize_status"
+
+  bench-manual-no-collectors:
+    desc: ポータルベンチでcollector負荷を比較するため標準collectorを無効化
+    interactive: true
+    cmds:
+      - task: bench-manual
+        vars: { MEASURECTL_COLLECT_FLAGS: -no-collectors }
 
   before-bench:
     desc: RUNを採番し、ログローテートとcollector起動を行う
@@ -403,8 +625,21 @@ tasks:
           -nginx '{{splitList " " .NGINX_HOSTS | join ","}}' -entry '{{.ENTRY_HOST}}' -mysql '{{.MYSQL_HOST}}'
         printf '%s\n' '{{.RUN_ID}}' > '{{.RUN_STATE_FILE}}'
         rm -f "$snapshot"
-      - task: metrics-prepare
-      - task: metrics-start
+      - |
+        set -u
+        collect_flags='{{default "" .MEASURECTL_COLLECT_FLAGS}}'
+        prepare_status=0
+        task metrics-prepare || prepare_status=$?
+        if [ "$prepare_status" -ne 0 ]; then
+          task abort-run || true
+          exit "$prepare_status"
+        fi
+        start_status=0
+        task metrics-start MEASURECTL_COLLECT_FLAGS="$collect_flags" || start_status=$?
+        if [ "$start_status" -ne 0 ]; then
+          task abort-run || true
+          exit "$start_status"
+        fi
 
   after-bench:
     desc: 進行中RUNのcollector・ログ・集計・manifestを回収
@@ -418,7 +653,7 @@ tasks:
       - task: digest
         ignore_error: true
         vars: { RUN_DIR: '{{.ACTIVE_RUN_DIR}}' }
-      - '{{.MEASURECTL_DIR}}/measurectl manifest finalize -dir {{.ACTIVE_RUN_DIR}} -scores {{.RESULT_DIR}}/scores.tsv -score "{{.SCORE}}"'
+      - '{{.MEASURECTL_DIR}}/measurectl manifest finalize -dir {{.ACTIVE_RUN_DIR}} -scores {{.RESULT_DIR}}/scores.tsv -score "{{.SCORE}}" -collectors tools/measurectl/collectors.yaml -digesters tools/measurectl/digesters.yaml'
       - mv -f '{{.RUN_STATE_FILE}}' '{{.RAW_DIR}}/last-run-id'
       - echo "RUN_ID={{.ACTIVE_RUN_ID}} collection completed"
 
@@ -455,7 +690,7 @@ tasks:
     vars:
       ACTIVE_RUN_ID:
         sh: sh tools/bench/active-run-id.sh '{{.RUN_STATE_FILE}}'
-    cmds: ['{{.MEASURECTL_DIR}}/measurectl collect oneshot -run-id {{.ACTIVE_RUN_ID}} -run-dir {{.RESULT_DIR}}/{{.ACTIVE_RUN_ID}} {{.MEASURECTL_COMMON}}']
+    cmds: ['{{.MEASURECTL_DIR}}/measurectl collect oneshot -only fgprof -run-id {{.ACTIVE_RUN_ID}} -run-dir {{.RESULT_DIR}}/{{.ACTIVE_RUN_ID}} {{.MEASURECTL_COMMON}}']
 
   abort-run:
     desc: 進行中RUNを破棄しcollectorを掃除（破壊的）
@@ -472,6 +707,15 @@ tasks:
     deps: [build-measurectl]
     cmds:
       - '{{.MEASURECTL_DIR}}/measurectl artifacts -check'
+
+  artifacts-run:
+    desc: 指定RUN（既定は最新）の必須成果物が揃っていることを確認
+    deps: [build-measurectl]
+    preconditions:
+      - sh: test -n '{{.RUN}}' -a -d '{{.RUN}}'
+        msg: 確認可能なRUNがありません
+    cmds:
+      - '{{.MEASURECTL_DIR}}/measurectl artifacts -run-dir {{.RUN}}'
 
   backlog:
     desc: Objective・Constraint・Interventionを管理

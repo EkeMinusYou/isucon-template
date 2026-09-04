@@ -28,7 +28,7 @@ ISUCON用の作業テンプレートリポジトリ。競技サーバーをSSH�
 - `Taskfile.yml`冒頭の`APP_NAME`、`SERVICE`、`DB_NAME`、`ALL_HOSTS`、`IP`、`*_HOSTS`を競技ごとに更新する
 - サーバー上で直接編集せず、`task setup-*`で取得し、ローカル編集後に`task deploy-*`で反映する
 - `nginx/conf.d/upstream.conf`は`task gen`の生成物なので手編集しない
-- Goアプリとcollectorはローカルで`linux/amd64`へクロスコンパイルする
+- Goアプリとcollectorは、実ホストで確認した`TARGET_OS` / `TARGET_ARCH`へローカルでクロスコンパイルする
 - deploy対象は採用した実装だけにし、参考実装を正規経路へ混ぜない
 
 ## 計測と改善
@@ -37,6 +37,9 @@ ISUCON用の作業テンプレートリポジトリ。競技サーバーをSSH�
 2. ベンチ実行
 3. `task after-bench` — collector停止、ログ回収、digest、`run.json`確定
 4. alp、slow query、fgprof、時系列メトリクスを同じRUNと時間窓で比較する
+
+`task bench` / `task bench-manual`の失敗RUNも破棄せずfinalizeする。完全に生成されなかった必須成果物は
+`run.json`の`missing`、実RUN全体は`task artifacts-run`で確認する。
 
 推測だけで最適化しない。割合だけで律速を決めず、時間・処理量・待ち・capacityを同じ単位と母数で扱う。
 欠損成果物は0とみなさず、`run.json`のartifact statusを確認する。

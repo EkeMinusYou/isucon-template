@@ -51,6 +51,7 @@ func runCollect(args []string) error {
 	sshOpts := fs.String("ssh-opts", "", "ssh へ渡す追加オプション (空白区切り)")
 	only := fs.String("only", "", "この collector だけを対象にする (カンマ区切り)")
 	include := fs.String("include", "", "既定無効の collector を追加で有効にする (カンマ区切り)")
+	noCollectors := fs.Bool("no-collectors", false, "prepare/digestは維持し、常駐collectorだけを無効にする")
 	dryRun := fs.Bool("dry-run", false, "実行せず、流すコマンドだけを表示する")
 	roles := keyValues{}
 	fs.Var(roles, "role", "役割名=ホスト1,ホスト2 (collectors.yaml の hosts が指す先)")
@@ -66,10 +67,25 @@ func runCollect(args []string) error {
 	}
 	onlyNames := parseNames(*only)
 	includeNames := parseNames(*include)
+	if *noCollectors && (onlyNames != nil || includeNames != nil) {
+		return errors.New("-no-collectors は -only / -include と同時に指定できません")
+	}
 	allCollectorAction := action == "sweep" || action == "check-clean"
 	if !allCollectorAction {
-		if onlyNames != nil {
-			cfg.Collectors = filterCollectors(cfg.Collectors, onlyNames)
+		if *noCollectors {
+			cfg.Collectors = nil
+		} else if onlyNames != nil {
+			switch action {
+			case "start", "stop":
+				cfg.Collectors, err = filterCollectors(cfg.Collectors, onlyNames)
+			case "prepare":
+				err = validateOnlyNames("prepare", onlyNames, prepareNames(cfg.Prepare))
+			case "oneshot":
+				err = validateOnlyNames("oneshot", onlyNames, oneshotNames(cfg.Oneshots))
+			}
+			if err != nil {
+				return err
+			}
 		} else {
 			cfg.Collectors, err = enabledCollectors(cfg.Collectors, includeNames)
 			if err != nil {
@@ -273,14 +289,44 @@ func (r *runner) printLines(host, out string) {
 	}
 }
 
-func filterCollectors(all []Collector, want map[string]bool) []Collector {
+func filterCollectors(all []Collector, want map[string]bool) ([]Collector, error) {
 	var out []Collector
+	known := make(map[string]bool, len(all))
 	for _, c := range all {
+		known[c.Name] = true
 		if want[c.Name] {
 			out = append(out, c)
 		}
 	}
-	return out
+	if err := validateOnlyNames("collector", want, known); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func validateOnlyNames(kind string, want, known map[string]bool) error {
+	for name := range want {
+		if !known[name] {
+			return fmt.Errorf("-only に一致する %s %q がありません", kind, name)
+		}
+	}
+	return nil
+}
+
+func prepareNames(all []Prepare) map[string]bool {
+	known := make(map[string]bool, len(all))
+	for _, prepare := range all {
+		known[prepare.Name] = true
+	}
+	return known
+}
+
+func oneshotNames(all []Oneshot) map[string]bool {
+	known := make(map[string]bool, len(all))
+	for _, oneshot := range all {
+		known[oneshot.Name] = true
+	}
+	return known
 }
 
 // each は collector × ホストを並列に処理し、失敗しても他を止めない。

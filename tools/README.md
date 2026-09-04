@@ -123,14 +123,14 @@
 
 ```shell
 task --list
-task test-tools
-task artifacts
-task backlog -- validate
-task --dry deploy-app
-task --dry deploy-all
+task setup-check
+task deploy-app-dry
+task deploy-all-dry
 ```
 
-`task --dry deploy-*`では、role、転送元・転送先、activation順を確認する。実際の`task deploy-*`、
+`setup-check`は`task test-tools`、`task artifacts`、`task backlog -- validate`を含む。
+`task deploy-*-dry`はdeployctlの`-dry-run`を実行し、role、転送元・転送先、activation順を検証する。
+Go Task自身の`task --dry`はコマンドを表示するだけで、deploy宣言を展開・検証しない。実際の`task deploy-*`、
 `task apply-roles`、`task before-bench`はサーバー状態を変更するため、対象と影響を確認してから実行する。
 
 ## 設定完了条件
@@ -141,3 +141,4 @@ task --dry deploy-all
 - `task artifacts`で成果物宣言と分析・dashboardの読み手が一致する。
 - optional機能は、有効化理由、負荷、停止・cleanup手順が確認できている。
 - baseline RUNで必要な成果物が同じRUN IDへ集まり、欠損理由が`run.json`へ記録される。
+- baseline RUNを`task artifacts-run`で検査し、collectorあり／なしの対になるRUNで計測負荷を確認できる。

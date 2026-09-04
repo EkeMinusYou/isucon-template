@@ -36,8 +36,8 @@ type ArtifactSpec struct {
 
 func runArtifacts(args []string) error {
 	fs := flag.NewFlagSet("artifacts", flag.ExitOnError)
-	collectors := fs.String("collectors", "tools/measurectl/collectors.yaml", "collector の宣言")
-	digesters := fs.String("digesters", "tools/measurectl/digesters.yaml", "集計の宣言")
+	collectors := fs.String("collectors", defaultMeasureConfigPath("collectors.yaml"), "collector の宣言")
+	digesters := fs.String("digesters", defaultMeasureConfigPath("digesters.yaml"), "集計の宣言")
 	runDir := fs.String("run-dir", "", "実走行を照合する (runs/<RUN_ID>)")
 	check := fs.Bool("check", false, "読み手 (analysis の SQL / dashboard の Go) と照合する")
 	if err := fs.Parse(args); err != nil {
@@ -92,6 +92,7 @@ func loadArtifactSpecs(collectorsPath, digestersPath string) ([]ArtifactSpec, er
 		specs = append(specs, ArtifactSpec{
 			Pattern:  hostGlob(o.Output),
 			Producer: "oneshot:" + o.Name,
+			Optional: !o.enabledByDefault(),
 		})
 	}
 
@@ -171,7 +172,30 @@ func checkRunDir(dir string, specs []ArtifactSpec) error {
 	}
 	fmt.Printf("%s に無い成果物:\n%s\n", dir, strings.Join(missing, "\n"))
 	fmt.Println("\nベンチが途中で落ちた走行では欠けるのが正常です。run.json の artifacts で理由を確認してください。")
-	return nil
+	return errors.New("必須成果物が欠けています")
+}
+
+// appendMissingArtifacts records required outputs that were never created.
+// run.json itself is excluded because the manifest must not list itself.
+func appendMissingArtifacts(dir string, artifacts []Artifact, specs []ArtifactSpec) ([]Artifact, error) {
+	for _, spec := range specs {
+		if spec.Optional || spec.Pattern == "run.json" {
+			continue
+		}
+		matches, err := filepath.Glob(filepath.Join(dir, spec.Pattern))
+		if err != nil {
+			return nil, fmt.Errorf("invalid artifact pattern %q: %w", spec.Pattern, err)
+		}
+		if len(matches) == 0 {
+			artifacts = append(artifacts, Artifact{
+				Name:   spec.Pattern,
+				Status: "missing",
+				Reason: fmt.Sprintf("%s did not create a matching artifact", spec.Producer),
+			})
+		}
+	}
+	sort.Slice(artifacts, func(i, j int) bool { return artifacts[i].Name < artifacts[j].Name })
+	return artifacts, nil
 }
 
 // readerSources は成果物を読む側。ここを増やしたら追記する。

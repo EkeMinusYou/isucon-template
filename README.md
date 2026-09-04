@@ -27,8 +27,16 @@ vars:
   SSH_USER: ubuntu
   ISUCON_USER: isucon
   APP_NAME: app-binary
+  APP_DIR: webapp/go
   SERVICE: app-service
   DB_NAME: app-database
+  TARGET_OS: linux
+  TARGET_ARCH: amd64
+  SCHEMA_PATHS: webapp/sql
+  # Use SCHEMA_IN_WEBAPP=true instead when initialization assets are confirmed
+  # to be included in webapp but do not have a stable standalone path.
+  CONFIG_CHECK_COMMAND: '' # Set a contest-specific local validation command.
+  SETUP_SECRET_ALLOWLIST: ''
   ALL_HOSTS: isucon-1 isucon-2 isucon-3
   IP:
     map:
@@ -45,14 +53,17 @@ vars:
 
 ```shell
 task
+task inspect-hosts
 task setup
 task gen
-task build
-task test-tools
+task setup-check
 ```
 
 取得した`webapp/`、`nginx/`、`mysql/`、`etc/`は最初のbaselineとしてcommitします。
 当日マニュアルとAPI仕様は`docs/official/`へ保存してください。
+`setup-check`は既定のdocumentation IP、未取得ファイル、schema確認、設定構文検査、必要ツール、
+credentialらしいファイルを検出し、build・test・成果物契約・deploy dry-runまで確認します。
+必要なcredentialを意図的に管理する場合だけ`SETUP_SECRET_ALLOWLIST`へリポジトリ相対pathを列挙してください。
 
 ## 正規デプロイ経路
 
@@ -63,7 +74,16 @@ task deploy-mysql    # MySQL設定配布 + restart
 task deploy-sysctl   # 全ホストへ配布 + sysctl -p
 task deploy-all      # 上記を依存順に反映。DB初期化はしない
 task apply-roles     # 役割変更後だけenable/disableを収束
+task check-roles
 task check-network
+```
+
+サーバーを変更せず実際の転送先・role・activationを確認する場合は、Go Task自身の`--dry`ではなく
+deployctlのdry-runを呼ぶ次のTaskを使います。
+
+```shell
+task deploy-app-dry
+task deploy-all-dry
 ```
 
 `tools/deployctl/deployments.yaml`が転送とactivationの差分、`Taskfile.yml`が役割と値を持ちます。
@@ -93,6 +113,18 @@ task after-bench SCORE=12345
 ```
 
 `before-bench`後に中断した場合だけ`task abort-run`を使います。通常の回収は必ず`after-bench`です。
+`task bench`と`task bench-manual`は、ベンチ失敗や割り込みでも可能な限り`after-bench`を実行し、
+失敗RUNをEvidenceとしてfinalizeします。
+
+collector負荷は、同じ構成で通常RUNと次のRUNを取り、スコアとホストメトリクスを比較します。
+
+```shell
+task bench-no-collectors
+# ポータルベンチの場合
+task bench-manual-no-collectors
+```
+
+no-collector RUNでproc/MySQL collector成果物が`missing`になるのは意図どおりです。
 
 主な成果物:
 
@@ -113,7 +145,11 @@ Cookie由来識別子を専用フィールド（既定`session_id`）に出し�
 
 ```shell
 task artifacts
+task artifacts-run RUN=runs/<RUN_ID>
 ```
+
+`task artifacts`は宣言と読み手の整合、`task artifacts-run`は実RUNの必須成果物を検査します。
+完全に生成されなかった必須成果物も`run.json`へ`status: missing`として記録されます。
 
 ## 分析
 
