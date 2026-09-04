@@ -7,8 +7,7 @@
 アプリケーションの待ち時間を親要素数に比例して増やす。
 
 N+1 という形だけを見て機械的に修正するのではなく、親の絞り込み、関連の多重度、順序、認可、更新直後の
-可視性を保ったまま読み取り経路を組み直す。過去大会での JOIN、IN、bulk、summary の例は
-[`docs/resources/isucon-problem-solutions.md`](../resources/isucon-problem-solutions.md) を参照できる。
+可視性を保ったまま読み取り経路を組み直す。
 
 ## 適用条件・制約
 

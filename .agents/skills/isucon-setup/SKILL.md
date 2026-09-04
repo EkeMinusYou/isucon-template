@@ -11,6 +11,7 @@ description: ISUCON競技開始時に、公式資料と実環境からリポジ�
 
 - `AGENTS.md`
 - `docs/official/`の当日マニュアルとアプリケーション仕様
+- [`tools/README.md`](../../../tools/README.md)の競技開始時設定手順とディレクトリ別チェックリスト
 - [Objective / Constraint / Intervention](../_shared/objective-constraint-intervention.md)
 
 公式資料と過去メモが違う場合は公式資料を優先する。
@@ -19,7 +20,7 @@ description: ISUCON競技開始時に、公式資料と実環境からリポジ�
 
 - サーバー上で直接編集せず、`task setup-*`で取得してgit管理し、`task deploy-*`で反映する。
 - 役割の正本は`Taskfile.yml`冒頭の役割変数とIP mapだけとする。
-- `etc/env.sh`と`nginx/conf.d/upstream.conf`は`task gen`の生成物なので手編集しない。
+- `nginx/conf.d/upstream.conf`は`task gen`の生成物なので手編集しない。
 - Goはローカルで`linux/amd64`へクロスコンパイルする。
 - 参考実装が複数ある場合、採用言語以外は仕様参照専用とし、正規deploy対象へ混ぜない。
 - 既存の正規deploy経路で扱える対象に専用タスクを増やさない。
@@ -31,12 +32,16 @@ description: ISUCON競技開始時に、公式資料と実環境からリポジ�
 2. 読み取り専用SSHでホスト、CPU・メモリ、稼働service、unit、設定、private IPを確認する。
 3. `task setup-*`でアプリ・設定・schemaをローカルへ取得する。
 4. `Taskfile.yml`の役割とIPを実環境へ合わせ、`task gen`で生成物を作る。
-5. ローカルbuild、設定構文検査、`task artifacts`を通す。
-6. 正規の`task deploy-*`で反映し、必要なら`task apply-roles`と`task check-network`を行う。
-7. 安全なdry-runや`task before-bench`／`task abort-run`で、RUN採番・collector・digest・manifest経路を確認する。
-8. `task backlog -- objective list`で初期Objectiveが登録済みであることを確認する。
+5. `tools/README.md`のディレクトリ別チェックリストに従い、deploy、collector、digester、分析、アプリ固有adapterを確認する。
+6. ローカルbuild、設定構文検査、`task test-tools`、`task artifacts`を通す。
+7. `task --dry deploy-app`と`task --dry deploy-all`で転送先、role、activation順を確認する。
+8. 正規の`task deploy-*`で反映し、必要なら`task apply-roles`と`task check-network`を行う。
+9. 対象と影響を確認したうえで`task before-bench`／`task abort-run`を使い、RUN採番・collector・digest・manifest経路を確認する。
+10. baseline RUNで成果物の欠損とcollectorの負荷を確認する。
+11. `task backlog -- objective list`で初期Objectiveを確認し、当日の採点仕様に必要なObjectiveを追加する。
 
-DB初期化を伴う`task deploy-all-reset`は破壊的である。ユーザーの依頼範囲と対象を確認してから使う。
+このテンプレートはDB初期化Taskを定義しない。公式手順に従って追加する場合は、通常deployと分離し、
+ユーザーの依頼範囲、対象、復旧方法を確認してから実行する。
 
 ## 完了条件
 
@@ -44,6 +49,8 @@ DB初期化を伴う`task deploy-all-reset`は破壊的である。ユーザー�
 - service状態と役割がTaskfileの定義へ収束する。
 - 標準benchサイクルが同じRUN IDへ成果物を集め、`run.json`へ状態を記録できる。
 - 生成物と読み手の整合を`task artifacts`で確認できる。
+- `tools/README.md`の必須adapterを実環境に合わせ、使わないoptional機能を明示的に無効のままにしている。
+- baseline RUNでcollector負荷と成果物の欠損を確認できる。
 - 初期Objectiveと、当日の採点仕様から追加したObjectiveをCLIで参照できる。
 
 完了時は、確認した公式資料、役割構成、実行したsetup/deploy/check、未確認事項を簡潔に報告する。

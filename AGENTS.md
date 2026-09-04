@@ -10,7 +10,6 @@ ISUCON用の作業テンプレートリポジトリ。競技サーバーをSSH�
 - `Taskfile.yml` — 全操作の入口。冒頭のホスト・役割・アプリ変数が構成の正本
 - `README.md` — 競技開始時のセットアップ、デプロイ、計測手順
 - `docs/official/` — 当日マニュアル、仕様、API定義などの正本
-- `docs/resources/` — 過去大会の公開資料
 - `docs/special-sources/` — 複数構成で再利用できる設定断片
 - `docs/solutions/` — スキーマや配置に依存する解決策の例
 - `docs/reports/` — 分析レポート。既存ファイルを上書きしない

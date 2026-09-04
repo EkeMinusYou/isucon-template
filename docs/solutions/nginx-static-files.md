@@ -93,10 +93,3 @@ location /assets/ {
 
 どの方式でも、アップロード直後にどのホストから見えるか、ファイルがないときにAPIへfallbackするか、所有ホストが停止した
 ときの応答を仕様に合わせる。nginxが元データの保存先を参照して別ホストを探す構成にはせず、配信先をURLまたはnginxの設定で解決できる形にする。
-
-## 参考資料
-
-- [ISUCON10 本選問題の解説と講評](https://isucon.net/archives/55140539.html) — 静的ファイルをnginxから配信し、gzip/BrotliやCache-Controlを使う例
-- [ISUCON4 予選 参考解答（Redis版）](https://isucon.net/archives/40793620.html) — nginxで静的ファイルを配信する例
-- [ISUCON12 予選問題の解説と講評](https://isucon.net/archives/56850281.html) — 複数ホストで画像を保存・配信する例
-- [docs/resources/isucon-problem-solutions.md](../resources/isucon-problem-solutions.md) — 大会をまたいだ静的ファイル・画像配信の整理

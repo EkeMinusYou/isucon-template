@@ -107,11 +107,6 @@ ALTER TABLE sessions
 
 ## 参考資料
 
-- [ISUCON 問題と解決策の整理](../resources/isucon-problem-solutions.md) — ISUCON2、5、9、10、11、14 などに繰り返し現れる、検索条件・結合・並び順に沿った Index の事例をまとめたリポジトリ内資料。
-- [ISUCON9 予選問題の解説と講評](https://isucon.net/archives/53789931.html) — 初期 Index 不足、`OR` 条件を Index が使える形へ分ける例、N+1 との組み合わせを公式が説明している。
-- [ISUCON10 予選問題の解説と講評](https://isucon.net/archives/55025156.html) — `ORDER BY`、生成列、`SPATIAL INDEX`、検索条件ごとの Index を DB バージョンとともに説明している。
-- [ISUCON11 予選問題の解説と講評](https://isucon.net/archives/56044867.html) — `jia_isu_uuid` と `timestamp` の複合 Index・複合主キー、および書き込み時の Index 維持コストを説明している。
-- [ISUCON14 問題の解説と講評](https://isucon.net/archives/58869617.html) — アクセストークン、状態・時刻、位置履歴など、実際の検索経路に対応した複数の Index 定義を掲載している。
 - [MySQL 8.0 Reference Manual: Optimization and Indexes](https://dev.mysql.com/doc/refman/8.0/en/optimization-indexes.html) — Index の用途と、不要な Index が容量および `INSERT`・`UPDATE`・`DELETE` のコストになることを説明している。
 - [MySQL 8.0 Reference Manual: Multiple-Column Indexes](https://dev.mysql.com/doc/refman/8.0/en/multiple-column-indexes.html) — 複合 Index の左端一致と、列順による利用可能な検索形状を説明している。
 - [MySQL 8.0 Reference Manual: EXPLAIN Statement](https://dev.mysql.com/doc/refman/8.0/en/explain.html) — `SELECT` などの実行計画と、DB バージョンごとの `EXPLAIN` 機能を説明している。

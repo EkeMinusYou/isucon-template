@@ -133,9 +133,6 @@ COMMIT;
 
 ## 参考資料
 
-- [ISUCON 問題・解説リソース](../resources/isucon-problem-solutions.md) — ISUCON8 の予約競合・ロック範囲・デッドロック、ISUCON9 の車両単位のロック範囲縮小を整理したリポジトリ内資料。
-- [ISUCON8 予選問題の解説と講評](https://isucon.net/archives/52520045.html) — `FOR UPDATE` による広いロック、空き席を明示的なレコードにする設計、`SKIP LOCKED` の適用例を公式が説明している。
-- [ISUCON9 本選問題の解説と講評](https://isucon.net/archives/53916974.html) — 予約候補を絞り、車両単位へロック範囲を限定する考え方を公式が説明している。
 - [MySQL 8.0 Reference Manual: InnoDB Locking](https://dev.mysql.com/doc/refman/8.0/en/innodb-locking.html) — InnoDB のレコード・gap・next-key lock、索引レコードと分離レベルの関係を説明している。
 - [MySQL 8.0 Reference Manual: Locking Reads](https://dev.mysql.com/doc/refman/8.0/en/innodb-locking-reads.html) — `FOR UPDATE`・`NOWAIT`・`SKIP LOCKED` のロック範囲と、コミット・ロールバックまでロックが保持される挙動を説明している。
 - [MySQL 8.0 Reference Manual: Deadlocks in InnoDB](https://dev.mysql.com/doc/refman/8.0/en/innodb-deadlocks.html) — トランザクションを短くすること、索引を用意すること、ロック順を統一すること、デッドロック後に再試行することを説明している。

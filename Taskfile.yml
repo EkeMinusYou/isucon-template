@@ -281,7 +281,7 @@ tasks:
     preconditions: *no_active_run
     deps: [build-deployctl]
     cmds:
-      - '{{.DEPLOYCTL_DIR}}/deployctl -config {{.DEPLOYCTL_CONFIG}} deployment app {{.DEPLOYCTL_COMMON}}'
+      - '{{.DEPLOYCTL_DIR}}/deployctl apply app -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
 
   deploy-nginx:
     desc: nginx設定をNGINX_HOSTSへ配布・reload
@@ -289,35 +289,35 @@ tasks:
     deps: [build-deployctl]
     cmds:
       - task: gen
-      - '{{.DEPLOYCTL_DIR}}/deployctl -config {{.DEPLOYCTL_CONFIG}} deployment nginx {{.DEPLOYCTL_COMMON}}'
+      - '{{.DEPLOYCTL_DIR}}/deployctl apply nginx -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
 
   deploy-mysql:
     desc: MySQL設定をMYSQL_HOSTへ配布・restart
     preconditions: *no_active_run
     deps: [build-deployctl]
     cmds:
-      - '{{.DEPLOYCTL_DIR}}/deployctl -config {{.DEPLOYCTL_CONFIG}} deployment mysql {{.DEPLOYCTL_COMMON}}'
+      - '{{.DEPLOYCTL_DIR}}/deployctl apply mysql -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
 
   deploy-sysctl:
     desc: sysctl設定を全ホストへ配布・反映
     preconditions: *no_active_run
     deps: [build-deployctl]
     cmds:
-      - '{{.DEPLOYCTL_DIR}}/deployctl -config {{.DEPLOYCTL_CONFIG}} deployment sysctl {{.DEPLOYCTL_COMMON}}'
+      - '{{.DEPLOYCTL_DIR}}/deployctl apply sysctl -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
 
   deploy-plan:
     internal: true
     deps: [build-deployctl]
     requires: { vars: [PLAN] }
     cmds:
-      - '{{.DEPLOYCTL_DIR}}/deployctl -config {{.DEPLOYCTL_CONFIG}} plan {{.PLAN}} {{.DEPLOYCTL_COMMON}}'
+      - '{{.DEPLOYCTL_DIR}}/deployctl apply-plan {{.PLAN}} -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
 
   apply-roles:
     desc: 役割外サービスを停止し、役割内サービスを起動
     preconditions: *no_active_run
     deps: [build-deployctl]
     cmds:
-      - '{{.DEPLOYCTL_DIR}}/deployctl -config {{.DEPLOYCTL_CONFIG}} plan roles {{.DEPLOYCTL_COMMON}}'
+      - '{{.DEPLOYCTL_DIR}}/deployctl apply-plan roles -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
 
   deploy-nginx-oncpu-prereqs:
     desc: optional profiler用perf packageをNGINX_ONCPU_HOSTへ一時導入

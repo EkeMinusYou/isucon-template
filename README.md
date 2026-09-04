@@ -153,6 +153,5 @@ task backlog -- validate
 
 - [`docs/special-sources/`](docs/special-sources/README.md) — nginx、MySQL、systemd、sysctlの設定候補
 - [`docs/solutions/`](docs/solutions/README.md) — N+1、index、bulk upsert、非同期化、in-memory、静的配信、PGO、UDSなど
-- [`docs/resources/`](docs/resources/README.md) — 過去大会の公開資料
 
 これらは自動適用する完成設定ではありません。公式仕様、現行構成、計測値、rollback条件を確認して採用します。
