@@ -20,6 +20,7 @@ vars:
   SCHEMA_IN_WEBAPP: 'false'
   CONFIG_CHECK_COMMAND: ''
   SETUP_SECRET_ALLOWLIST: ''
+  SETUP_WEBAPP_EXCLUDES: tools/setup/webapp-excludes.txt
 
   SSH_MUX: -o ControlMaster=auto -o ControlPath=/tmp/.isucon-ssh-%C -o ControlPersist=600
   SSH: ssh -o RequestTTY=no -o LogLevel=ERROR {{.SSH_MUX}}
@@ -37,7 +38,10 @@ vars:
   APP_HOSTS: isucon-1
   APP_TRAFFIC_HOSTS: isucon-1
   NGINX_HOSTS: isucon-1
+  # MYSQL_HOST is the detailed measurement source and default DB connection.
   MYSQL_HOST: isucon-1
+  # Deployment and service enable/disable targets; preserve the single-host default.
+  MYSQL_HOSTS: '{{.MYSQL_HOST}}'
   CONF_SRC: isucon-1
 
   ENTRY_HOST: '{{splitList " " .NGINX_HOSTS | first}}'
@@ -90,6 +94,7 @@ vars:
     -role entry={{.ENTRY_HOST}}
     -role nginx_profile={{.ENTRY_HOST}}
     -role mysql={{.MYSQL_HOST}}
+    -role mysql_all={{splitList " " .MYSQL_HOSTS | join ","}}
   MEASURECTL_VARS: >-
     -var services={{.SERVICE}},nginx,mysql
     -var app_service={{.SERVICE}}
@@ -111,14 +116,14 @@ vars:
     -role all={{splitList " " .ALL_HOSTS | join ","}}
     -role app={{splitList " " .APP_HOSTS | join ","}}
     -role nginx={{splitList " " .NGINX_HOSTS | join ","}}
-    -role mysql={{.MYSQL_HOST}}
+    -role mysql={{splitList " " .MYSQL_HOSTS | join ","}}
     -var remote_home={{.REMOTE_HOME}}
     -var isucon_user={{.ISUCON_USER}}
     -var service={{.SERVICE}}
     -var app_dir={{.APP_DIR}}
     -var app_hosts={{splitList " " .APP_HOSTS | join ","}}
     -var nginx_hosts={{splitList " " .NGINX_HOSTS | join ","}}
-    -var mysql_host={{.MYSQL_HOST}}
+    -var mysql_hosts={{splitList " " .MYSQL_HOSTS | join ","}}
 
   SCORE: ''
   RUN_ID:
@@ -137,7 +142,7 @@ tasks:
         echo "現在の役割:"
         echo "  APP   : {{.APP_HOSTS}} (traffic={{.APP_TRAFFIC_HOSTS}})"
         echo "  NGINX : {{.NGINX_HOSTS}} (entry={{.ENTRY_HOST}} {{.ENTRY_IP}})"
-        echo "  MYSQL : {{.MYSQL_HOST}} ({{.MYSQL_IP}})"
+        echo "  MYSQL : {{.MYSQL_HOSTS}} (metrics={{.MYSQL_HOST}} {{.MYSQL_IP}})"
         echo "  最新RUN: {{if .RUN}}{{.RUN}}{{else}}なし{{end}}"
         echo
       - task --list
@@ -153,10 +158,13 @@ tasks:
       - echo "取得完了。ベースラインを git commit してください"
 
   setup-webapp:
-    desc: webapp を取得
+    desc: 除外ファイルの指定に従ってwebappを取得
+    preconditions:
+      - sh: test -f '{{.SETUP_WEBAPP_EXCLUDES}}'
+        msg: SETUP_WEBAPP_EXCLUDES must name an existing rsync exclude file
     cmds:
       - mkdir -p webapp
-      - '{{.RSYNC}} --exclude=node_modules/ {{.SSH_USER}}@{{.CONF_SRC}}:{{.REMOTE_HOME}}/webapp/ webapp/'
+      - '{{.RSYNC}} --exclude-from="{{.SETUP_WEBAPP_EXCLUDES}}" {{.SSH_USER}}@{{.CONF_SRC}}:{{.REMOTE_HOME}}/webapp/ webapp/'
 
   setup-nginx:
     desc: /etc/nginx を取得
@@ -166,7 +174,7 @@ tasks:
   setup-mysql:
     desc: /etc/mysql を取得
     cmds:
-      - '{{.RSYNC}} {{.SSH_USER}}@{{.CONF_SRC}}:/etc/mysql/ mysql/'
+      - '{{.RSYNC}} {{.SSH_USER}}@{{.MYSQL_HOST}}:/etc/mysql/ mysql/'
 
   setup-systemd:
     desc: アプリとMySQLのsystemd設定を取得
@@ -298,6 +306,7 @@ tasks:
       ISUCON_APP_TRAFFIC_HOSTS: '{{.APP_TRAFFIC_HOSTS}}'
       ISUCON_NGINX_HOSTS: '{{.NGINX_HOSTS}}'
       ISUCON_MYSQL_HOST: '{{.MYSQL_HOST}}'
+      ISUCON_MYSQL_HOSTS: '{{.MYSQL_HOSTS}}'
       ISUCON_HOST_IPS: '{{.ALL_HOST_IPS}}'
       ISUCON_APP_DIR: '{{.APP_DIR}}'
       ISUCON_SERVICE: '{{.SERVICE}}'
@@ -321,9 +330,11 @@ tasks:
           fail "docs/official has no contest manual or application specification"
         fi
 
-        for host in $ISUCON_APP_HOSTS $ISUCON_APP_TRAFFIC_HOSTS $ISUCON_NGINX_HOSTS $ISUCON_MYSQL_HOST; do
+        for host in $ISUCON_APP_HOSTS $ISUCON_APP_TRAFFIC_HOSTS $ISUCON_NGINX_HOSTS $ISUCON_MYSQL_HOSTS $ISUCON_MYSQL_HOST; do
           contains_host "$ISUCON_ALL_HOSTS" "$host" || fail "role host is not in ALL_HOSTS: $host"
         done
+        [ -n "$ISUCON_MYSQL_HOSTS" ] || fail "MYSQL_HOSTS is empty"
+        contains_host "$ISUCON_MYSQL_HOSTS" "$ISUCON_MYSQL_HOST" || fail "MYSQL_HOST must belong to MYSQL_HOSTS"
         for pair in $ISUCON_HOST_IPS; do
           host=${pair%%=*}
           ip=${pair#*=}
@@ -434,7 +445,7 @@ tasks:
       - '{{.DEPLOYCTL_DIR}}/deployctl apply nginx -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
 
   deploy-mysql:
-    desc: MySQL設定をMYSQL_HOSTへ配布・restart
+    desc: MySQL設定をMYSQL_HOSTSへ配布・restart
     preconditions: *no_active_run
     deps: [build-deployctl]
     cmds:

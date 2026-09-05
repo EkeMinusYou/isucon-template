@@ -36,6 +36,7 @@
 | `mysql-metrics/` | 接続・互換性確認 | `-dsn`、認証、socket/port、MySQL version、`performance_schema.data_lock_waits`の利用可否を確認する |
 | `nginx-backend-report/` | log列確認 | [access log](#access-log) |
 | `nginx-oncpu-profiler/` | 利用時のみ環境調整 | 既定では無効。`perf`権限、kernel package、worker数、delay、duration、frequency、出力上限を確認する |
+| `setup/` | 取得・構文検査の調整時 | [取得対象の除外、schemaの実体取得、設定構文検査の実装例](setup/README.md) |
 | `proc-metrics/` | service設定 | Linuxの`/proc`、`/sys`、cgroup v2を使う。`-services`へ実際のsystemd unitを渡し、sampling intervalを確認する |
 | `topology-screen/` | 利用時に引数調整 | 配置候補を調べる場合だけ、key field・regex、route、hash、分割数、対象bucketを当日のデータモデルへ合わせる |
 | `user-transition-metrics/` | adapter設定 | [アプリ固有adapter](#アプリ固有adapter)・[access log](#access-log) |
@@ -45,6 +46,11 @@
 ### Taskfile
 
 ホスト、役割、IP、アプリ名、DB名、service、port、build、ベンチコマンドを実環境へ合わせる。OS・CPU architectureと、service・設定・ログのパスを確認して値を決める。
+
+`MYSQL_HOSTS`はdeploy・role収束・状態検査の対象、`MYSQL_HOST`は詳細計測する1台です。
+両者の既定値は同じです。計測の`mysql` roleは1台のまま、全配置は`mysql_all` roleとしてRUNへ記録します。
+MySQLの共通設定とlimitsは`MYSQL_HOST`から取得します。ホスト別設定がある場合は一律配布せず、
+次節の`{host}`による転送元の分離を使ってください。
 
 ### デプロイ
 
@@ -63,6 +69,16 @@
 配布の`local`と`remote`には`{host}`を指定できます。例えば`local: 'etc/hosts/{host}/app.conf'`、
 `remote: '/home/isucon/app.conf'`でホスト別の設定を配布できます。全対象ホストのパスと転送元ファイルを
 転送開始前に検証します。既存の配布先パス制限は引き続き適用されます。
+
+設定uploadに`validate: sudo nginx -t`のような検査コマンドを指定すると、配布先を退避してから
+その場へ上書きし、検査します。転送または検査の失敗時は、そのuploadの配布先を元に戻します。
+すべてのuploadと検査が成功するまでactivationは開始しません。nginx/MySQLの標準deployにも設定済みです。
+検査コマンドは実サービスが読む設定とインストール済みversionに合わせてください。
+
+退避先はホスト上の`/tmp/isucon-deployctl-<ID>`で、通常終了時は削除します。
+SSH切断・復元失敗などで残った場合は、表示された退避先と終了状態を確認して復旧します。
+復元対象は失敗したuploadだけです。他ホストで成功した配布、別upload、activation後の失敗は自動で戻しません。
+同じ配布先への並行deployを避け、必要ならgit上の旧設定から正規deployで戻してください。
 
 ### 計測と集計
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"os"
@@ -69,7 +70,13 @@ func (r *deployRunner) apply(d deployment) error {
 
 	if r.dryRun {
 		for _, j := range uploads {
+			if j.u.Validate != "" {
+				fmt.Printf("[dry-run] backup %s:%s before upload; restore on transfer/validation failure\n", j.host, j.remote)
+			}
 			fmt.Printf("[dry-run] %s\n", formatCommand("rsync", r.rsyncArgs(j)...))
+			if j.u.Validate != "" {
+				fmt.Printf("[dry-run] validate %s: %s\n", j.host, j.u.Validate)
+			}
 		}
 		for _, j := range activations {
 			args := append(r.sshBase(), r.sshTarget(j.host), "sh -s")
@@ -119,7 +126,12 @@ func (r *deployRunner) uploadJobs(uploads []upload) ([]uploadJob, error) {
 			if err := validateRemotePath(remote, u.Delete); err != nil {
 				return nil, fmt.Errorf("upload %q: %w", u.Label, err)
 			}
-			jobs = append(jobs, uploadJob{u: u, host: host, local: local, remote: remote})
+			resolved := u
+			resolved.Validate, err = (expander{host: host, vars: r.vars}).expand(u.Validate)
+			if err != nil {
+				return nil, fmt.Errorf("upload %q validation: %w", u.Label, err)
+			}
+			jobs = append(jobs, uploadJob{u: resolved, host: host, local: local, remote: remote})
 		}
 	}
 	return jobs, nil
@@ -188,11 +200,76 @@ func (r *deployRunner) rsyncArgs(j uploadJob) []string {
 
 func (r *deployRunner) runUpload(j uploadJob) jobResult {
 	started := time.Now()
+	var output []string
+	var backup string
+	runRemote := func(script string) error {
+		args := append(r.sshBase(), r.sshTarget(j.host), "sh -s")
+		out, err := r.exec.Run("ssh", args, script)
+		output = append(output, strings.TrimSpace(string(out)))
+		return err
+	}
+	result := func(err error) jobResult {
+		return jobResult{label: j.u.Label, host: j.host, duration: time.Since(started), output: strings.TrimSpace(strings.Join(output, "\n")), err: err}
+	}
+	if j.u.Validate != "" {
+		var nonce [16]byte
+		if _, err := rand.Read(nonce[:]); err != nil {
+			return result(err)
+		}
+		backup = fmt.Sprintf("/tmp/isucon-deployctl-%x", nonce)
+		output = append(output, "configuration backup: "+backup)
+		if err := runRemote(configBackupScript(j.remote, backup)); err != nil {
+			return result(fmt.Errorf("backup failed; upload was not started (inspect %s): %w", backup, err))
+		}
+	}
 	out, err := r.exec.Run("rsync", r.rsyncArgs(j), "")
+	output = append(output, strings.TrimSpace(string(out)))
 	if err != nil {
 		err = fmt.Errorf("rsync: %w", err)
+	} else if j.u.Validate != "" {
+		if checkErr := runRemote("set -eu\n" + j.u.Validate + "\n"); checkErr != nil {
+			err = fmt.Errorf("configuration validation failed: %w", checkErr)
+		}
 	}
-	return jobResult{label: j.u.Label, host: j.host, duration: time.Since(started), output: strings.TrimSpace(string(out)), err: err}
+	if backup != "" {
+		if err != nil {
+			if restoreErr := runRemote(configRestoreScript(j.remote, backup)); restoreErr != nil {
+				return result(errors.Join(err, fmt.Errorf("restore failed; backup retained at %s: %w", backup, restoreErr)))
+			}
+			output = append(output, "previous configuration restored")
+		}
+		if cleanupErr := runRemote("sudo rm -rf -- '" + backup + "'\n"); cleanupErr != nil {
+			err = errors.Join(err, fmt.Errorf("backup cleanup failed at %s: %w", backup, cleanupErr))
+		}
+	}
+	return result(err)
+}
+
+// A guarded upload snapshots exactly one destination before rsync changes it.
+// Restoring the snapshot also removes files introduced by a failed upload.
+func configBackupScript(remote, backup string) string {
+	destination := strings.TrimSuffix(remote, "/")
+	return fmt.Sprintf(`set -eu
+if sudo test -L '%s'; then
+  echo 'validated upload requires a non-symlink destination' >&2
+  exit 1
+fi
+sudo mkdir -m 0700 -- '%s'
+if sudo test -e '%s'; then
+  sudo cp -a -- '%s' '%s/original'
+  sudo touch '%s/existed'
+fi
+`, destination, backup, destination, destination, backup, backup)
+}
+
+func configRestoreScript(remote, backup string) string {
+	destination := strings.TrimSuffix(remote, "/")
+	return fmt.Sprintf(`set -eu
+sudo rm -rf -- '%s'
+if sudo test -f '%s/existed'; then
+  sudo cp -a -- '%s/original' '%s'
+fi
+`, destination, backup, backup, destination)
 }
 
 func (r *deployRunner) runActivation(j activationJob) jobResult {

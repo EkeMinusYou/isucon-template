@@ -40,7 +40,13 @@ func (r *deployRunner) applyPlan(cfg *config, p plan) error {
 	if r.dryRun {
 		fmt.Printf("plan upload phase: %d jobs\n", len(uploads))
 		for _, j := range uploads {
+			if j.u.Validate != "" {
+				fmt.Printf("[dry-run] backup %s:%s before upload; restore on transfer/validation failure\n", j.host, j.remote)
+			}
 			fmt.Printf("[dry-run] %s\n", formatCommand("rsync", r.rsyncArgs(j)...))
+			if j.u.Validate != "" {
+				fmt.Printf("[dry-run] validate %s: %s\n", j.host, j.u.Validate)
+			}
 		}
 		fmt.Println("plan activation graph:")
 		for _, name := range names {

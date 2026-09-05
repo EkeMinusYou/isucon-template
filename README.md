@@ -47,6 +47,7 @@ vars:
   APP_TRAFFIC_HOSTS: isucon-1
   NGINX_HOSTS: isucon-1
   MYSQL_HOST: isucon-1
+  MYSQL_HOSTS: '{{.MYSQL_HOST}}' # Deployment targets; expand only when needed.
 ```
 
 `~/.ssh/config`に同じホストaliasを設定し、読み取りで実環境と公式資料を確認してから取得します。
@@ -59,6 +60,15 @@ task gen
 task setup-check
 ```
 
+`setup-webapp`の取得対象は`SETUP_WEBAPP_EXCLUDES`で指定したrsync除外ファイルで調整できます。
+既定では従来どおり`node_modules/`だけを除外します。ビルド成果物の追加除外、schemaのsymlink、
+実サーバーでの設定構文検査は[取得と構文検査の手引き](tools/setup/README.md)を参照してください。
+
+`MYSQL_HOSTS`はMySQL設定の配布・serviceの起動対象、`MYSQL_HOST`は詳細計測先と共通設定の取得元です。
+既定は同じ1台です。複数台のときは`MYSQL_HOSTS`を空白区切りで指定し、その中の1台を`MYSQL_HOST`にします。
+`db`と標準の`check-network`も`MYSQL_HOST`を使います。アプリのDB接続設定は変更しません。
+各アプリが別DBへ接続する構成では、その接続設定と疎通検査を実配置に合わせてください。
+
 取得した`webapp/`、`nginx/`、`mysql/`、`etc/`は最初のbaselineとしてcommitします。
 当日マニュアルとAPI仕様は`docs/official/`へ保存してください。
 `setup-check`は既定のdocumentation IP、未取得ファイル、schema確認、設定構文検査、必要ツール、
@@ -69,7 +79,7 @@ credentialらしいファイルを検出し、build・test・成果物契約・d
 
 ```shell
 task deploy          # build + app配布 + restart
-task deploy-nginx    # nginx -t後にreload
+task deploy-nginx    # 設定上書き・nginx -t成功後にreload
 task deploy-mysql    # MySQL設定配布 + restart
 task deploy-sysctl   # 全ホストへ配布 + sysctl -p
 task deploy-all      # 上記を依存順に反映。DB初期化はしない

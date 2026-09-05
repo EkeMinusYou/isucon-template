@@ -35,6 +35,7 @@ type upload struct {
 	Remote   string   `yaml:"remote"`
 	Delete   bool     `yaml:"delete"`
 	Excludes []string `yaml:"excludes"`
+	Validate string   `yaml:"validate"`
 }
 
 type activation struct {

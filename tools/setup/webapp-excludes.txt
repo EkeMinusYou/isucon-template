@@ -1,0 +1,8 @@
+# rsync patterns relative to the webapp acquisition root.
+# Keep the historical default; add only confirmed generated artifacts.
+node_modules/
+
+# Examples: uncomment after checking the actual source/build layout.
+# /rust/target/
+# /go/app
+# Do not exclude vendor/ globally: offline Go builds may depend on it.

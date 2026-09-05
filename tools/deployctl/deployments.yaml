@@ -29,12 +29,12 @@ deployments:
         local: nginx/
         remote: /etc/nginx/
         delete: true
+        validate: sudo nginx -t
     activations:
       - label: reload nginx
         role: nginx
         script: |
           set -eu
-          sudo nginx -t
           if sudo systemctl is-active --quiet nginx; then
             sudo systemctl reload nginx
           else
@@ -49,6 +49,7 @@ deployments:
         local: mysql/
         remote: /etc/mysql/
         delete: true
+        validate: sudo mysqld --validate-config
       - label: MySQL systemd limits
         role: mysql
         local: etc/systemd/system/mysql.service.d/
@@ -91,7 +92,7 @@ deployments:
           }
           if ! in_role "$host" '{var:app_hosts}'; then disable_unit '{var:service}'; fi
           if ! in_role "$host" '{var:nginx_hosts}'; then disable_unit nginx; fi
-          if [ "$host" != '{var:mysql_host}' ]; then disable_unit mysql; fi
+          if ! in_role "$host" '{var:mysql_hosts}'; then disable_unit mysql; fi
 
   roles-on:
     activations:
@@ -105,7 +106,7 @@ deployments:
             sudo systemctl enable --now "$1" >/dev/null
             sudo systemctl is-active --quiet "$1"
           }
-          if [ "$host" = '{var:mysql_host}' ]; then enable_unit mysql; fi
+          if in_role "$host" '{var:mysql_hosts}'; then enable_unit mysql; fi
           if in_role "$host" '{var:app_hosts}'; then enable_unit '{var:service}'; fi
           if in_role "$host" '{var:nginx_hosts}'; then enable_unit nginx; fi
 
