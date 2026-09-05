@@ -2,9 +2,11 @@
 
 ## Authority
 
+This document is the source of truth for the three-layer model, state transitions, READY and adoption conditions, priority, and writer rules. See [README.md](README.md) for CLI usage and storage details, and [Evidence](../../.agents/skills/_shared/evidence.md) for selecting and comparing evidence. Skill-specific operating limits stay in the responsible skill.
+
 Use the backlog through `task backlog -- ...`. Do not edit `backlog.sqlite3` or `backlog.sql` manually. Every write includes an actor, a reason, and the target entity version where applicable.
 
-Official behavior and validity come from `docs/official/`. Code, configuration, schema, saved RUNs, logs, profiles, and read-only runtime checks are Evidence.
+Official behavior and validity come from `docs/official/`. Evidence is a basis for decisions, not a card kind; all B-xxx/B-xxxx cards are Interventions.
 
 ## Objective
 
@@ -17,14 +19,13 @@ mode: SATISFY | MAXIMIZE | MINIMIZE
 
 An Objective has a metric or predicate, verification method, official sources, and optional parent. `required_for_valid_result` marks pass/fail requirements. MAXIMIZE and MINIMIZE Objectives do not become “resolved”; retire them only when the criterion no longer applies.
 
-```shell
-task backlog -- objective list
-task backlog -- objective show O-003
-task backlog -- objective add --mode MAXIMIZE --title "..." \
-  --metric-or-predicate "..." --verification "..." --actor human:name --reason "..."
-task backlog -- objective update O-004 --expect-objective-version 0 \
-  --status RETIRED --actor human:name --reason "..."
-```
+At the start, inspect ACTIVE Objectives with `task backlog -- objective list`. Initial template Objectives are:
+
+- O-001: pass benchmark and final consistency checks
+- O-002: satisfy the official restart persistence and reproducibility requirements
+- O-003: maximize a valid benchmark score
+
+Add contest-specific score components and penalties as Objectives after reading the official rules.
 
 ## Constraint
 
@@ -42,6 +43,8 @@ status: ACTIVE | RESOLVED | INVALIDATED | MERGED
 ```
 
 No candidate is required to keep a still-true Constraint ACTIVE. Lack of a candidate never blocks unrelated Intervention work. Record searched families and reconsider conditions in History.
+
+Use RESOLVED when the observed fact no longer holds, INVALIDATED when its attribution was wrong, and MERGED for duplicates with the same identity and snapshot. Do not infer resolution from Intervention adoption alone; check the current resolution condition. Keep controllability and search progress out of status.
 
 Terminal Constraints are immutable. A recurrence gets a versioned fingerprint. Merge duplicates into one ACTIVE survivor.
 
@@ -72,9 +75,11 @@ The card body must make four decisions clear without a separate generic contract
 3. `Verification` — observations and adoption/correction/rejection outcomes
 4. `Safety` — official guardrails, stop condition, rollback
 
-New cards always start in INVESTIGATE. READY is a deliberately narrow structural gate: the CLI requires those four non-empty sections, at least one ACTIVE Objective relation, and satisfied BLOCKING dependencies. It does not grade wording, require an effect estimate, or require ORDERING dependencies to be complete.
+New cards always start in INVESTIGATE. Link at least one ACTIVE Objective and satisfy BLOCKING dependencies before READY; ORDERING dependencies need not be complete. `isucon-investigate` is the only skill that creates READY and confirms the four sections in one `resolve` operation.
 
-Effect magnitude may be unknown. A non-bottleneck optimization, selection change, loss recovery, spam control, or experiment may be READY when direction and safety are explainable. “Try it and inspect score” is insufficient.
+The skill judges causal direction, a coherent application/rollback boundary, observable outcomes using standard Evidence or correctness checks, and official guardrails. The CLI checks structure rather than the quality of that reasoning; see [CLI checks](README.md#cli-checks).
+
+Absence of a current Constraint or a direct metric does not by itself prevent READY. Effect magnitude may be unknown. A non-bottleneck optimization, selection change, loss recovery, spam control, or experiment may be READY when direction and safety are explainable. “Try it and inspect score” is insufficient.
 
 ### BLOCKED
 
@@ -88,9 +93,13 @@ Use top-level `task pass` after a successful manual benchmark. It requires a fin
 
 Use `task pass FORCE=true` only for an explicit exceptional adoption. It bypasses the pass, known-score, and comparison-compatibility gates, but never finalization, snapshot integrity, or the Change boundary declaration check. The forced decision remains visible in History.
 
-Adoption decisions are stored as immutable SQLite events in the same transaction as the card transitions. Score and comparison values in an event are evidence snapshots read from the finalized `run.json`; the manifest remains the source of truth for the RUN itself. `runs/outcomes.tsv` is regenerated from these events.
+Adoption events are the source of truth for adoption decisions; `run.json` remains the source of truth for the RUN. See [Adoption records](README.md#adoption-records) for persistence and derived outputs.
+
+During investigation, REJECTED requires evidence that the proposal is already resolved, violates official rules, lacks an explainable causal direction or safe boundary, duplicates an existing Intervention, or is technically refuted. Effort and size alone are not rejection reasons.
 
 Do not reject or rollback from a single score fluctuation alone. Correctness failure, official-spec violation, operational failure, or evidence that refutes the causal path can justify rollback and REJECTED. Record the relevant RUN, mechanism evidence, and rollback result.
+
+For post-benchmark rejection, establish the target mechanism's degradation, correctness violation, and evidence that the cause is not attributable to another change before rolling back and recording REJECTED.
 
 ## Relations
 
@@ -104,7 +113,9 @@ Intervention --depends on---> Intervention
 
 An Intervention does not need a Constraint relation. It should have an Objective relation before READY.
 
-`RESOLVES` means the resolution condition is expected to be satisfied. For a performance Constraint, supply the version 1 residual assessment with one shared axis plus current value and snapshot, expected reduction, added cost, and threshold. The CLI derives the residual and result. Capacity and shifted-work detail remain in the evidence or estimate basis rather than becoming additional assessment fields. `MITIGATES` means positive but not independently resolving; do not force the same calculation onto non-performance facts.
+`RESOLVES` means the Intervention, alone or as a coherent dependency chain, is expected to satisfy the resolution condition. `MITIGATES` means positive but not independently resolving.
+
+For performance RESOLVES, the skill supplies a structured residual assessment using the [CLI format](README.md#residual-assessment). Non-performance RESOLVES uses the Constraint evidence, resolution condition, and relation rationale; MITIGATES does not require the calculation.
 
 Dependencies are explicit `ORDERING` or `BLOCKING` relations and always specify `required-status`. Change-boundary overlap and short-lived implementation order are not persisted dependencies.
 
@@ -114,18 +125,18 @@ Measurement is not a Backlog layer or card kind. Use existing standard RUN artif
 
 When Evidence is insufficient, record the limitation in Constraint or Intervention History. Do not create a measurement card. If a new standard instrumentation capability is truly required, treat it as a separately authorized repository task, not an implicit backlog transition.
 
-`evidence` chooses the newest finalized RUN whose APPLIED snapshot contains the requested card, or the exact `--run` when supplied. Comparisons come only from the target manifest's declared `compatible` control RUN. APPLIED snapshot schema version 3 uses `change_boundary_hash` to reject a RUN comparison or adoption when the normalized Change boundary declaration changed. This is declaration-staleness detection, not proof that the deployed implementation matches the text or that two texts are semantically equivalent. `decision_hash` (`Hypothesis`, `Verification`, and `Safety`) is audit information and produces a warning when it changed. Workflow metadata, relations, observations, results, and History are outside both hashes.
+Use the [Evidence policy](../../.agents/skills/_shared/evidence.md) for RUN selection, comparison, missing artifacts, and causal reasoning. Command behavior and snapshot hash semantics are documented in [README.md](README.md#evidence-and-snapshots).
 
 ## Priority
 
 1. existing DOING, APPLIED awaiting verification, required rollback;
 2. required-for-valid-result Objectives;
 3. explicit user priority;
-4. RESOLVES Interventions and unmet dependencies;
+4. Interventions that RESOLVE ACTIVE Constraints and their unmet dependencies;
 5. direct selection, value, and loss-recovery Interventions;
 6. MITIGATES and ordinary positive Interventions.
 
-Within a class, preserve Priority, dependencies, Owner, dirty-diff safety, and deployment snapshot coherence. The APPLIED work-in-progress limit is an operational rule enforced by [isucon-worker](../../.agents/skills/isucon-worker/SKILL.md), not by the CLI.
+Owner, dependency, dirty-diff safety, and deployment snapshot coherence take precedence over candidate ranking. Within a class, use Priority and the completed snapshot. The APPLIED work-in-progress limit is an operational rule enforced by [isucon-worker](../../.agents/skills/isucon-worker/SKILL.md), not by the CLI.
 
 ## Writer protocol
 

@@ -12,7 +12,7 @@ description: ISUCON競技開始時に、公式資料と実環境からリポジ�
 - `AGENTS.md`
 - `docs/official/`の当日マニュアルとアプリケーション仕様
 - [`tools/README.md`](../../../tools/README.md)の競技開始時設定手順とディレクトリ別チェックリスト
-- [Objective / Constraint / Intervention](../_shared/objective-constraint-intervention.md)
+- [Backlog workflow](../../../tools/backlog/backlog-workflow.md)
 
 公式資料と過去メモが違う場合は公式資料を優先する。
 

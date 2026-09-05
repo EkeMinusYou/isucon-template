@@ -10,7 +10,7 @@ READY Interventionを安全に実装・適用し、手動ベンチ後の採否�
 ## 最初に読む
 
 - `AGENTS.md`
-- [Objective / Constraint / Intervention](../_shared/objective-constraint-intervention.md)
+- [Backlog workflow](../../../tools/backlog/backlog-workflow.md)
 - [Evidence](../_shared/evidence.md)
 - 対象カード、Objective、Constraint relation、依存、History
 - 対象の`docs/official/`
@@ -28,21 +28,11 @@ READY Interventionを安全に実装・適用し、手動ベンチ後の採否�
 
 ## 優先順
 
-共有規律に従う。まず既存DOING・未検証APPLIED・rollback、次にvalidity、ユーザー指定、RESOLVESと依存、Objective直結、MITIGATESを扱う。Owner、dependency、dirty diff、完成snapshotの整合を優先順より先に守る。
+[workflowの優先順](../../../tools/backlog/backlog-workflow.md#priority)に従って、担当範囲内の対象を選ぶ。
 
 APPLIEDはBacklog全体で同時に最大10件とする。これはCLIではなくworkerが守る運用上の上限である。新たな適用前に`task backlog -- list --status APPLIED`でOwnerを問わず件数を確認し、適用後も10件以内に収める。10件に達している場合は追加適用を止め、既存APPLIEDのベンチ後判定を優先する。手動ベンチ待ちなら、その旨を報告する。
 
-## 状態遷移
-
-- claim: `READY -> DOING`をOwner設定と同じversion-checked updateで行う。
-- 実装とローカル検証完了: `DOING -> VERIFY`
-- 正規deployとproduction状態確認完了: `VERIFY -> APPLIED`
-- 手動ベンチ後に採用: `task pass`
-- 修正が必要: 同じ採否境界なら`APPLIED/VERIFY -> DOING`
-- 技術的反証または安全に成立しない: rollback後`REJECTED`
-- 境界・因果の再調査が必要: Ownerを外して`INVESTIGATE`
-
-BLOCKEDは具体的な外部待ちだけに使い、問い、取得経路、resume triggerを残す。
+状態遷移は[workflow](../../../tools/backlog/backlog-workflow.md#intervention)、実装・適用の操作順は[implementation](references/implementation.md)、採否と限定修正の操作順は[post-benchmark](references/post-benchmark.md)に従う。
 
 ## 障害復旧
 

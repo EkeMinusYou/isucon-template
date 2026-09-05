@@ -13,33 +13,16 @@ task backlog -- list --constraint A-006
 task backlog -- validate
 ```
 
-## Model
+## CLI usage
 
-- Objective is a continuing result criterion: `SATISFY`, `MAXIMIZE`, or `MINIMIZE`.
-- Constraint is an observed fact currently limiting an ACTIVE Objective.
-- Intervention is a B-xxx or B-xxxx card: one adoption, application, and rollback boundary. The card ID is its stable identity; Intervention has no separate Fingerprint. IDs use at least three digits and support four digits.
-- Evidence includes official documents, code, configuration, RUNs, logs, and profiles. It is not a card kind.
+The model, relation meanings, lifecycle, and decision rules are defined in [backlog-workflow.md](backlog-workflow.md). Read its [writer protocol](backlog-workflow.md#writer-protocol) before making changes.
 
-There is no card `kind` and no measurement-card lifecycle. All cards are Interventions. Existing standard measurement infrastructure remains available as Evidence infrastructure.
-
-Initial template Objectives are:
-
-- O-001: pass benchmark and final consistency checks
-- O-002: satisfy the official restart persistence and reproducibility requirements
-- O-003: maximize a valid benchmark score
-
-Add contest-specific score components and penalties as Objectives after reading the official rules.
-
-## Relations
-
-An Intervention can advance an Objective directly. A Constraint must constrain at least one ACTIVE Objective.
-
-Constraint–Intervention relations use:
-
-- `RESOLVES`: predicted to satisfy the resolution condition
-- `MITIGATES`: positive effect that does not independently resolve the Constraint
-
-For a performance `RESOLVES` relation, the investigate workflow supplies the structured residual assessment. Non-performance `RESOLVES` relations use the Constraint's evidence and resolution condition plus the relation rationale; `MITIGATES` does not require a resolution calculation.
+```shell
+task backlog -- objective add --mode MAXIMIZE --title "..." \
+  --metric-or-predicate "..." --verification "..." --actor human:name --reason "..."
+task backlog -- objective update O-004 --expect-objective-version 0 \
+  --status RETIRED --actor human:name --reason "..."
+```
 
 ```shell
 task backlog -- objective link O-003 --intervention B-700 --rationale "increase valid throughput" \
@@ -53,29 +36,25 @@ task backlog -- constraint link A-008 --card B-700 --role MITIGATES \
   --expect-constraint-version 0 --actor skill:isucon-investigate --reason "positive partial reduction"
 ```
 
-The performance residual assessment stores only a shared axis, current value and snapshot, expected reduction, added cost, and threshold. The CLI derives the predicted residual and whether it resolves the Constraint. See [examples/constraint-assessment.json](examples/constraint-assessment.json).
+## Residual assessment
 
-## Intervention lifecycle
+Use `constraint assess` or `constraint link --assessment-json` with [examples/constraint-assessment.json](examples/constraint-assessment.json). The version 1 format stores a shared axis, current value and snapshot, expected reduction, added cost, and threshold. The CLI derives the predicted residual and whether it resolves the Constraint. Capacity and shifted-work detail remain in the evidence or estimate basis.
 
-```text
-INVESTIGATE -> READY -> DOING -> VERIFY -> APPLIED -> VALIDATED
-INVESTIGATE -> BLOCKED | REJECTED
-```
+The skill decides when an assessment is required under the [relation rules](backlog-workflow.md#relations). The CLI validates supplied assessments; it does not classify a Constraint as performance-related from prose.
 
-`isucon-investigate` is the only skill that creates READY. A READY Intervention states:
+## CLI checks
 
-1. `Hypothesis`: Objective and causal direction
-2. `Change boundary`: implementation and rollback unit
-3. `Verification`: adoption, correction, and rejection criteria
-4. `Safety`: official guardrails, stop condition, and rollback
+The CLI enforces the [lifecycle and READY contract](backlog-workflow.md#intervention) structurally: the four sections must be non-empty, an ACTIVE Objective must be linked, and BLOCKING dependencies must be satisfied. It does not grade prose or require a known effect size. ORDERING dependencies do not block READY. `READY -> DOING` uses `update` with a non-empty Owner atomically; investigation uses `resolve` to commit the body and outcome together.
 
-Unknown effect magnitude, absence of a current Constraint, or lack of a direct metric does not by itself prevent READY. A proposal that can only say “change it and inspect score” remains INVESTIGATE.
+Targeted writes require `--expect-card-version`; Constraint and Objective writes use their own version checks. Dependencies explicitly supply `required-status` and `mode`. Skill-specific policies such as the worker's APPLIED limit are not CLI gates.
 
-New cards always start as INVESTIGATE. The CLI permits READY only when the four sections above are non-empty, an ACTIVE Objective is linked, and every BLOCKING dependency is satisfied. It deliberately does not grade prose, require a known effect size, or block READY on ORDERING dependencies. `READY -> DOING` sets Owner atomically. Targeted writes require `--expect-card-version`; Constraint and Objective writes use their own version checks. Dependencies always specify `required-status` and `mode` explicitly.
+## Adoption records
 
-After a successful manual benchmark, use `task pass` or `task pass -- B-001,B-002`. The RUN must be finalized, have `passed=true`, and have a known score. If a control RUN was declared, its final comparison status must be `compatible`; the recorded delta uses that control rather than the previous TSV row. `task pass FORCE=true` overrides only the pass, known-score, and comparison-compatibility gates; finalization, a usable APPLIED snapshot, and an unchanged Change boundary declaration remain mandatory. Forced adoption is recorded in History.
+Use `task pass` or `task pass -- B-001,B-002` after checking the [adoption conditions and FORCE exceptions](backlog-workflow.md#validated-and-rejected).
 
 Each pass writes one immutable `adoption_events` row and its `adoption_event_cards` rows in the same SQLite transaction as every card promotion. The event snapshots score, pass state, declared control, delta, manifest hash, and backlog revision from `run.json`; each card row retains its `change_boundary_hash`. `runs/outcomes.tsv` is an atomically regenerated projection, not a source of truth.
+
+## Evidence and snapshots
 
 APPLIED snapshot schema version 3 stores two deliberately small hashes. `change_boundary_hash` contains only the normalized `Change boundary`; it detects whether that declaration changed between snapshot capture and comparison or adoption. It does not prove that deployed code matches the declaration or that two differently worded declarations are semantically equivalent. `decision_hash` contains `Hypothesis`, `Verification`, and `Safety`; changing it produces a review warning but does not make an unchanged Change boundary incompatible or block adoption. Title, priority, owner, run links, Objective/Constraint relations, Observation, Unknowns, Result, and History are outside both hashes. Line-ending/trailing-space changes and equivalent JSON formatting are normalized. Benchmark and Evidence commands accept only version 3 snapshots.
 
@@ -90,7 +69,7 @@ task backlog -- evidence --run 20260904-120000 B-001
 
 ## Storage and validation
 
-Every CLI mutation increments `backlog_revision` and dumps the database. Do not edit SQLite directly.
+Every CLI mutation increments `backlog_revision` and dumps the database. Use the [writer protocol](backlog-workflow.md#writer-protocol); do not edit SQLite or its SQL dump manually.
 
 ```shell
 task backlog -- validate

@@ -1,6 +1,6 @@
 # Evidence
 
-Evidenceは判断根拠であり、Backlogの作業種類ではない。
+Evidenceの選択・比較・欠損・因果の扱いを定める。Backlog上の判断条件は[workflow](../../../tools/backlog/backlog-workflow.md)を参照する。
 
 ## 優先するEvidence
 
@@ -16,12 +16,7 @@ Evidenceは判断根拠であり、Backlogの作業種類ではない。
 ## RUNの扱い
 
 - `run.json`のphase、役割、source、APPLIED snapshot、artifact statusを先に確認する。
-- 採否では`passed=true`と既知のscoreを確認し、宣言済みcontrolがある場合は`comparison.status=compatible`と
-  そのRUNとの差分を使う。`scores.tsv`の単なる直前行をcontrolにしない。
-- これらの採否条件を例外的に上書きする`task pass FORCE=true`は、理由を明示できる場合だけ使う。
-  finalized状態、APPLIED snapshot、カード定義一致はforceでも必須とする。
-- 採用判断はBacklog SQLiteのadoption eventを正本とし、そこに固定されたscore・control・manifest hashを使う。
-  `outcomes.tsv`は派生出力として扱う。
+- RUN間の比較には対象manifestが宣言した`compatible`なcontrolを使う。`scores.tsv`の単なる直前行をcontrolにしない。比較不能理由を残し、対象RUN単独で確認できる事実と分ける。
 - 欠損成果物を0として扱わない。
 - 比較RUNは役割・source・計測窓・負荷条件の互換性を確認する。
 - 時間、仕事量、待ち、成功数、失敗数、得点を混同しない。単位と母数を併記する。
@@ -29,4 +24,4 @@ Evidenceは判断根拠であり、Backlogの作業種類ではない。
 - correctness、5xx、OOM、panic、service再起動の確認には、同じload windowのapp journal、nginx error、
   kernel/OOM成果物も使う。
 
-既存Evidenceで方向と安全性を説明できるなら、追加計測をREADYの前提にしない。判断不能なら不足をConstraintまたはInterventionのHistoryへ残す。標準計測基盤の新設・変更が本当に必要な場合は、Backlogカードへ偽装せずユーザー指定の別タスクとして扱う。
+READY前の追加計測、不足情報の記録、標準計測基盤の変更範囲は[workflowのEvidence policy](../../../tools/backlog/backlog-workflow.md#evidence-policy)に従う。採用条件は[VALIDATED and REJECTED](../../../tools/backlog/backlog-workflow.md#validated-and-rejected)、CLIのRUN選択とhash仕様は[Backlog README](../../../tools/backlog/README.md#evidence-and-snapshots)を参照する。

@@ -11,7 +11,7 @@ description: ISUCONの公式仕様、コード、設定、保存済みRUNを横�
 
 - `AGENTS.md`
 - `docs/reports/README.md`
-- [Objective / Constraint / Intervention](../_shared/objective-constraint-intervention.md)
+- [Backlog workflow](../../../tools/backlog/backlog-workflow.md)
 - [Evidence](../_shared/evidence.md)
 - 対象に関係する`docs/official/`
 

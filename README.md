@@ -170,13 +170,9 @@ task go-profiles-collect
 task go-profile-top RUN=runs/<RUN_ID> PROFILE=isucon-1-go-cpu.pprof
 ```
 
-`scores.tsv`の空欄はスコア不明、`0`は実際の0点です。採否はTSVの直前行ではなく`run.json`を正本とし、
-`task pass`は`passed=true`かつスコア既知の最新RUNだけを受け付けます。`COMPARE_RUN`がある場合は、
-finalize後も`comparison.status=compatible`であることを要求し、そのcontrol RUNとの差分を記録します。
-例外的に採用する場合は`task pass FORCE=true`を使います。forceでもfinalized状態、APPLIED snapshot、
-カード定義の一致は必須であり、強制採用であることはカードのHistoryへ記録されます。
-採用時点のscore、passed、control、delta、manifest hashはBacklog SQLiteのadoption eventとして
-カード昇格と同じtransactionに保存され、`outcomes.tsv`はそこから再生成されます。
+`scores.tsv`の空欄はスコア不明、`0`は実際の0点です。ベンチ後の採用は`task pass`で行います。
+採用条件とFORCEの例外は[Backlog workflow](tools/backlog/backlog-workflow.md#validated-and-rejected)、
+採用記録と`outcomes.tsv`の関係は[Backlog README](tools/backlog/README.md#adoption-records)を参照してください。
 
 ## 分析
 

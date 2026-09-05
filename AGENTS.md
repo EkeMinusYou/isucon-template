@@ -45,7 +45,9 @@ ISUCON用の作業テンプレートリポジトリ。競技サーバーをSSH�
 欠損成果物は0とみなさず、`run.json`のartifact statusを確認する。
 
 BacklogはObjective・Constraint・Interventionの三層で管理する。計測、ログ、profile、コード、設定、
-公式資料はEvidenceでありカード種別ではない。詳細は`.agents/skills/_shared/`と`tools/backlog/README.md`を参照する。
+公式資料はEvidenceでありカード種別ではない。共通ルールは[Backlog workflow](tools/backlog/backlog-workflow.md)、
+CLI操作・保存形式は[Backlog README](tools/backlog/README.md)、根拠の扱いは[Evidence](.agents/skills/_shared/evidence.md)、
+担当範囲と実行手順は[Skills一覧](.agents/skills/README.md)を参照する。
 
 ## 作業上の注意
 
