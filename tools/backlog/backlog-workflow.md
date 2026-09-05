@@ -99,7 +99,7 @@ During investigation, REJECTED requires evidence that the proposal is already re
 
 Do not reject or rollback from a single score fluctuation alone. Correctness failure, official-spec violation, operational failure, or evidence that refutes the causal path can justify rollback and REJECTED. Record the relevant RUN, mechanism evidence, and rollback result.
 
-For post-benchmark rejection, establish the target mechanism's degradation, correctness violation, and evidence that the cause is not attributable to another change before rolling back and recording REJECTED.
+After a benchmark, prioritize a limited correction within the same Change boundary. If the problem cannot be corrected safely within that boundary, or Evidence refutes the improvement hypothesis, confirm that the finding is attributable to the target Intervention, then roll back and record REJECTED. Mechanism degradation and a correctness violation need not both be present.
 
 ## Relations
 

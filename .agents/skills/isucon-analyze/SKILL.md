@@ -11,11 +11,11 @@ description: ISUCONの公式仕様、コード、設定、保存済みRUNを横�
 
 - `AGENTS.md`
 - `docs/reports/README.md`
-- [Backlog workflow](../../../tools/backlog/backlog-workflow.md)
+- [Backlog workflow](../../../tools/backlog/backlog-workflow.md)：`Authority`・`Objective`・`Constraint`・`Intervention`直下（子節を除く）・`Relations`・`Evidence policy`・`Priority`・`Writer protocol`。
 - [Evidence](../_shared/evidence.md)
 - 対象に関係する`docs/official/`
 
-次のreferenceは対象に応じて読む。
+workflowは見出しを検索して上記の節だけ読む。同じ内容を読了済みなら再読しない。次のreferenceは対象に応じて読む。
 
 - リソース、待ち、処理量: [performance.md](references/performance.md)
 - 得点要素、損失、成功、penalty、selection: [score-mechanics.md](references/score-mechanics.md)
@@ -54,7 +54,4 @@ description: ISUCONの公式仕様、コード、設定、保存済みRUNを横�
 
 ## 完了条件
 
-- 選んだObjectiveと観点を明示した。
-- 現在のConstraintを必要に応じて整合させた。
-- 未被覆候補をEvidence付きINVESTIGATEへ引き渡した。
-- 追加計測カード、READY、実装、deploy、benchを行っていない。
+Constraintを整合させ、未被覆候補をEvidence付きINVESTIGATEへ引き渡す。報告は対象Objective・観点、レポート、起票ID、未確定点に絞る。

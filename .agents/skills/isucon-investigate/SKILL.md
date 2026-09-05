@@ -10,10 +10,12 @@ description: ISUCON BacklogのINVESTIGATE Interventionを公式仕様、現行�
 ## 最初に読む
 
 - `AGENTS.md`
-- [Backlog workflow](../../../tools/backlog/backlog-workflow.md)
+- [Backlog workflow](../../../tools/backlog/backlog-workflow.md)：`Authority`・`Intervention`（`READY gate`・`BLOCKED`を含む）・`Relations`・`Evidence policy`・`Priority`・`Writer protocol`。`VALIDATED and REJECTED`は調査時の棄却規則のみ。
 - [Evidence](../_shared/evidence.md)
 - 対象カード、接続Objective・Constraint、依存、History
 - 対象に関係する`docs/official/`
+
+workflowは見出しを検索して必要な節だけ読む。Objective／Constraintを変更する場合は対応する節も読む。同じ内容を読了済みなら再読しない。
 
 ## 境界
 
@@ -23,23 +25,17 @@ description: ISUCON BacklogのINVESTIGATE Interventionを公式仕様、現行�
 - 情報不足や追加計測を新しいInterventionとして起票しない。
 - 他actorがOwnerのカードを書き換えない。書込みはBacklog CLIとversion checkを使う。
 
-## 優先順
-
-[workflowの優先順](../../../tools/backlog/backlog-workflow.md#priority)に従い、INVESTIGATEの対象を選ぶ。
-
 ## 手順
 
-1. 対象カードをversion付きでclaimする。着手後にcard version、status、Ownerを再確認する。
+1. workflowのPriorityに従って対象を選び、version付きでclaimする。着手後にcard version、status、Ownerを再確認する。
 2. Objectiveへの因果、Evidenceのsnapshot、現行で未解消か、仕様上許されるかを独立確認する。
 3. 同じtarget・mechanism・採否境界のopen Interventionを確認し、重複なら統合する。
 4. 一体で採用・適用・rollbackするChange boundaryを確定する。ファイル数やlayer数だけで分割しない。
-5. [READY gate](../../../tools/backlog/backlog-workflow.md#ready-gate)の4セクションを本文へ具体化し、条件を満たすか判定する。
+5. workflowのREADY gateの4セクションを本文へ具体化し、条件を満たすか判定する。
 6. 依存が本当に別の採否境界なら構造化dependencyにする。単なる実装順は同一カード内で扱う。
-7. [Constraint](../../../tools/backlog/backlog-workflow.md#constraint)の現在状態と[relation](../../../tools/backlog/backlog-workflow.md#relations)を整合させ、必要なassessmentをCLIへ渡す。無関係ならlinkしない。
+7. workflowのConstraint・Relationsに従って現在状態とrelationを整合させ、必要なassessmentをCLIへ渡す。無関係ならlinkしない。
 8. 本文と状態を一つの`resolve`操作で確定し、Ownerを空にする。
-
-判定とHistoryの必須内容はworkflowの[READY](../../../tools/backlog/backlog-workflow.md#ready-gate)、[BLOCKED](../../../tools/backlog/backlog-workflow.md#blocked)、[REJECTED](../../../tools/backlog/backlog-workflow.md#validated-and-rejected)に従う。
 
 ## 完了条件
 
-対象をREADY、BLOCKED、REJECTEDのいずれかへ原子的に収束し、Objective relation、必要なConstraint relation、依存、Historyが整合している。最後に`task backlog -- validate`を通し、実装・deploy・bench・追加計測カードを行っていないことを報告する。
+workflowの判定・History規則に従い、対象をREADY、BLOCKED、REJECTEDへ原子的に収束し、relation・依存を整合させる。`task backlog -- validate`を通し、カードID・判定根拠・残る不明点を報告する。
