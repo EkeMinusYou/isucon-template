@@ -20,6 +20,12 @@ description: ISUCON競技開始時に、公式資料と実環境からリポジ�
 - 既存の正規deploy経路で扱える対象に専用タスクを増やさない。
 - 最適化、Constraint作成、Intervention起票は行わない。
 
+## 進め方
+
+- 調査は一覧から詳細へ進める。資料は見出し、実環境はservice名・状態・process・待受ポートから対象を把握し、競技との関係があるものや関係が不明なものの設定・ログを絞って読む。大量の調査結果は`raw/`へ保存して必要な範囲だけ表示する。出力が省略された部分は未確認として範囲を絞り直し、固定のservice一覧だけで探索を終えない。
+- 構成は実環境の配置を基準にする。役割や通信先を変更する前に、確認した現在の配置、採用する配置とsetup上の理由、対象ホストと影響を短くユーザーへ説明する。稼働ホストと通信先ホストを分ける場合はその理由も示す。この説明を新たな承認待ちにはしない。既存の権限・承認条件に従う。
+- 検証は変更箇所の構文検査・build・必要なテスト、対象deployのdry-run、`task setup-check`による全体確認の順に進める。失敗後は原因に関係する個別検証から再開し、通過済みの検証は新しい変更や未解決の懸念がある場合に再実行する。全体確認に含まれる検査を、手順の記載だけを理由に直後に繰り返さない。
+
 ## 手順
 
 1. 公式資料から変更可能範囲、初期化、整合性、再起動、最終追試条件を確認する。
@@ -27,8 +33,8 @@ description: ISUCON競技開始時に、公式資料と実環境からリポジ�
 3. 競技の動作・初期化・採点とその依存serviceを、標準外も含めすべて分類する。対象外は公式資料・実環境に基づく理由を残し、管理対象のアプリ・設定・unit・schemaは`task setup-*`で取得してgit管理する。
 4. `Taskfile.yml`の役割とIPを実環境へ合わせ、標準外serviceのroleとservice名も正本へ追加して、`task gen`で生成物を作る。
 5. `tools/README.md`のチェックリストに従い、全管理対象serviceを正規のsetup、deploy、role収束、状態・疎通検査、collector、digester、分析、RUNの役割記録へ組み込む。適用しない項目は理由を残す。必須adapterを実環境に合わせ、未使用のoptional機能は無効にする。
-6. schemaの取得先と設定構文検査方法をTaskfileへ明示し、`task setup-check`を通す。
-7. `task deploy-app-dry`と`task deploy-all-dry`で転送先、role、activation順を確認する。
+6. schemaの取得先と設定構文検査方法をTaskfileへ明示し、変更箇所の個別検証と対象deployのdry-runを通す。
+7. `task setup-check`で全体確認する。内包する`task deploy-app-dry`と`task deploy-all-dry`の結果から転送先、role、activation順を確認する。
 8. 正規の`task deploy-*`で反映し、必要なら`task apply-roles`を行った後、`task check-roles`と`task check-network`を行う。
 9. 対象と影響を確認したうえで`task before-bench`／`task abort-run`を使い、RUN採番・collector起動・中断時の掃除を確認する。
 10. `task artifacts`で生成物と読み手の整合、baseline RUNの`task artifacts-run`で成果物と欠損検出を検査する。同じRUN IDへ成果物と`run.json`が揃い、完全欠損は`missing`と検査失敗になることを確認する。collectorあり／なしの対になるRUNで計測負荷を確認する。
