@@ -20,6 +20,9 @@ description: ISUCON競技開始時に、公式資料と実環境からリポジ�
 
 - サーバー上で直接編集せず、`task setup-*`で取得してgit管理し、`task deploy-*`で反映する。
 - 役割の正本は`Taskfile.yml`冒頭の役割変数とIP mapだけとする。
+- app、nginx、DB以外でも、競技の動作、初期化、採点、またはそれらの依存関係に関与するserviceは管理対象とする。
+- 発見した競技関連serviceを、管理対象または対象外へ明示的に分類する。対象外にする場合は、公式資料と実環境に基づく理由を完了報告へ残す。
+- 標準外serviceを管理対象にした場合は、適用可能なsetup、deploy、role収束、状態・疎通検査、Evidence回収、RUNの役割記録を正規経路へ組み込み、発見しただけで未管理のまま残さない。適用しない項目がある場合は理由を残す。
 - `nginx/conf.d/upstream.conf`は`task gen`の生成物なので手編集しない。
 - Goは読み取り専用確認で得た実ホストのarchitectureへローカルでクロスコンパイルする。
 - 参考実装が複数ある場合、採用言語以外は仕様参照専用とし、正規deploy対象へ混ぜない。
@@ -29,10 +32,10 @@ description: ISUCON競技開始時に、公式資料と実環境からリポジ�
 ## 手順
 
 1. 公式資料から変更可能範囲、初期化、整合性、再起動、最終追試条件を確認する。
-2. `task inspect-hosts`などの読み取り専用SSHでホスト、CPU・メモリ、稼働service、unit、設定、private IPを確認する。
-3. `task setup-*`でアプリ・設定・schemaをローカルへ取得する。
-4. `Taskfile.yml`の役割とIPを実環境へ合わせ、`task gen`で生成物を作る。
-5. `tools/README.md`のディレクトリ別チェックリストに従い、deploy、collector、digester、分析、アプリ固有adapterを確認する。
+2. `task inspect-hosts`などの読み取り専用SSHでホスト、CPU・メモリ、private IPに加え、稼働・enable済みservice、unit、process、listen portを確認し、固定のservice一覧だけで探索を終えない。
+3. 競技関連serviceを管理対象または対象外へ分類し、管理対象のアプリ・設定・unit・schemaを`task setup-*`でローカルへ取得する。
+4. `Taskfile.yml`の役割とIPを実環境へ合わせ、標準外serviceのroleとservice名も正本へ追加して、`task gen`で生成物を作る。
+5. `tools/README.md`のディレクトリ別チェックリストに従い、全管理対象serviceのdeploy、role収束、状態・疎通検査、collector、digester、分析、RUNの役割記録、アプリ固有adapterを確認する。
 6. schemaの取得先と設定構文検査方法をTaskfileへ明示し、`task setup-check`を通す。
 7. `task deploy-app-dry`と`task deploy-all-dry`で転送先、role、activation順を確認する。
 8. 正規の`task deploy-*`で反映し、必要なら`task apply-roles`を行った後、`task check-roles`と`task check-network`を行う。
@@ -45,6 +48,8 @@ description: ISUCON競技開始時に、公式資料と実環境からリポジ�
 
 ## 完了条件
 
+- 実環境で発見した競技関連serviceがすべて、管理対象または理由付きの対象外へ分類されている。
+- 標準外の管理対象serviceが、適用可能なsetup、deploy、role収束、状態・疎通検査、Evidence回収、RUNの役割記録へ組み込まれ、未管理のまま残っていない。
 - リポジトリの変更から全必要ホストへ正規deployできる。
 - service状態と役割がTaskfileの定義へ収束する。
 - 標準benchサイクルが同じRUN IDへ成果物を集め、`run.json`へ状態を記録できる。
@@ -54,4 +59,4 @@ description: ISUCON競技開始時に、公式資料と実環境からリポジ�
 - baseline RUNでcollector負荷と成果物の欠損を確認できる。
 - 初期Objectiveと、当日の採点仕様から追加したObjectiveをCLIで参照できる。
 
-完了時は、確認した公式資料、役割構成、実行したsetup/deploy/check、未確認事項を簡潔に報告する。
+完了時は、確認した公式資料、競技関連serviceの分類と対象外理由、役割構成、実行したsetup/deploy/check、未確認事項を簡潔に報告する。
