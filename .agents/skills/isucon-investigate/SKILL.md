@@ -10,7 +10,7 @@ description: ISUCON BacklogのINVESTIGATE Interventionを公式仕様、現行�
 ## 最初に読む
 
 - `AGENTS.md`
-- [Backlog workflow](../../../tools/backlog/backlog-workflow.md)：`Authority`・`Intervention`（`READY gate`・`BLOCKED`を含む）・`Relations`・`Evidence policy`・`Priority`・`Writer protocol`。`VALIDATED and REJECTED`は調査時の棄却規則のみ。
+- [Backlog workflow](../../../tools/backlog/backlog-workflow.md)：`Authority`・`Intervention`直下・`READY gate`・`BLOCKED`・`Rejection during investigation`・`Relations`・`Evidence policy`・`Priority`・`Writer protocol`。子節は列挙したものだけ読む。
 - [Evidence](../_shared/evidence.md)
 - 対象カード、接続Objective・Constraint、依存、History
 - 対象に関係する`docs/official/`

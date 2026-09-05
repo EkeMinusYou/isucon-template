@@ -2,22 +2,20 @@
 
 ## Authority
 
-This document is the source of truth for the three-layer model, state transitions, READY and adoption conditions, priority, and writer rules. See [README.md](README.md) for CLI usage and storage details, and [Evidence](../../.agents/skills/_shared/evidence.md) for selecting and comparing evidence. Skill-specific operating limits stay in the responsible skill.
+This is the source of truth for Backlog rules. Read only the sections required by the active skill. CLI usage and storage are in [README.md](README.md); evidence selection is in [Evidence](../../.agents/skills/_shared/evidence.md). Skill-specific limits stay in the responsible skill.
 
-Use the backlog through `task backlog -- ...`. Do not edit `backlog.sqlite3` or `backlog.sql` manually. Every write includes an actor, a reason, and the target entity version where applicable.
-
-Official behavior and validity come from `docs/official/`. Evidence is a basis for decisions, not a card kind; all B-xxx/B-xxxx cards are Interventions.
+Use `task backlog -- ...` and the Writer protocol; never edit SQLite or its SQL dump manually. Official behavior and validity come from `docs/official/`.
 
 ## Objective
 
-Objective compares multiple Interventions against a stable final-result criterion.
+An Objective is a continuing final-result criterion for comparing Interventions.
 
 ```text
 status: ACTIVE | RETIRED
 mode: SATISFY | MAXIMIZE | MINIMIZE
 ```
 
-An Objective has a metric or predicate, verification method, official sources, and optional parent. `required_for_valid_result` marks pass/fail requirements. MAXIMIZE and MINIMIZE Objectives do not become “resolved”; retire them only when the criterion no longer applies.
+Fields: metric/predicate, verification, official sources, optional parent. `required_for_valid_result` marks validity requirements. MAXIMIZE/MINIMIZE remain ACTIVE until their criterion no longer applies; then retire them.
 
 At the start, inspect ACTIVE Objectives with `task backlog -- objective list`. Initial template Objectives are:
 
@@ -42,17 +40,15 @@ A Constraint is a solution-independent fact currently limiting one or more ACTIV
 status: ACTIVE | RESOLVED | INVALIDATED | MERGED
 ```
 
-No candidate is required to keep a still-true Constraint ACTIVE. Lack of a candidate never blocks unrelated Intervention work. Record searched families and reconsider conditions in History.
+Keep a still-true Constraint ACTIVE even without candidates; record searched families and reconsider conditions in History, and continue unrelated work. Status does not encode controllability or search progress.
 
-Use RESOLVED when the observed fact no longer holds, INVALIDATED when its attribution was wrong, and MERGED for duplicates with the same identity and snapshot. Do not infer resolution from Intervention adoption alone; check the current resolution condition. Keep controllability and search progress out of status.
-
-Terminal Constraints are immutable. A recurrence gets a versioned fingerprint. Merge duplicates into one ACTIVE survivor.
+Use RESOLVED only when the current resolution condition holds, not from Intervention adoption alone; INVALIDATED for wrong attribution; MERGED for duplicate identity/snapshot, keeping one ACTIVE survivor. Terminal Constraints are immutable; recurrence gets a versioned fingerprint.
 
 ## Intervention
 
-Every B-xxx or B-xxxx card is an Intervention. IDs use at least three digits and support four digits. An Intervention is one coherent adoption, application, and rollback boundary. File count, service count, implementation stages, and team size do not require splitting. Split only when the parts can be independently adopted and rolled back while retaining meaningful behavior.
+An Intervention is one adoption, application, and rollback boundary. Its B-xxx/B-xxxx ID (at least three digits) is its identity; there is no separate fingerprint. Detect duplicates by target, mechanism, and Change boundary.
 
-The B-xxx/B-xxxx card ID is the stable Intervention identity. There is no separately named Intervention fingerprint: semantic duplicates are identified during investigation from their target, mechanism, and Change boundary rather than by equality of an arbitrary label.
+Split only when parts retain meaningful behavior and can be independently adopted and rolled back, not by file/service count, stages, or team size.
 
 ```text
 INVESTIGATE -> READY -> DOING -> VERIFY -> APPLIED -> VALIDATED
@@ -77,41 +73,39 @@ The card body must make four decisions clear without a separate generic contract
 
 New cards always start in INVESTIGATE. Link at least one ACTIVE Objective and satisfy BLOCKING dependencies before READY; ORDERING dependencies need not be complete. `isucon-investigate` is the only skill that creates READY and confirms the four sections in one `resolve` operation.
 
-The skill judges causal direction, a coherent application/rollback boundary, observable outcomes using standard Evidence or correctness checks, and official guardrails. The CLI checks structure rather than the quality of that reasoning; see [CLI checks](README.md#cli-checks).
-
-Absence of a current Constraint or a direct metric does not by itself prevent READY. Effect magnitude may be unknown. A non-bottleneck optimization, selection change, loss recovery, spam control, or experiment may be READY when direction and safety are explainable. “Try it and inspect score” is insufficient.
+The skill judges these decisions using standard Evidence or correctness checks; the CLI validates structure only (see [CLI checks](README.md#cli-checks)). Unknown effect size, no current Constraint, or no direct metric does not prevent READY when causal direction and safety are explainable. This includes non-bottleneck improvements, selection, loss recovery, spam control, and experiments. “Try it and inspect score” is insufficient.
 
 ### BLOCKED
 
-Use BLOCKED only for a concrete external fact, permission, environment state, or unavailable artifact that current repository Evidence cannot provide. Record the question, inspected sources, established facts, minimum missing information, acquisition route, evidence baseline, resume trigger, and resume state in the card body or History. BLOCKED has no dedicated JSON contract or storage field.
+BLOCKED requires a concrete external fact, permission, environment state, or artifact unavailable from repository Evidence. In the body or History, record the question, inspected sources, facts, minimum missing information, acquisition route, evidence baseline, resume trigger, and resume state. No dedicated JSON contract is needed.
 
-Missing confidence, incomplete investigation, unknown effect size, or desire for a new measurement is not BLOCKED.
+Low confidence, incomplete investigation, unknown effect size, and desire for measurement are not BLOCKED.
 
-### VALIDATED and REJECTED
+### Adoption
 
-Use top-level `task pass` after a successful manual benchmark. It requires a finalized RUN with `passed=true` and a known score, and validates only APPLIED cards present in that RUN's before-bench snapshot with an unchanged Change boundary declaration. When a control RUN is declared, the final comparison must remain `compatible` and the outcome delta uses that control rather than the immediately preceding RUN.
+Use `task pass` to promote only APPLIED cards from the target RUN's before-bench snapshot to VALIDATED. Require:
 
-Use `task pass FORCE=true` only for an explicit exceptional adoption. It bypasses the pass, known-score, and comparison-compatibility gates, but never finalization, snapshot integrity, or the Change boundary declaration check. The forced decision remains visible in History.
+- finalized RUN, `passed=true`, known score;
+- usable snapshot and unchanged Change boundary declaration;
+- `comparison.status=compatible` if a control RUN was declared; record delta against that control, not the preceding TSV row.
 
-Adoption events are the source of truth for adoption decisions; `run.json` remains the source of truth for the RUN. See [Adoption records](README.md#adoption-records) for persistence and derived outputs.
+`task pass FORCE=true` is an explicit, reasoned exception recorded in History. It bypasses only pass, known-score, and comparison-compatibility checks, never finalization, snapshot integrity, or Change boundary matching.
 
-During investigation, REJECTED requires evidence that the proposal is already resolved, violates official rules, lacks an explainable causal direction or safe boundary, duplicates an existing Intervention, or is technically refuted. Effort and size alone are not rejection reasons.
+Adoption events are authoritative for adoption; `run.json` for the RUN. Persistence and derived outputs: [Adoption records](README.md#adoption-records).
 
-Do not reject or rollback from a single score fluctuation alone. Correctness failure, official-spec violation, operational failure, or evidence that refutes the causal path can justify rollback and REJECTED. Record the relevant RUN, mechanism evidence, and rollback result.
+### Rejection during investigation
 
-After a benchmark, prioritize a limited correction within the same Change boundary. If the problem cannot be corrected safely within that boundary, or Evidence refutes the improvement hypothesis, confirm that the finding is attributable to the target Intervention, then roll back and record REJECTED. Mechanism degradation and a correctness violation need not both be present.
+REJECTED requires Evidence of an already resolved proposal, official-spec violation, unexplainable causal direction, unsafe boundary, duplicate Intervention, or technical refutation. Effort, size, or a single RUN's score alone are insufficient.
+
+### Rejection after application
+
+Prefer a limited correction within the same Change boundary. If it cannot be done safely, or Evidence refutes the improvement hypothesis, confirm attribution to the target Intervention, roll back, and record REJECTED with the RUN, mechanism evidence, and rollback result.
+
+Correctness failure, official-spec violation, operational failure, or causal refutation can justify rejection; mechanism degradation and correctness violation need not both exist. A single score fluctuation alone never justifies rejection or rollback.
 
 ## Relations
 
-```text
-Objective --constrained by--> Constraint
-Objective --advanced by-----> Intervention
-Constraint --RESOLVES-------> Intervention
-Constraint --MITIGATES------> Intervention
-Intervention --depends on---> Intervention
-```
-
-An Intervention does not need a Constraint relation. It should have an Objective relation before READY.
+Objectives connect to Constraints and Interventions; Constraints are optional for Interventions. Objective links required for READY are defined in READY gate.
 
 `RESOLVES` means the Intervention, alone or as a coherent dependency chain, is expected to satisfy the resolution condition. `MITIGATES` means positive but not independently resolving.
 
@@ -121,11 +115,9 @@ Dependencies are explicit `ORDERING` or `BLOCKING` relations and always specify 
 
 ## Evidence policy
 
-Measurement is not a Backlog layer or card kind. Use existing standard RUN artifacts and code/spec evidence. If direction and safety are already explainable, do not require extra measurement before READY.
+RUNs, measurements, logs, profiles, code, configuration, and official sources are Evidence, not card kinds. Use existing Evidence; record gaps in Constraint or Intervention History, not measurement-only cards. Do not require extra measurement when READY conditions are already explainable. New or changed standard instrumentation requires a separately authorized repository task.
 
-When Evidence is insufficient, record the limitation in Constraint or Intervention History. Do not create a measurement card. If a new standard instrumentation capability is truly required, treat it as a separately authorized repository task, not an implicit backlog transition.
-
-Use the [Evidence policy](../../.agents/skills/_shared/evidence.md) for RUN selection, comparison, missing artifacts, and causal reasoning. Command behavior and snapshot hash semantics are documented in [README.md](README.md#evidence-and-snapshots).
+Selection and comparison: [Evidence](../../.agents/skills/_shared/evidence.md). CLI behavior and snapshot hashes: [README.md](README.md#evidence-and-snapshots).
 
 ## Priority
 

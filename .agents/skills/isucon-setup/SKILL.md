@@ -9,7 +9,7 @@ description: ISUCON競技開始時に、公式資料と実環境からリポジ�
 
 - `AGENTS.md`
 - `docs/official/`の当日マニュアルとアプリケーション仕様
-- [`tools/README.md`](../../../tools/README.md)の競技開始時設定手順とディレクトリ別チェックリスト
+- [`tools/README.md`](../../../tools/README.md)の基本方針・ディレクトリ別チェックリスト・Taskfile・検証コマンドの意味。他の設定項目は対応する節だけ読む。
 - [Backlog workflow](../../../tools/backlog/backlog-workflow.md)の`Objective`・`Writer protocol`節のみ（Objective更新時）。
 
 参照文書は見出しを検索して必要な節だけ読む。同じ内容を読了済みなら再読しない。

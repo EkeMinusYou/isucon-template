@@ -8,7 +8,7 @@ description: ISUCON BacklogのREADY Interventionを実装・検証し、正規Ta
 ## 最初に読む
 
 - `AGENTS.md`
-- [Backlog workflow](../../../tools/backlog/backlog-workflow.md)：`Authority`・`Intervention`直下（子節を除く）・`Relations`・`Priority`・`Writer protocol`。ベンチ後／棄却時は`VALIDATED and REJECTED`、外部待ちは`BLOCKED`、Constraint更新時は`Constraint`を追加する。
+- [Backlog workflow](../../../tools/backlog/backlog-workflow.md)：`Authority`・`Intervention`直下（子節を除く）・`Relations`・`Priority`・`Writer protocol`。ベンチ後は`Adoption`、適用後の棄却時は`Rejection after application`、適用前の棄却時は`Rejection during investigation`、外部待ちは`BLOCKED`、Constraint更新時は`Constraint`を追加する。
 - [Evidence](../_shared/evidence.md)
 - 対象カード、Objective、Constraint relation、依存、History
 - 対象の`docs/official/`

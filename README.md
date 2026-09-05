@@ -171,7 +171,7 @@ task go-profile-top RUN=runs/<RUN_ID> PROFILE=isucon-1-go-cpu.pprof
 ```
 
 `scores.tsv`の空欄はスコア不明、`0`は実際の0点です。ベンチ後の採用は`task pass`で行います。
-採用条件とFORCEの例外は[Backlog workflow](tools/backlog/backlog-workflow.md#validated-and-rejected)、
+採用条件とFORCEの例外は[Backlog workflow](tools/backlog/backlog-workflow.md#adoption)、
 採用記録と`outcomes.tsv`の関係は[Backlog README](tools/backlog/README.md#adoption-records)を参照してください。
 
 ## 分析

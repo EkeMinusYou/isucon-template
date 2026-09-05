@@ -1,6 +1,6 @@
 # Evidence
 
-Evidenceの選択・比較・欠損・因果の扱いを定める。Backlog上の判断条件は[workflow](../../../tools/backlog/backlog-workflow.md)を参照する。
+Evidenceの選択・比較・欠損・因果の扱いを定める。
 
 ## 優先するEvidence
 
@@ -24,4 +24,4 @@ Evidenceの選択・比較・欠損・因果の扱いを定める。Backlog上�
 - correctness、5xx、OOM、panic、service再起動の確認には、同じload windowのapp journal、nginx error、
   kernel/OOM成果物も使う。
 
-READY前の追加計測、不足情報の記録、標準計測基盤の変更範囲は[workflowのEvidence policy](../../../tools/backlog/backlog-workflow.md#evidence-policy)に従う。採用条件は[VALIDATED and REJECTED](../../../tools/backlog/backlog-workflow.md#validated-and-rejected)、CLIのRUN選択とhash仕様は[Backlog README](../../../tools/backlog/README.md#evidence-and-snapshots)を参照する。
+必要時のみ参照：追加計測・不足情報は[Evidence policy](../../../tools/backlog/backlog-workflow.md#evidence-policy)、採用は[Adoption](../../../tools/backlog/backlog-workflow.md#adoption)、CLIのRUN選択・hashは[Backlog README](../../../tools/backlog/README.md#evidence-and-snapshots)。

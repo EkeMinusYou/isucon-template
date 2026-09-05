@@ -50,15 +50,20 @@ Targeted writes require `--expect-card-version`; Constraint and Objective writes
 
 ## Adoption records
 
-Use `task pass` or `task pass -- B-001,B-002` after checking the [adoption conditions and FORCE exceptions](backlog-workflow.md#validated-and-rejected).
+Use `task pass` or `task pass -- B-001,B-002` after checking the [adoption conditions and FORCE exceptions](backlog-workflow.md#adoption).
 
 Each pass writes one immutable `adoption_events` row and its `adoption_event_cards` rows in the same SQLite transaction as every card promotion. The event snapshots score, pass state, declared control, delta, manifest hash, and backlog revision from `run.json`; each card row retains its `change_boundary_hash`. `runs/outcomes.tsv` is an atomically regenerated projection, not a source of truth.
 
 ## Evidence and snapshots
 
-APPLIED snapshot schema version 3 stores two deliberately small hashes. `change_boundary_hash` contains only the normalized `Change boundary`; it detects whether that declaration changed between snapshot capture and comparison or adoption. It does not prove that deployed code matches the declaration or that two differently worded declarations are semantically equivalent. `decision_hash` contains `Hypothesis`, `Verification`, and `Safety`; changing it produces a review warning but does not make an unchanged Change boundary incompatible or block adoption. Title, priority, owner, run links, Objective/Constraint relations, Observation, Unknowns, Result, and History are outside both hashes. Line-ending/trailing-space changes and equivalent JSON formatting are normalized. Benchmark and Evidence commands accept only version 3 snapshots.
+Benchmark and Evidence commands accept only APPLIED snapshot schema version 3.
 
-The performance residual assessment stores the same `change_boundary_hash`. Editing Hypothesis, Verification, or Safety does not force that calculation to be repeated; editing the declared Change boundary does.
+| Hash | Input | Effect of a change |
+| --- | --- | --- |
+| `change_boundary_hash` | Normalized `Change boundary` | Invalidates comparison/adoption against the old snapshot and requires reassessment of a bound performance residual |
+| `decision_hash` | `Hypothesis`, `Verification`, `Safety` | Review warning only; does not invalidate comparison/adoption or require residual recalculation |
+
+All other fields, including workflow metadata, relations, observations, results, and History, are excluded. Line endings, trailing spaces, and equivalent JSON formatting are normalized. These hashes detect stale declarations; they do not prove deployed-code agreement or semantic equivalence of differently worded declarations.
 
 To inspect evidence, the CLI selects the newest finalized RUN whose APPLIED snapshot actually contains the card. Use `--run` to select one explicitly. Endpoint, TSV, and profile comparisons use only the control RUN declared compatible by that target manifest; they never fall back to an unrelated previous RUN.
 
@@ -76,5 +81,3 @@ task backlog -- validate
 ```
 
 Validation checks SQLite integrity, IDs and versions, card states, READY contracts, dependencies, Objective hierarchy, ACTIVE Constraint scope, Constraint relations, and assessment bindings.
-
-See [backlog-workflow.md](backlog-workflow.md) for writer and state rules.
