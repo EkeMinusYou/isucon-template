@@ -12,6 +12,56 @@ import (
 	"time"
 )
 
+func TestDisabledDigesterIsOptionalAndRequiresExplicitSelection(t *testing.T) {
+	dir := t.TempDir()
+	config := filepath.Join(dir, "digesters.yaml")
+	collectorConfig := filepath.Join(dir, "collectors.yaml")
+	body := `sources:
+  - name: input
+    role: app
+    remote: /tmp/input
+    local: '{run_dir}/input.log'
+digesters:
+  - name: optional
+    enabled_by_default: false
+    source: input
+    outputs:
+      - file: optional.txt
+        run: printf selected
+`
+	for path, text := range map[string]string{
+		config: body, collectorConfig: "prepare: [{name: noop, hosts: app, script: true}]\n",
+		filepath.Join(dir, "input.log"): "input\n",
+	} {
+		if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	args := []string{"-run-dir", dir, "-config", config, "-skip-fetch"}
+	if err := runDigest(args); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "optional.txt")); !os.IsNotExist(err) {
+		t.Fatalf("disabled digester produced an output: %v", err)
+	}
+	specs, err := loadArtifactSpecs(collectorConfig, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, spec := range specs {
+		if spec.Pattern == "optional.txt" && !spec.Optional {
+			t.Fatal("disabled digester artifact is required")
+		}
+	}
+	if err := runDigest(append(args, "-only", "optional")); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(dir, "optional.txt"))
+	if err != nil || string(got) != "selected" {
+		t.Fatalf("explicitly selected output=%q err=%v", got, err)
+	}
+}
+
 func TestDigestRemotePerHostExpandsLoadWindowAndKeepsHostOutputs(t *testing.T) {
 	dir := t.TempDir()
 	var (

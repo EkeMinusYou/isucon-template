@@ -127,6 +127,7 @@ type Remote struct {
 }
 
 type Digester struct {
+	EnabledByDefault  *bool    `yaml:"enabled_by_default"`
 	Name              string   `yaml:"name"`
 	Label             string   `yaml:"label"`
 	Source            string   `yaml:"source"`
@@ -137,6 +138,10 @@ type Digester struct {
 	SkipIfBenchFailed bool     `yaml:"skip_if_bench_failed"` // preflight 失敗時に集計しない
 	InstallHint       string   `yaml:"install_hint"`         // ツールが無いときに添える導入方法
 	Outputs           []Output `yaml:"outputs"`
+}
+
+func (d Digester) enabledByDefault() bool {
+	return d.EnabledByDefault == nil || *d.EnabledByDefault
 }
 
 // Output は 1 集計が出すファイル。同じ入力を独立に舐めるだけなので並列に流せる。

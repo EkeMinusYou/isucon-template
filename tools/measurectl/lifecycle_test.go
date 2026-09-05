@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -21,6 +22,42 @@ func testLifecycleOptions(t *testing.T) lifecycleOptions {
 			"nginx": {"isucon-1"}, "entry": {"isucon-1"}, "mysql": {"isucon-1"},
 		},
 		vars: map[string]string{"services": "app,nginx,mysql"},
+	}
+}
+
+func TestAdditionalRolesSurviveManifestCreation(t *testing.T) {
+	opts := testLifecycleOptions(t)
+	opts.roles["cache"] = []string{"isucon-1", "isucon-2"}
+	opts.roles["worker"] = []string{"isucon-1", "isucon-2"}
+	if err := os.WriteFile(opts.snapshotPath, []byte(`{"schema_version":3,"status":"ok","cards":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(opts.resultsDir, opts.runID)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	args, err := opts.manifestBeginArgs(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runManifestBegin(args); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(dir, "run.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest Manifest
+	if err := json.Unmarshal(body, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	for _, role := range []string{"cache", "worker"} {
+		if !reflect.DeepEqual(manifest.Roles.Additional[role], opts.roles[role]) {
+			t.Fatalf("role %s lost: %#v", role, manifest.Roles)
+		}
+		if roleValues(manifest.Roles)[role] != "isucon-1,isucon-2" {
+			t.Fatalf("comparison omits role %s", role)
+		}
 	}
 }
 

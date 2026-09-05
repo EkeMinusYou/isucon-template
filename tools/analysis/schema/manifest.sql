@@ -14,6 +14,7 @@ select
     try_cast(json_extract(content, '$.roles.nginx') as varchar[]) as nginx_hosts,
     json_extract_string(content, '$.roles.entry') as entry_host,
     json_extract_string(content, '$.roles.mysql') as mysql_host,
+    json_extract(content, '$.roles.additional') as additional_roles,
     try_cast(json_extract_string(content, '$.preflight.collector_clean') as boolean) as collector_clean,
     json_extract_string(content, '$.comparison.run_id') as compare_run_id,
     json_extract_string(content, '$.comparison.status') as comparison_status,

@@ -214,6 +214,18 @@ func (o lifecycleOptions) manifestBeginArgs(runDir string) ([]string, error) {
 	if o.compareRun != "" {
 		args = append(args, "-compare-run-dir", filepath.Join(o.resultsDir, o.compareRun))
 	}
+	var additionalNames []string
+	for name := range o.roles {
+		switch name {
+		case "app", "app_traffic", "nginx", "entry", "mysql":
+			continue
+		}
+		additionalNames = append(additionalNames, name)
+	}
+	sort.Strings(additionalNames)
+	for _, name := range additionalNames {
+		args = append(args, "-role", name+"="+strings.Join(o.roles[name], ","))
+	}
 	return args, nil
 }
 

@@ -336,3 +336,56 @@ func readTestManifest(t *testing.T, path string) Manifest {
 	}
 	return manifest
 }
+
+func TestCompareManifestDetectsAdditionalRoleChanges(t *testing.T) {
+	for _, scenario := range []struct {
+		name          string
+		before, after map[string][]string
+	}{
+		{"unchanged legacy", nil, nil},
+		{"added", nil, map[string][]string{"cache": {"host-a"}}},
+		{"changed", map[string][]string{"cache": {"host-a"}}, map[string][]string{"cache": {"host-b"}}},
+		{"removed", map[string][]string{"cache": {"host-a"}}, nil},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			dir := filepath.Join(t.TempDir(), "20260901-120000")
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			passed := true
+			control := Manifest{
+				SchemaVersion: 4, Phase: "finalized", RunID: filepath.Base(dir), Passed: &passed,
+				Preflight: Preflight{CollectorClean: true}, Source: CodeSource{Commit: "baseline"},
+				Roles:           Roles{Additional: scenario.before},
+				BacklogSnapshot: BacklogSnapshot{SchemaVersion: 3, Status: "ok"},
+				Artifacts:       []Artifact{{Name: "result", Status: "ok"}},
+			}
+			body, err := json.Marshal(control)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "run.json"), body, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			target := control
+			target.Roles.Additional = scenario.after
+			result, err := compareManifest(target, dir, nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if scenario.name == "unchanged legacy" {
+				if result.Status != "compatible" {
+					t.Fatalf("legacy comparison: %#v", result)
+				}
+				return
+			}
+			if result.Status != "incompatible" || len(result.RoleDelta) != 1 || result.RoleDelta[0] != "cache" {
+				t.Fatalf("undeclared role delta: %#v", result)
+			}
+			result, err = compareManifest(target, dir, nil, []string{"cache"})
+			if err != nil || result.Status != "compatible" {
+				t.Fatalf("allowed role delta: %#v, %v", result, err)
+			}
+		})
+	}
+}

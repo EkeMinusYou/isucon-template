@@ -60,6 +60,10 @@
 変数から渡せる。複数アプリservice、別DB、container、release symlink方式を使う場合は
 `deployments.yaml`を拡張する。
 
+配布の`local`と`remote`には`{host}`を指定できます。例えば`local: 'etc/hosts/{host}/app.conf'`、
+`remote: '/home/isucon/app.conf'`でホスト別の設定を配布できます。全対象ホストのパスと転送元ファイルを
+転送開始前に検証します。既存の配布先パス制限は引き続き適用されます。
+
 ### 計測と集計
 
 `run begin/finalize`がRUN lifecycleを担う。`tools/measurectl/collectors.yaml`では、次を確認する。
@@ -80,6 +84,16 @@
 標準設定ではproc/service/disk、MySQL status、nginx access log、slow query、app/nginx/kernel journalを収集する。journalは`run.json.load_window`と同じ時間窓で回収できることを確認する。
 50msのlock waitと250msのtask stateは既定無効であり、対象環境で負荷を測ったうえで
 `tools/measurectl/collectors.yaml`の各`enabled_by_default`を`true`へ変更して採用する。
+
+digesterも`enabled_by_default: false`で既定の実行対象から外せます。省略時は従来どおり有効です。
+無効なdigesterの出力は任意成果物となり、未生成でも必須成果物の欠損にはなりません。
+`measurectl digest -only <name>`で明示的に実行できます。sourceのログ回収は独立しており、この設定では停止しません。
+
+`MEASURECTL_ROLES`に追加した任意のrole（例: `-role cache=host-a,host-b`）は、
+`run.json`の`roles.additional`に保存され、RUN比較では追加・変更・削除を検出します。
+意図した差分は`COMPARE_ALLOWED_ROLES=cache`で宣言します。既存の標準roleフィールドと`scores.tsv`形式は維持します。
+直接`manifest begin`を使う場合は`-role cache=host-a,host-b`を渡してください。
+分析の`manifests.additional_roles`からも追加roleを参照できます。古いRUNの未記録roleは推測で補いません。
 
 GoのCPU、heap、allocs、goroutine profileも既定無効である。アプリがboundedな計測用portで
 `net/http/pprof`を公開していること、profile取得時間がベンチ時間内に収まることを確認してから

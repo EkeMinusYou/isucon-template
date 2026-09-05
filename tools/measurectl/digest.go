@@ -64,6 +64,14 @@ func runDigest(args []string) error {
 		if len(cfg.Digesters) == 0 {
 			return errors.New("-only にマッチする集計がありません")
 		}
+	} else {
+		var enabled []Digester
+		for _, d := range cfg.Digesters {
+			if d.enabledByDefault() {
+				enabled = append(enabled, d)
+			}
+		}
+		cfg.Digesters = enabled
 	}
 
 	r := &digestRunner{

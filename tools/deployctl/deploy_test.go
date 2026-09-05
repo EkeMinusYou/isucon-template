@@ -46,6 +46,35 @@ func (f *fakeExecutor) Run(name string, args []string, stdin string) ([]byte, er
 	return []byte("ok"), nil
 }
 
+func TestHostSpecificUploadValidatesEverySourceBeforeTransfer(t *testing.T) {
+	previous, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(previous) })
+	if err := os.WriteFile("isucon-1.env", []byte("first"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner := deployRunner{roles: map[string][]string{"app": {"isucon-1", "isucon-2"}}}
+	uploads := []upload{{Label: "env", Role: "app", Local: "{host}.env", Remote: "/home/isucon/{host}.env"}}
+	if _, err := runner.uploadJobs(uploads); err == nil {
+		t.Fatal("missing second host source was accepted")
+	}
+	if err := os.WriteFile("isucon-2.env", []byte("second"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	jobs, err := runner.uploadJobs(uploads)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(jobs) != 2 || jobs[0].local != "isucon-1.env" || jobs[1].local != "isucon-2.env" || jobs[0].remote != "/home/isucon/isucon-1.env" || jobs[1].remote != "/home/isucon/isucon-2.env" {
+		t.Fatalf("host sources were not kept separate: %#v", jobs)
+	}
+}
+
 func TestApplyDoesNotActivateAfterUploadFailure(t *testing.T) {
 	oldWorkingDirectory, err := os.Getwd()
 	if err != nil {

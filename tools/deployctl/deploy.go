@@ -101,24 +101,24 @@ func (r *deployRunner) uploadJobs(uploads []upload) ([]uploadJob, error) {
 		if !ok || len(hosts) == 0 {
 			return nil, fmt.Errorf("upload %q が指す role %q のホストが指定されていません", u.Label, u.Role)
 		}
-		local, err := (expander{vars: r.vars}).expand(u.Local)
-		if err != nil {
-			return nil, fmt.Errorf("upload %q local: %w", u.Label, err)
-		}
-		if err := validateLocalPath(local); err != nil {
-			return nil, fmt.Errorf("upload %q: %w", u.Label, err)
-		}
-		if _, err := os.Stat(strings.TrimSuffix(local, "/")); err != nil {
-			return nil, fmt.Errorf("upload %q の local path を確認できません: %w", u.Label, err)
-		}
-		remote, err := (expander{vars: r.vars}).expand(u.Remote)
-		if err != nil {
-			return nil, fmt.Errorf("upload %q remote: %w", u.Label, err)
-		}
-		if err := validateRemotePath(remote, u.Delete); err != nil {
-			return nil, fmt.Errorf("upload %q: %w", u.Label, err)
-		}
 		for _, host := range hosts {
+			local, err := (expander{host: host, vars: r.vars}).expand(u.Local)
+			if err != nil {
+				return nil, fmt.Errorf("upload %q local: %w", u.Label, err)
+			}
+			if err := validateLocalPath(local); err != nil {
+				return nil, fmt.Errorf("upload %q: %w", u.Label, err)
+			}
+			if _, err := os.Stat(strings.TrimSuffix(local, "/")); err != nil {
+				return nil, fmt.Errorf("upload %q の local path を確認できません: %w", u.Label, err)
+			}
+			remote, err := (expander{host: host, vars: r.vars}).expand(u.Remote)
+			if err != nil {
+				return nil, fmt.Errorf("upload %q remote: %w", u.Label, err)
+			}
+			if err := validateRemotePath(remote, u.Delete); err != nil {
+				return nil, fmt.Errorf("upload %q: %w", u.Label, err)
+			}
 			jobs = append(jobs, uploadJob{u: u, host: host, local: local, remote: remote})
 		}
 	}

@@ -85,11 +85,12 @@ type AppliedSnapshotCard struct {
 
 // Roles はその走行時点のホスト役割。構成をまたぐ RUN 比較で必要になる。
 type Roles struct {
-	App        []string `json:"app"`
-	AppTraffic []string `json:"app_traffic"`
-	Nginx      []string `json:"nginx"`
-	Entry      string   `json:"entry"`
-	MySQL      string   `json:"mysql"`
+	Additional map[string][]string `json:"additional,omitempty"`
+	App        []string            `json:"app"`
+	AppTraffic []string            `json:"app_traffic"`
+	Nginx      []string            `json:"nginx"`
+	Entry      string              `json:"entry"`
+	MySQL      string              `json:"mysql"`
 }
 
 // CodeSource はその走行で動いていたアプリのコード。スコア差分の原因を後から
@@ -154,6 +155,8 @@ func runManifestBegin(args []string) error {
 	nginx := fs.String("nginx", "", "NGINX_HOSTS (カンマ区切り)")
 	mysql := fs.String("mysql", "", "MYSQL_HOST")
 	entry := fs.String("entry", "", "ENTRY_HOST")
+	additionalRoles := keyValues{}
+	fs.Var(additionalRoles, "role", "additional role=host1,host2 (repeatable)")
 	collectorClean := fs.Bool("collector-clean", false, "collector clean gate passed")
 	compareRunDir := fs.String("compare-run-dir", "", "compatible control RUN directory")
 	compareAllowedCards := fs.String("compare-allow-cards", "", "card IDs allowed to differ from the control RUN")
@@ -197,6 +200,7 @@ func runManifestBegin(args []string) error {
 		RunID:         runID,
 		StartedAt:     parseRunIDTime(runID),
 		Roles: Roles{
+			Additional: additionalRoles,
 			App:        splitHosts(*app),
 			AppTraffic: splitHosts(*appTraffic),
 			Nginx:      splitHosts(*nginx),
@@ -634,6 +638,11 @@ func compareManifest(target Manifest, compareRunDir string, allowedCards, allowe
 	}
 	targetRoles := roleValues(target.Roles)
 	controlRoles := roleValues(control.Roles)
+	for role := range controlRoles {
+		if _, exists := targetRoles[role]; !exists {
+			targetRoles[role] = ""
+		}
+	}
 	for role, targetValue := range targetRoles {
 		controlValue := controlRoles[role]
 		if targetValue == controlValue {
@@ -702,13 +711,20 @@ func normalizeRoleField(value string) string {
 }
 
 func roleValues(roles Roles) map[string]string {
-	return map[string]string{
+	values := map[string]string{}
+	for role, hosts := range roles.Additional {
+		values[role] = strings.Join(hosts, ",")
+	}
+	for role, hosts := range map[string]string{
 		"app":         strings.Join(roles.App, ","),
 		"app_traffic": strings.Join(roles.AppTraffic, ","),
 		"nginx":       strings.Join(roles.Nginx, ","),
 		"entry":       roles.Entry,
 		"mysql":       roles.MySQL,
+	} {
+		values[role] = hosts
 	}
+	return values
 }
 
 func snapshotCardChangeBoundaryHashes(cards []AppliedSnapshotCard) map[string]string {

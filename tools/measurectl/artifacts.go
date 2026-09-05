@@ -124,6 +124,7 @@ func loadArtifactSpecs(collectorsPath, digestersPath string) ([]ArtifactSpec, er
 			specs = append(specs, ArtifactSpec{
 				Pattern:  o.File,
 				Producer: "digester:" + d.Name,
+				Optional: !d.enabledByDefault(),
 			})
 		}
 		specs = append(specs, ArtifactSpec{
