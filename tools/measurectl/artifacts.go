@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -51,6 +52,15 @@ func runArtifacts(args []string) error {
 
 	switch {
 	case *runDir != "":
+		body, err := os.ReadFile(filepath.Join(*runDir, "run.json"))
+		if err != nil {
+			return err
+		}
+		var manifest Manifest
+		if err := json.Unmarshal(body, &manifest); err != nil {
+			return err
+		}
+		specs = specsForCollectorMode(specs, manifest.CollectorsDisabled)
 		return checkRunDir(*runDir, specs)
 	case *check:
 		return checkReaders(specs)
@@ -64,6 +74,18 @@ func runArtifacts(args []string) error {
 		}
 		return nil
 	}
+}
+
+func specsForCollectorMode(specs []ArtifactSpec, disabled bool) []ArtifactSpec {
+	result := append([]ArtifactSpec(nil), specs...)
+	if disabled {
+		for index := range result {
+			if strings.HasPrefix(result[index].Producer, "collector:") {
+				result[index].Optional = true
+			}
+		}
+	}
+	return result
 }
 
 // loadArtifactSpecs は 2 つの宣言から、1 走行が出すファイルの一覧を作る。
@@ -122,7 +144,7 @@ func loadArtifactSpecs(collectorsPath, digestersPath string) ([]ArtifactSpec, er
 	for _, d := range dcfg.Digesters {
 		for _, o := range d.Outputs {
 			specs = append(specs, ArtifactSpec{
-				Pattern:  o.File,
+				Pattern:  hostGlob(o.File),
 				Producer: "digester:" + d.Name,
 				Optional: !d.enabledByDefault(),
 			})

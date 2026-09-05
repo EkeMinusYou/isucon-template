@@ -25,22 +25,23 @@ import (
 // 実ファイルから型を推論するので、RUN によってキーが出たり消えたりすると
 // 横断クエリのスキーマが揺れる。
 type Manifest struct {
-	SchemaVersion   int             `json:"schema_version"`
-	Phase           string          `json:"phase"`
-	RunID           string          `json:"run_id"`
-	StartedAt       string          `json:"started_at"`
-	WrittenAt       string          `json:"written_at"`
-	FinalizedAt     string          `json:"finalized_at"`
-	Score           *int64          `json:"score"`
-	Passed          *bool           `json:"passed"`
-	Roles           Roles           `json:"roles"`
-	Source          CodeSource      `json:"source"`
-	BacklogSnapshot BacklogSnapshot `json:"backlog_snapshot"`
-	Artifacts       []Artifact      `json:"artifacts"`
-	RawBytes        int64           `json:"raw_bytes"`
-	Preflight       Preflight       `json:"preflight"`
-	Comparison      RunComparison   `json:"comparison"`
-	LoadWindow      LoadWindow      `json:"load_window"`
+	CollectorsDisabled bool            `json:"collectors_disabled,omitempty"`
+	SchemaVersion      int             `json:"schema_version"`
+	Phase              string          `json:"phase"`
+	RunID              string          `json:"run_id"`
+	StartedAt          string          `json:"started_at"`
+	WrittenAt          string          `json:"written_at"`
+	FinalizedAt        string          `json:"finalized_at"`
+	Score              *int64          `json:"score"`
+	Passed             *bool           `json:"passed"`
+	Roles              Roles           `json:"roles"`
+	Source             CodeSource      `json:"source"`
+	BacklogSnapshot    BacklogSnapshot `json:"backlog_snapshot"`
+	Artifacts          []Artifact      `json:"artifacts"`
+	RawBytes           int64           `json:"raw_bytes"`
+	Preflight          Preflight       `json:"preflight"`
+	Comparison         RunComparison   `json:"comparison"`
+	LoadWindow         LoadWindow      `json:"load_window"`
 }
 
 type LoadWindow struct {
@@ -157,6 +158,7 @@ func runManifestBegin(args []string) error {
 	entry := fs.String("entry", "", "ENTRY_HOST")
 	additionalRoles := keyValues{}
 	fs.Var(additionalRoles, "role", "additional role=host1,host2 (repeatable)")
+	collectorsDisabled := fs.Bool("collectors-disabled", false, "periodic collectors were intentionally disabled")
 	collectorClean := fs.Bool("collector-clean", false, "collector clean gate passed")
 	compareRunDir := fs.String("compare-run-dir", "", "compatible control RUN directory")
 	compareAllowedCards := fs.String("compare-allow-cards", "", "card IDs allowed to differ from the control RUN")
@@ -195,10 +197,11 @@ func runManifestBegin(args []string) error {
 
 	runID := filepath.Base(strings.TrimSuffix(*dir, string(filepath.Separator)))
 	m := Manifest{
-		SchemaVersion: 4,
-		Phase:         "started",
-		RunID:         runID,
-		StartedAt:     parseRunIDTime(runID),
+		CollectorsDisabled: *collectorsDisabled,
+		SchemaVersion:      4,
+		Phase:              "started",
+		RunID:              runID,
+		StartedAt:          parseRunIDTime(runID),
 		Roles: Roles{
 			Additional: additionalRoles,
 			App:        splitHosts(*app),
@@ -294,6 +297,7 @@ func runManifestFinalize(args []string) error {
 	if err != nil {
 		return err
 	}
+	specs = specsForCollectorMode(specs, m.CollectorsDisabled)
 	if artifacts == nil {
 		artifacts = []Artifact{}
 	}
@@ -635,6 +639,9 @@ func compareManifest(target Manifest, compareRunDir string, allowedCards, allowe
 	allowedRoleSet := map[string]bool{}
 	for _, role := range allowedRoles {
 		allowedRoleSet[normalizeRoleField(role)] = true
+	}
+	if target.CollectorsDisabled != control.CollectorsDisabled {
+		addReason("periodic collector mode differs")
 	}
 	targetRoles := roleValues(target.Roles)
 	controlRoles := roleValues(control.Roles)

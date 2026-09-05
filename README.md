@@ -91,7 +91,7 @@ task deploy-all-dry
 
 ## ベンチ計測
 
-ポータルから手動実行する場合:
+ユーザーが別端末やポータルからベンチを手動実行する場合:
 
 ```shell
 task bench-manual
@@ -112,7 +112,10 @@ task fgprof-collect   # アプリがfgprof endpointを公開している場合
 task after-bench SCORE=12345
 ```
 
-`before-bench`後に中断した場合だけ`task abort-run`を使います。通常の回収は必ず`after-bench`です。
+実行前に`pwd`、使用するTaskfile、対象ホストを確認してください。collectorの残存が検出されたら、
+そのRUN IDとローカルの`raw/current-run-id`を照合します。別checkoutで計測中の可能性があるため、
+所有元と終了状態を確認してから対処します。`abort-run`はこの設定が探索するcollectorをまとめて掃除します。
+`before-bench`後に中断したRUNを破棄する場合だけ`task abort-run`を使います。通常の回収は必ず`after-bench`です。
 `task bench`と`task bench-manual`は、ベンチ失敗や割り込みでも可能な限り`after-bench`を実行し、
 失敗RUNをEvidenceとしてfinalizeします。共通の開始・終了・trap処理は`tools/bench/run.sh`、
 RUN状態遷移とcollector・digest・manifest処理は`measurectl run begin/finalize`が担当します。
@@ -125,7 +128,9 @@ task bench-no-collectors
 task bench-manual-no-collectors
 ```
 
-no-collector RUNでproc/MySQL collector成果物が`missing`になるのは意図どおりです。
+collectorなしRUNは`run.json.collectors_disabled=true`を記録し、周期collectorの成果物を任意扱いにします。
+access logやdigesterの必須成果物の欠損は引き続き検査失敗です。異なるcollectorモードのRUNは
+通常の採用比較では互換とせず、計測負荷の比較として扱います。古いRUNの省略値は`false`として読みます。
 
 250msのtask-state走査と50msのMySQL lock wait取得は、計測負荷を確認するまで既定では無効です。
 利用する場合は`tools/measurectl/collectors.yaml`の`task-state`と`mysql-locks`について

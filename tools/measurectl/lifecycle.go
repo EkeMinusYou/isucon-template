@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -210,6 +211,24 @@ func (o lifecycleOptions) manifestBeginArgs(runDir string) ([]string, error) {
 		"-compare-allow-cards", o.compareAllowedCards, "-compare-allow-roles", o.compareAllowedRoles,
 		"-app", strings.Join(o.roles["app"], ","), "-app-traffic", strings.Join(o.roles["app_traffic"], ","),
 		"-nginx", strings.Join(o.roles["nginx"], ","), "-entry", entry, "-mysql", mysql,
+	}
+	disabled := false
+	for _, token := range strings.Fields(o.collectorFlags) {
+		name, value, hasValue := strings.Cut(strings.TrimPrefix(strings.TrimPrefix(token, "-"), "-"), "=")
+		if name != "no-collectors" {
+			continue
+		}
+		disabled = true
+		if hasValue {
+			var err error
+			disabled, err = strconv.ParseBool(value)
+			if err != nil {
+				return nil, fmt.Errorf("invalid no-collectors flag: %w", err)
+			}
+		}
+	}
+	if disabled {
+		args = append(args, "-collectors-disabled")
 	}
 	if o.compareRun != "" {
 		args = append(args, "-compare-run-dir", filepath.Join(o.resultsDir, o.compareRun))

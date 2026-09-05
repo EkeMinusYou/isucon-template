@@ -514,7 +514,7 @@ tasks:
         vars: { MEASURECTL_COLLECT_FLAGS: -no-collectors }
 
   bench-manual:
-    desc: ポータルベンチ用。計測開始後、スコア入力を待って回収
+    desc: 計測開始後、ユーザーによるベンチ実行と結果入力を待って回収
     interactive: true
     env: *bench_runner_env
     cmds:
@@ -533,6 +533,7 @@ tasks:
     deps: [build-measurectl, build-proc-metrics, build-mysql-metrics]
     cmds:
       - |
+        bash <<'BASH'
         set -eu
         mkdir -p '{{.RAW_DIR}}'
         snapshot='{{.RAW_DIR}}/applied-snapshot-{{.RUN_ID}}.json'
@@ -543,6 +544,7 @@ tasks:
           -applied-snapshot "$snapshot" -compare-run '{{.COMPARE_RUN}}' \
           -compare-allow-cards '{{.COMPARE_ALLOWED_CARDS}}' -compare-allow-roles '{{.COMPARE_ALLOWED_ROLES}}' \
           -collector-flags '{{.MEASURECTL_FLAGS}} {{default "" .MEASURECTL_COLLECT_FLAGS}}' {{.MEASURECTL_REMOTE}}
+        BASH
 
   after-bench:
     desc: 進行中RUNのcollector・ログ・集計・manifestを回収

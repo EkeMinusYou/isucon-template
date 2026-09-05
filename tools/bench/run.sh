@@ -44,7 +44,7 @@ trap 'exit 143' HUP TERM
 
 if [ "$mode" = manual ]; then
   printf '%s\tBENCHMARK_START\n' "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" > "$run_dir/bench.log"
-  echo 'ポータルからベンチを実行してください。'
+  echo '別の端末やポータルから、手動でベンチを実行してください。'
   printf '完了後にスコアを入力してください（空欄可）: '
   read -r score || score=''
   printf '整合性チェックまで成功した場合は y を入力してください: '

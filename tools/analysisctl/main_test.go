@@ -186,3 +186,59 @@ func writeTestFile(t *testing.T, base, name, content string) {
 		t.Fatal(err)
 	}
 }
+
+func TestCollectorFreeRunCanBeImportedBeforeMeasuredRun(t *testing.T) {
+	duckdb, err := exec.LookPath("duckdb")
+	if err != nil {
+		t.Skip("duckdb is not installed")
+	}
+	cfg, err := loadConfig("../analysis/sources.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmp := t.TempDir()
+	results := filepath.Join(tmp, "runs")
+	base, err := os.ReadFile(cfg.path(cfg.BaseSchema))
+	if err != nil {
+		t.Fatal(err)
+	}
+	base = []byte(strings.ReplaceAll(string(base), "'runs/", "'"+filepath.ToSlash(results)+"/"))
+	writeTestFile(t, tmp, "base.sql", string(base))
+	cfg.BaseSchema = filepath.Join(tmp, "base.sql")
+	writeTestFile(t, tmp, "runs/scores.tsv", "run_id\tscore\tapp\tnginx\tmysql\tapp_traffic\n20260901-120000\t0\thost1\thost1\thost1\thost1\n")
+	writeTestFile(t, tmp, "runs/20260901-120000/run.json", `{"schema_version":4,"run_id":"20260901-120000","collectors_disabled":true,"passed":false,"artifacts":[{"name":"raw/access-host1.log.zst","status":"missing"}]}`)
+	writeTestFile(t, tmp, "runs/20260901-120000/bench.log", "2026-09-01T12:00:00Z\tBENCHMARK_START\n2026-09-01T12:01:00Z\tBENCHMARK_END\nBENCHMARK_FAIL\n")
+	writeTestFile(t, tmp, "runs/20260901-120000/alp.json", "[]\n")
+	header := "Count\tQuery\tSum(QueryTime)\tMax(QueryTime)\tP95(QueryTime)\tSum(RowsExamined)\tSum(RowsSent)\tSum(LockTime)\tAvg(LockTime)\n"
+	writeTestFile(t, tmp, "runs/20260901-120000/slp.tsv", header)
+	r := runner{options: options{db: filepath.Join(tmp, "analysis.duckdb"), results: results, duckdb: duckdb, stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}}, config: cfg}
+	if err := r.rebuildRuns([]string{"20260901-120000"}); err != nil {
+		t.Fatal(err)
+	}
+	check := func(sql, want string) {
+		t.Helper()
+		output, err := r.duckdbOutput(nil, "-noheader", "-list", r.db, "-c", sql)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.TrimSpace(output) != want {
+			t.Fatalf("%s: got %q, want %q", sql, output, want)
+		}
+	}
+	check("select (select count(*) from metrics), (select count(*) from upstreams), (select count(*) from queries)", "0|0|0")
+	check("select collectors_disabled from manifests", "true")
+	check("select status from artifacts where name = 'raw/access-host1.log.zst'", "missing")
+	// A later measured RUN must insert into the initially empty typed tables.
+	writeTestFile(t, tmp, "runs/20260901-120100/run.json", `{"schema_version":4,"run_id":"20260901-120100"}`)
+	writeTestFile(t, tmp, "runs/20260901-120100/host1-proc-metrics.tsv", "sample\ttimestamp\telapsed_ms\tcpu_busy_pct\n1\t2026-09-01T12:01:01Z\t1000\t1.5\n")
+	writeTestFile(t, tmp, "runs/20260901-120100/slp.tsv", header+"1\tSELECT 1\t0.25\t0.25\t0.25\t1\t1\t0\t0\n")
+	writeTestFile(t, tmp, "runs/20260901-120100/upstream-breakdown.tsv", "upstream_addr\tupstream_status\tcache_status\trequests\tstatus_2xx\tstatus_3xx\tstatus_4xx\tstatus_5xx\tstatus_other\tresponse_time_sum_ms\tresponse_time_avg_ms\tupstream_time_sum_ms\tupstream_time_avg_ms\n127.0.0.1:8080\t200\tMISS\t1\t1\t0\t0\t0\t0\t2.5\t2.5\t1.5\t1.5\n")
+	dir := filepath.Join(results, "20260901-120100")
+	if err := r.syncSelection(dir, []string{dir}, []string{"20260901-120100"}); err != nil {
+		t.Fatal(err)
+	}
+	check("select value from metrics", "1.5")
+	check("select sum_time_sec from queries", "0.25")
+	check("select response_time_sum_ms from upstreams", "2.5")
+	check("select collectors_disabled from manifests where run_id='20260901-120100'", "false")
+}

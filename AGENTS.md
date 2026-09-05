@@ -56,6 +56,8 @@ CLI操作・保存形式は[Backlog README](tools/backlog/README.md)、根拠の
 
 - `task deploy-*`はサーバーのreload/restartを伴う。実行前に対象ホストと影響を確認する
 - `task apply-roles`はサービスのenable/disableを伴う
-- `task abort-run`は進行中RUNを破棄し、collectorを掃除する
+- 複数の作業環境から同じ競技サーバーを操作する場合は、作業ディレクトリ・Taskfile・対象ホスト・進行中RUNの所有元を照合する。別環境で稼働中の計測を停止・上書きしない
+- ベンチの実行担当と実行許可はユーザーの指示に従う。setup依頼だけをベンチ実行の許可とみなさない
+- `task abort-run`は進行中RUNを破棄し、collectorを掃除する。残存RUNの所有元と終了状態を確認してから使う
 - `task clear-cache`はログやキャッシュを削除する破壊的操作。明示指示時だけ実行する
 - 設定断片は候補値である。元の値、採用理由、rollback条件を残す

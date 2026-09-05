@@ -70,7 +70,7 @@ var (
 	hostPattern  = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 )
 
-const importSchemaVersion = "3"
+const importSchemaVersion = "4"
 
 func main() {
 	if err := runCLI(os.Args[1:], os.Stdout, os.Stderr); err != nil {

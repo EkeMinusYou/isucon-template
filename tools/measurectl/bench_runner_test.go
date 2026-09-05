@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestBenchRunnerFinalizesAutomaticRunOnce(t *testing.T) {
@@ -104,5 +106,59 @@ printf '%s\n' "$*" >> "$ISUCON_TEST_CALL_LOG"
 	}
 	if got := string(calls); got != "before-bench MEASURECTL_COLLECT_FLAGS=\n" {
 		t.Fatalf("task calls = %q", got)
+	}
+}
+
+func TestBeforeBenchRunsSnapshotCleanupInBash(t *testing.T) {
+	task, err := exec.LookPath("task")
+	if err != nil {
+		t.Skip("task is not installed")
+	}
+	body, err := os.ReadFile("../../Taskfile.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config struct {
+		Tasks map[string]struct {
+			Cmds []string `yaml:"cmds"`
+		} `yaml:"tasks"`
+	}
+	// Decode only the target task: other tasks have mapping commands.
+	var document map[string]interface{}
+	if err := yaml.Unmarshal(body, &document); err != nil {
+		t.Fatal(err)
+	}
+	tasks := document["tasks"].(map[string]interface{})
+	isolated, err := yaml.Marshal(map[string]interface{}{"tasks": map[string]interface{}{"before-bench": tasks["before-bench"]}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := yaml.Unmarshal(isolated, &config); err != nil {
+		t.Fatal(err)
+	}
+	script := config.Tasks["before-bench"].Cmds[0]
+	begin := strings.Index(script, "(cd tools/backlog")
+	end := strings.LastIndex(script, "BASH")
+	if begin < 0 || end < begin {
+		t.Fatal("cannot isolate before-bench commands")
+	}
+	// Replace external work, retaining the actual Task shell and cleanup trap.
+	script = script[:begin] + "touch \"$snapshot\"\nexit 7\n" + script[end:]
+	tmp := t.TempDir()
+	script = strings.NewReplacer("{{.RAW_DIR}}", tmp, "{{.RUN_ID}}", "test-run").Replace(script)
+	fixture, err := yaml.Marshal(map[string]interface{}{"version": "3", "tasks": map[string]interface{}{"check": map[string]interface{}{"cmds": []string{script}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(tmp, "Taskfile.yml")
+	if err := os.WriteFile(path, fixture, 0600); err != nil {
+		t.Fatal(err)
+	}
+	output, err := exec.Command(task, "--taskfile", path, "check").CombinedOutput()
+	if err == nil || !strings.Contains(string(output), "exit status 7") {
+		t.Fatalf("unexpected task result: %v\n%s", err, output)
+	}
+	if _, err := os.Stat(filepath.Join(tmp, "applied-snapshot-test-run.json")); !os.IsNotExist(err) {
+		t.Fatalf("snapshot was not cleaned: %v", err)
 	}
 }

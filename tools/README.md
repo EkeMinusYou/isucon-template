@@ -136,6 +136,6 @@ GoのCPU、heap、allocs、goroutine profileも既定無効である。アプリ
 
 ## 検証コマンドの意味
 
-- `task setup-check`は`task test-tools`、`task artifacts`、`task backlog -- validate`を含む。
+- `task setup-check`は`task test-tools`、`task artifacts`、`task backlog -- validate`を含む。個別検査と全体検査が重なる場合、通過済みの検査は変更・失敗・未解決の懸念がない限り繰り返さない。
 - `task deploy-*-dry`はdeployctlの`-dry-run`でrole・転送元/先・activation順を検証する。Go Taskの`task --dry`は表示のみで、代用できない。
 - 採用ゲートは[Backlog workflowのAdoption](backlog/backlog-workflow.md#adoption)に従う。`task pass`が失敗・未判定・スコア不明・不整合controlを拒否することを確認する。

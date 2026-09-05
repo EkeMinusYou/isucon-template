@@ -389,3 +389,25 @@ func TestCompareManifestDetectsAdditionalRoleChanges(t *testing.T) {
 		})
 	}
 }
+
+func TestCompareManifestRejectsCollectorModeChange(t *testing.T) {
+	dir := t.TempDir()
+	passed := true
+	control := Manifest{RunID: filepath.Base(dir), SchemaVersion: 4, Phase: "finalized", Passed: &passed, Preflight: Preflight{CollectorClean: true}, BacklogSnapshot: BacklogSnapshot{SchemaVersion: 3, Status: "ok", Cards: []AppliedSnapshotCard{}}}
+	body, err := json.Marshal(control)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "run.json"), body, 0600); err != nil {
+		t.Fatal(err)
+	}
+	target := control
+	target.CollectorsDisabled = true
+	comparison, err := compareManifest(target, dir, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if comparison.Status == "compatible" || !strings.Contains(strings.Join(comparison.Reasons, " "), "periodic collector mode differs") {
+		t.Fatalf("mode mismatch not rejected: %#v", comparison)
+	}
+}

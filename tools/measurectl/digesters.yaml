@@ -38,7 +38,7 @@ digesters:
       script: |
         set -eu
         printf '# host={host} unit={var:app_service} load_window={load_start}..{load_end}\n'
-        sudo journalctl -u '{var:app_service}' --since '{load_start}' --until '{load_end}' --no-pager -o short-iso-precise
+        sudo journalctl -u '{var:app_service}' --since "$(date -u -d '{load_start}' '+%Y-%m-%d %H:%M:%S.%6N UTC')" --until "$(date -u -d '{load_end}' '+%Y-%m-%d %H:%M:%S.%6N UTC')" --no-pager -o short-iso-precise
     stderr: app-journal.stderr
     outputs:
       - file: '{host}-app-journal.log'
@@ -51,7 +51,7 @@ digesters:
       script: |
         set -eu
         printf '# host={host} unit=nginx load_window={load_start}..{load_end}\n'
-        sudo journalctl -u nginx --since '{load_start}' --until '{load_end}' --no-pager -o short-iso-precise
+        sudo journalctl -u nginx --since "$(date -u -d '{load_start}' '+%Y-%m-%d %H:%M:%S.%6N UTC')" --until "$(date -u -d '{load_end}' '+%Y-%m-%d %H:%M:%S.%6N UTC')" --no-pager -o short-iso-precise
         printf '# /var/log/nginx/error.log filtered to the same load window\n'
         if sudo test -r /var/log/nginx/error.log; then
           start=$(date -d '{load_start}' '+%Y/%m/%d %H:%M:%S')
@@ -77,7 +77,7 @@ digesters:
       script: |
         set -eu
         printf '# host={host} kernel load_window={load_start}..{load_end}\n'
-        sudo journalctl -k --since '{load_start}' --until '{load_end}' --no-pager -o short-iso-precise
+        sudo journalctl -k --since "$(date -u -d '{load_start}' '+%Y-%m-%d %H:%M:%S.%6N UTC')" --until "$(date -u -d '{load_end}' '+%Y-%m-%d %H:%M:%S.%6N UTC')" --no-pager -o short-iso-precise
     stderr: kernel-journal.stderr
     outputs:
       - file: '{host}-kernel.log'
@@ -92,7 +92,7 @@ digesters:
         printf '# host={host} OOM events load_window={load_start}..{load_end}\n'
         tmp=$(mktemp)
         trap 'rm -f "$tmp"' EXIT HUP INT TERM
-        sudo journalctl -k --since '{load_start}' --until '{load_end}' --no-pager -o short-iso-precise > "$tmp"
+        sudo journalctl -k --since "$(date -u -d '{load_start}' '+%Y-%m-%d %H:%M:%S.%6N UTC')" --until "$(date -u -d '{load_end}' '+%Y-%m-%d %H:%M:%S.%6N UTC')" --no-pager -o short-iso-precise > "$tmp"
         grep -E -i 'out of memory|oom-kill|killed process|memory cgroup out of memory' "$tmp" || true
     stderr: oom-events.stderr
     outputs:

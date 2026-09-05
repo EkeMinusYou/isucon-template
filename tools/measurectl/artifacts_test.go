@@ -46,3 +46,76 @@ func TestOptionalOneshotProducesOptionalArtifactSpec(t *testing.T) {
 		t.Fatal("disabled oneshot reported enabled by default")
 	}
 }
+
+func TestPerHostDigesterArtifactsMatchCollectedFiles(t *testing.T) {
+	dir := t.TempDir()
+	collectors := filepath.Join(dir, "collectors.yaml")
+	digesters := filepath.Join(dir, "digesters.yaml")
+	if err := os.WriteFile(collectors, []byte("prepare: [{name: noop, hosts: app, script: true}]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	body := `digesters:
+  - name: journal
+    remote:
+      role: app
+      per_host: true
+      script: echo journal
+    outputs:
+      - file: '{host}-app-journal.log'
+`
+	if err := os.WriteFile(digesters, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	specs, err := loadArtifactSpecs(collectors, digesters)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var journals []ArtifactSpec
+	for _, spec := range specs {
+		if spec.Producer == "digester:journal" && !spec.Optional {
+			journals = append(journals, spec)
+		}
+	}
+	if len(journals) != 1 {
+		t.Fatalf("journal specs = %#v", journals)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "isucon-1-app-journal.log"), []byte("journal\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkRunDir(dir, journals); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(dir, "isucon-1-app-journal.log")); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkRunDir(dir, journals); err == nil {
+		t.Fatal("a completely missing per-host artifact was accepted")
+	}
+}
+
+func TestCollectorDisabledModeStillRequiresLogsAndDigests(t *testing.T) {
+	dir := t.TempDir()
+	specs := []ArtifactSpec{
+		{Pattern: "metrics.tsv", Producer: "collector:proc"},
+		{Pattern: "access.log", Producer: "source:access"},
+		{Pattern: "alp.json", Producer: "digester:alp"},
+	}
+	withoutCollectors := specsForCollectorMode(specs, true)
+	for _, name := range []string{"access.log", "alp.json"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("data"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := checkRunDir(dir, withoutCollectors); err != nil {
+		t.Fatalf("intentional collector absence rejected: %v", err)
+	}
+	if err := checkRunDir(dir, specs); err == nil {
+		t.Fatal("enabled collector absence was accepted")
+	}
+	if err := os.Remove(filepath.Join(dir, "alp.json")); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkRunDir(dir, withoutCollectors); err == nil {
+		t.Fatal("missing digester was hidden by collector mode")
+	}
+}

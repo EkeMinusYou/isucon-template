@@ -51,8 +51,8 @@ deployments:
         delete: true
       - label: MySQL systemd limits
         role: mysql
-        local: etc/systemd/system/mysql.service.d/limits.conf
-        remote: /etc/systemd/system/mysql.service.d/limits.conf
+        local: etc/systemd/system/mysql.service.d/
+        remote: /etc/systemd/system/mysql.service.d/
     activations:
       - label: restart MySQL
         role: mysql

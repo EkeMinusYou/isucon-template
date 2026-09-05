@@ -160,3 +160,36 @@ func containsArgPair(args []string, first, second string) bool {
 	}
 	return false
 }
+
+func TestCollectorModeSurvivesManifestCreation(t *testing.T) {
+	for _, tc := range []struct {
+		flags    string
+		disabled bool
+	}{
+		{"", false}, {"-no-collectors", true}, {"--no-collectors=true", true},
+		{"-no-collectors=false", false}, {"-no-collectors -no-collectors=false", false},
+	} {
+		t.Run(tc.flags, func(t *testing.T) {
+			opts := testLifecycleOptions(t)
+			opts.collectorFlags = tc.flags
+			if err := os.WriteFile(opts.snapshotPath, []byte(`{"schema_version":3,"status":"ok","cards":[]}`), 0600); err != nil {
+				t.Fatal(err)
+			}
+			dir := filepath.Join(opts.resultsDir, opts.runID)
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				t.Fatal(err)
+			}
+			args, err := opts.manifestBeginArgs(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := runManifestBegin(args); err != nil {
+				t.Fatal(err)
+			}
+			m := readTestManifest(t, filepath.Join(dir, "run.json"))
+			if m.CollectorsDisabled != tc.disabled {
+				t.Fatalf("mode = %v, want %v", m.CollectorsDisabled, tc.disabled)
+			}
+		})
+	}
+}

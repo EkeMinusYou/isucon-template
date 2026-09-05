@@ -1,6 +1,30 @@
 -- Stable analysis semantics over the materialized collector tables. Keep units,
 -- scope, and provenance visible so consumers can drill back to raw artifacts.
 
+-- Failed runs and collector-free runs can have no input files for these tables.
+-- Preserve an empty relation; artifact status remains the source of availability.
+create table if not exists metrics (
+    run_id varchar, ts timestamptz, elapsed_ms bigint, host varchar,
+    source varchar, entity varchar, metric varchar, value double
+);
+
+create table if not exists upstreams (
+    run_id varchar,
+    upstream_addr varchar,
+    upstream_status varchar,
+    cache_status varchar,
+    requests bigint,
+    status_2xx bigint,
+    status_3xx bigint,
+    status_4xx bigint,
+    status_5xx bigint,
+    status_other bigint,
+    response_time_sum_ms double,
+    response_time_avg_ms double,
+    upstream_time_sum_ms double,
+    upstream_time_avg_ms double
+);
+
 create or replace view load_windows as
 select
     m.run_id,
