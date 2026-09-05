@@ -125,7 +125,7 @@ When Evidence is insufficient, record the limitation in Constraint or Interventi
 5. direct selection, value, and loss-recovery Interventions;
 6. MITIGATES and ordinary positive Interventions.
 
-Within a class, preserve Priority, dependencies, Owner, dirty-diff safety, deployment snapshot coherence, and the APPLIED work-in-progress limit.
+Within a class, preserve Priority, dependencies, Owner, dirty-diff safety, and deployment snapshot coherence. The APPLIED work-in-progress limit is an operational rule enforced by [isucon-worker](../../.agents/skills/isucon-worker/SKILL.md), not by the CLI.
 
 ## Writer protocol
 

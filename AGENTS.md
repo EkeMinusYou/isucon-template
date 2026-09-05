@@ -29,7 +29,7 @@ ISUCON用の作業テンプレートリポジトリ。競技サーバーをSSH�
 - サーバー上で直接編集せず、`task setup-*`で取得し、ローカル編集後に`task deploy-*`で反映する
 - `nginx/conf.d/upstream.conf`は`task gen`の生成物なので手編集しない
 - Goアプリとcollectorは、実ホストで確認した`TARGET_OS` / `TARGET_ARCH`へローカルでクロスコンパイルする
-- deploy対象は採用した実装だけにし、参考実装を正規経路へ混ぜない
+- アプリはGo実装を採用し、編集・deploy対象とする。Node実装（`webapp/node/`）を含む他言語の参考実装は参照専用とし、編集せず正規deploy経路へ混ぜない
 
 ## 計測と改善
 

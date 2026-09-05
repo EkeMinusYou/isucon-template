@@ -25,7 +25,7 @@ description: ISUCON競技開始時に、公式資料と実環境からリポジ�
 - 標準外serviceを管理対象にした場合は、適用可能なsetup、deploy、role収束、状態・疎通検査、Evidence回収、RUNの役割記録を正規経路へ組み込み、発見しただけで未管理のまま残さない。適用しない項目がある場合は理由を残す。
 - `nginx/conf.d/upstream.conf`は`task gen`の生成物なので手編集しない。
 - Goは読み取り専用確認で得た実ホストのarchitectureへローカルでクロスコンパイルする。
-- 参考実装が複数ある場合、採用言語以外は仕様参照専用とし、正規deploy対象へ混ぜない。
+- アプリはGo実装を採用する。Node実装を含む他言語の参考実装はAGENTS.mdに従って参照専用とし、編集・deploy対象へ混ぜない。
 - 既存の正規deploy経路で扱える対象に専用タスクを増やさない。
 - 最適化、Constraint作成、Intervention起票は行わない。
 
@@ -39,7 +39,7 @@ description: ISUCON競技開始時に、公式資料と実環境からリポジ�
 6. schemaの取得先と設定構文検査方法をTaskfileへ明示し、`task setup-check`を通す。
 7. `task deploy-app-dry`と`task deploy-all-dry`で転送先、role、activation順を確認する。
 8. 正規の`task deploy-*`で反映し、必要なら`task apply-roles`を行った後、`task check-roles`と`task check-network`を行う。
-9. 対象と影響を確認したうえで`task before-bench`／`task abort-run`を使い、RUN採番・collector・digest・manifest経路を確認する。
+9. 対象と影響を確認したうえで`task before-bench`／`task abort-run`を使い、RUN採番・collector起動・中断時の掃除を確認する。
 10. baseline RUNを`task artifacts-run`で検査し、collectorあり／なしの対になるRUNで計測負荷を確認する。
 11. `task backlog -- objective list`で初期Objectiveを確認し、当日の採点仕様に必要なObjectiveを追加する。
 

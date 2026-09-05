@@ -22,13 +22,15 @@ READY Interventionを安全に実装・適用し、手動ベンチ後の採否�
 - 実装対象はREADYと、すでに自分が持つDOING・VERIFY・APPLIEDだけ。
 - INVESTIGATEから候補を作らず、READY gateを自分で省略しない。
 - リモート変更は既存の`task deploy-*`、役割変更は正規のrole収束経路だけを使う。
-- `webapp/node/`、生成物、サーバー上の直接編集は禁止する。
+- アプリの編集対象はGo実装とする。`webapp/node/`を含む他言語の参考実装は参照専用とし、編集は禁止する。生成物、サーバー上の直接編集も禁止する。
 - ベンチは実行しない。ユーザーが明示した手動ベンチ結果を検証する。
 - 標準計測基盤をInterventionへ混ぜない。新しい計測が必要なら作業を拡大せずユーザーへ報告する。
 
 ## 優先順
 
 共有規律に従う。まず既存DOING・未検証APPLIED・rollback、次にvalidity、ユーザー指定、RESOLVESと依存、Objective直結、MITIGATESを扱う。Owner、dependency、dirty diff、完成snapshotの整合を優先順より先に守る。
+
+APPLIEDはBacklog全体で同時に最大10件とする。これはCLIではなくworkerが守る運用上の上限である。新たな適用前に`task backlog -- list --status APPLIED`でOwnerを問わず件数を確認し、適用後も10件以内に収める。10件に達している場合は追加適用を止め、既存APPLIEDのベンチ後判定を優先する。手動ベンチ待ちなら、その旨を報告する。
 
 ## 状態遷移
 
@@ -40,7 +42,7 @@ READY Interventionを安全に実装・適用し、手動ベンチ後の採否�
 - 技術的反証または安全に成立しない: rollback後`REJECTED`
 - 境界・因果の再調査が必要: Ownerを外して`INVESTIGATE`
 
-BLOCKEDは具体的な外部待ちだけに使い、問い、取得経路、resume triggerを残す。worker自身が再開判定できる場合は同じスキル内で確認する。
+BLOCKEDは具体的な外部待ちだけに使い、問い、取得経路、resume triggerを残す。
 
 ## 障害復旧
 
