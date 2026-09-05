@@ -14,6 +14,9 @@ ISUCON用の作業テンプレートリポジトリ。競技サーバーをSSH�
 - `docs/solutions/` — スキーマや配置に依存する解決策の例
 - `docs/reports/` — 分析レポート。`README.md`の命名規則に従い、既存ファイルを上書きしない
 - `.agents/skills/` — Claude Code / Codex共有skills
+  - `isucon-special-sauce/` — 指定した設定資料、指定なしなら `docs/special-sources/` 全件からINVESTIGATE候補を調査
+  - `isucon-use-solution/` — 指定した一つの `docs/solutions/` 文書からINVESTIGATE候補を調査
+  - `isucon-create-solution/` — 再利用できる実装パターンを `docs/solutions/` に新規作成・更新。Backlog起票・実装は行わない
 - `tools/measurectl/` — RUNの開始、collector、回収、集計、manifest
 - `tools/deployctl/` — 宣言的な転送・activation・deploy plan
 - `tools/analysisctl/`、`tools/analysis/` — RUN横断のDuckDB分析
