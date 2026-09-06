@@ -35,10 +35,13 @@ Taskfileの次の値を競技に合わせる。120秒・40秒は例であり、�
 | `PROFILE_READY_TIMEOUT_SECONDS` | SSH到達後に採取開始を待つ秒数 |
 | `PPROF_BASE_URL` / `FGPROF_URL` / `PROFILE_STATUS_URL` | adapterの公開先。fgprofのsecondsはPROFILE_SECONDSに追従 |
 
-通常の`task bench` / `task bench-manual`が`group: profiles`の有効な宣言を選び、収集開始、全ホストの開始確認、負荷開始、
-profile回収待ち、finalizeを順に行う。手動モードでは案内後すぐに負荷を開始する。
+通常の`task bench` / `task bench-manual`が`group: profiles`の有効な宣言を選び、収集開始、全ホストの開始確認、
+1秒の先行収録、開始状態の再確認、負荷開始、profile回収待ち、finalizeを順に行う。手動モードでは案内後すぐに負荷を開始する。
 ポータルの待機が長い場合など、採取窓が負荷を覆わなければartifact検査は失敗する。
 開始確認失敗時は負荷を開始せず、失敗RUNとして回収を試みる。
+開始通知はprofiler起動成功後に公開する。GoのCPU profile writerは非同期に起動するため、
+通知後も1秒の先行収録時間を取る。この余裕は任意の起動遅延や大きなホスト時計差を保証せず、
+収録時間にはこの1秒も含めて余裕を持たせる。artifactの時間窓検査は緩和しない。
 
 分割操作する場合は開始確認と回収待ちを呼び出し側で管理する。
 
@@ -46,6 +49,8 @@ profile回収待ち、finalizeを順に行う。手動モードでは案内後�
 task before-bench PROFILES_ENABLED=true
 task profiles-collect &
 profile_pid=$!
+task profiles-ready
+sleep 1
 task profiles-ready
 # Start the benchmark immediately in another terminal and wait for completion.
 wait "$profile_pid"
@@ -71,10 +76,12 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
 	"net/http/pprof"
+	runtimepprof "runtime/pprof"
 	"strconv"
 	"sync"
 	"time"
@@ -83,6 +90,19 @@ import (
 )
 
 func profileHandler(maxSeconds int) http.Handler {
+	return profileHandlerWithStarters(maxSeconds, func(w io.Writer) (func() error, error) {
+		if err := runtimepprof.StartCPUProfile(w); err != nil {
+			return nil, err
+		}
+		return func() error { runtimepprof.StopCPUProfile(); return nil }, nil
+	}, func(w io.Writer) (func() error, error) {
+		return fgprof.Start(w, fgprof.FormatPprof), nil
+	})
+}
+
+type samplingStarter func(io.Writer) (stop func() error, err error)
+
+func profileHandlerWithStarters(maxSeconds int, startCPU, startFG samplingStarter) http.Handler {
 	mux := http.NewServeMux()
 	var stateMu sync.Mutex
 	active := map[string]string{"cpu": "", "fgprof": ""}
@@ -94,7 +114,7 @@ func profileHandler(maxSeconds int) http.Handler {
 	})
 	// CPU and goroutine wall-clock sampling can run together. Reject duplicate
 	// captures of the same kind and expose RUN ownership to the collector gate.
-	bounded := func(kind string, next http.Handler) http.Handler {
+	bounded := func(kind string, start samplingStarter) http.Handler {
 		var sampling sync.Mutex
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			seconds := maxSeconds
@@ -111,6 +131,15 @@ func profileHandler(maxSeconds int) http.Handler {
 				return
 			}
 			defer sampling.Unlock()
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			stop, err := start(w)
+			if err != nil {
+				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+				http.Error(w, "could not start "+kind+" profile: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			// Publish RUN ownership only after the profiler has started successfully.
 			stateMu.Lock()
 			active[kind] = r.URL.Query().Get("run_id")
 			if active[kind] == "" {
@@ -122,14 +151,21 @@ func profileHandler(maxSeconds int) http.Handler {
 				active[kind] = ""
 				stateMu.Unlock()
 			}()
-			query := r.URL.Query()
-			query.Set("seconds", strconv.Itoa(seconds))
-			r.URL.RawQuery = query.Encode()
-			next.ServeHTTP(w, r)
+			defer func() {
+				if err := stop(); err != nil {
+					log.Printf("%s profile export failed: %v", kind, err)
+				}
+			}()
+			timer := time.NewTimer(time.Duration(seconds) * time.Second)
+			defer timer.Stop()
+			select {
+			case <-timer.C:
+			case <-r.Context().Done():
+			}
 		})
 	}
-	mux.Handle("/debug/pprof/profile", bounded("cpu", http.HandlerFunc(pprof.Profile)))
-	mux.Handle("/debug/fgprof", bounded("fgprof", fgprof.Handler()))
+	mux.Handle("/debug/pprof/profile", bounded("cpu", startCPU))
+	mux.Handle("/debug/fgprof", bounded("fgprof", startFG))
 	for _, name := range []string{"heap", "allocs", "goroutine"} {
 		mux.Handle("/debug/pprof/"+name, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// These endpoints are snapshots; delta profiles need a separate policy.

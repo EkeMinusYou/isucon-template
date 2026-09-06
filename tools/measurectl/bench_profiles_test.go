@@ -54,6 +54,14 @@ profiles-ready)
     i=$((i+1)); [ "$i" -lt 200 ] || exit 98
     sleep 0.01
   done
+  if [ "$ISUCON_TEST_READY_EXIT" = 0 ]; then
+    if test -f "$ISUCON_TEST_DIR/ready-first"; then
+      test -f "$ISUCON_TEST_DIR/settled" || exit 94
+    else
+      touch "$ISUCON_TEST_DIR/ready-first"
+      (sleep 0.9; touch "$ISUCON_TEST_DIR/settled") >/dev/null 2>&1 &
+    fi
+  fi
   exit "$ISUCON_TEST_READY_EXIT"
   ;;
 after-bench)
@@ -96,6 +104,9 @@ esac
 			}
 			if strings.Count(string(calls), "after-bench") != 1 {
 				t.Fatalf("calls=%s", calls)
+			}
+			if tc.readyExit == 0 && strings.Count(string(calls), "profiles-ready") != 2 {
+				t.Fatalf("readiness was not checked again after the lead-in: %s", calls)
 			}
 			if tc.readyExit != 0 {
 				if _, err := os.Stat(filepath.Join(tmp, "load-ran")); !os.IsNotExist(err) {

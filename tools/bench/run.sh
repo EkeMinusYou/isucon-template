@@ -62,6 +62,10 @@ if [ "$profiles_enabled" = true ]; then
   profile_pid=$!
   # Do not launch a benchmark until every app is sampling for this RUN.
   task profiles-ready
+  # Leave a lead-in for the asynchronous CPU profile writer and small host
+  # clock offsets. Artifact validation still requires full window coverage.
+  sleep 1
+  task profiles-ready
 fi
 
 if [ "$mode" = manual ]; then

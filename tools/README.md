@@ -114,6 +114,9 @@ digesterも`enabled_by_default: false`で既定の実行対象から外せます
 `bench/run.sh`がこの宣言から収集対象を選び、同じ対象を開始確認・必須成果物判定で使う。
 [Go profile導入例](../docs/special-sources/go-profiling.md)に沿ってsetupでendpointを用意する。
 CPUとfgprofのRUN別開始確認後にベンチを開始し、`PROFILE_SECONDS`秒の収集・回収完了後にfinalizeする。
+開始通知はprofilerの起動成功後に公開する。開始確認後は、CPU profile writerの非同期起動と
+小さなホスト時計差に備えて1秒先行収録し、同じRUNが収録中であることを再確認してからベンチを開始する。
+この1秒は大きな時計差を補正するものではなく、成果物の時間窓検査は緩和しない。
 時間・snapshotの遅延・HTTP timeout・開始確認timeoutはTaskfileで競技に合わせる。
 endpointはloopbackで公開する。`PROFILES_ENABLED=false`またはno-collectorsタスクで停止できる。
 各RUNの`required_artifacts`に有効なホスト別profile・圧縮access log・user-transitionを固定し、内容・計測窓・欠損を検査する。
