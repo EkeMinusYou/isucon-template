@@ -3,7 +3,9 @@ package main
 import (
 	"database/sql"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -13,15 +15,23 @@ func TestDashboardReadsCurrentBacklogSchema(t *testing.T) {
 		t.Fatal(err)
 	}
 	dbPath := filepath.Join(t.TempDir(), "backlog.sqlite3")
+	// Restore dumps with the same CLI as backlog; its SQL dialect may be newer
+	// than the embedded read-only dashboard driver (for example, unistr()).
+	cmd := exec.Command("sqlite3", ":memory:")
+	cmd.Stdin = strings.NewReader(string(schema) + "\nSELECT sql || ';' FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' AND sql IS NOT NULL ORDER BY rowid;\n")
+	ddl, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("read backlog schema: %v", err)
+	}
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(string(schema)); err != nil {
-		db.Close()
+	if _, err := db.Exec(string(ddl)); err != nil {
 		t.Fatal(err)
 	}
 	statements := []string{
+		`INSERT INTO objectives(id, status, mode, title, metric_or_predicate, verification) VALUES ('O-003', 'ACTIVE', 'MAXIMIZE', 'score', 'score', 'benchmark result')`,
 		`INSERT INTO cards(id, status, title, priority, owner, area, updated, updated_by) VALUES ('B-001', 'READY', 'current intervention', 'P1', '', 'app', '2026-09-04T00:00:00Z', 'skill:test')`,
 		`INSERT INTO cards(id, status, title) VALUES ('B-002', 'APPLIED', 'prerequisite')`,
 		`INSERT INTO card_sections(card_id, name, position, body) VALUES ('B-001', 'Hypothesis', 0, 'remove repeated query')`,
