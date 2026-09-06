@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -18,10 +19,25 @@ import (
 // accessLogLine mirrors the fields of one nginx access-<host>.log JSON line
 // that the benchmarker timeline needs (see nginx/ log_format json).
 type accessLogLine struct {
+	Msec         json.RawMessage `json:"msec"`
 	Time         string          `json:"time"`
 	Status       json.RawMessage `json:"status"`
 	ResponseTime float64         `json:"response_time"`
 	BodyBytes    int64           `json:"body_bytes"`
+}
+
+func accessLogSecond(rec accessLogLine) (int64, bool) {
+	// nginx $msec is epoch seconds with a fractional part, not milliseconds.
+	var number json.Number
+	if err := json.Unmarshal(rec.Msec, &number); err == nil {
+		seconds, err := number.Float64()
+		if err == nil && !math.IsNaN(seconds) && !math.IsInf(seconds, 0) && seconds >= 0 && seconds < float64(math.MaxInt64) {
+			return int64(math.Floor(seconds)), true
+		}
+	}
+	// Preserve historical logs that used an RFC3339 time field.
+	t, err := time.Parse(time.RFC3339, rec.Time)
+	return t.Unix(), err == nil
 }
 
 // accessRecord is a parsed, bucketable access-log entry.
@@ -118,12 +134,12 @@ func readAccessRecords(dir string) ([]accessRecord, error) {
 			if err := json.Unmarshal([]byte(line), &rec); err != nil {
 				continue
 			}
-			t, err := time.Parse(time.RFC3339, rec.Time)
-			if err != nil {
+			second, ok := accessLogSecond(rec)
+			if !ok {
 				continue
 			}
 			records = append(records, accessRecord{
-				unixSec:    t.Unix(),
+				unixSec:    second,
 				status:     parseTimelineStatus(rec.Status),
 				responseMs: rec.ResponseTime * 1000,
 				bodyBytes:  rec.BodyBytes,

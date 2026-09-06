@@ -93,8 +93,8 @@ export function BenchmarkTimeline({ timeline }: { timeline: TimelineResponse }) 
   if (!timeline.available || timeline.buckets.length === 0) {
     return (
       <EmptyState
-        title="access-*.log がまだありません"
-        detail="このRUNでは nginx のリクエストログが回収されていません"
+        title="表示できるアクセス記録がありません"
+        detail="このRUNのログが未取得・空、または有効な時刻を読み取れませんでした"
       />
     )
   }
