@@ -19,6 +19,7 @@ description: ISUCON競技開始時に、公式資料と実環境からリポジ�
 - Go採用、参考実装の参照専用扱い、生成物、クロスコンパイル、正規setup/deployはAGENTS.mdに従う。
 - 既存の正規deploy経路で扱える対象に専用タスクを増やさない。
 - 最適化、Constraint作成、Intervention起票は行わない。
+- collectorあり／なしの計測負荷比較と、再起動後の永続性・スコア再現性の実測検証は適用外とし、完了条件に含めない。
 
 ## 進め方
 
@@ -32,7 +33,7 @@ description: ISUCON競技開始時に、公式資料と実環境からリポジ�
 
 ## 手順
 
-1. 公式資料から変更可能範囲、初期化、整合性、再起動、最終追試条件を確認する。
+1. 公式資料から変更可能範囲、初期化、整合性、再起動、最終追試条件を読み取り、セットアップの構成とObjectiveへ反映する。
 2. `task inspect-hosts`などの読み取り専用SSHでホスト、CPU・メモリ、private IPに加え、稼働・enable済みservice、unit、process、listen portを確認し、固定のservice一覧だけで探索を終えない。
 3. 競技の動作・初期化・採点とその依存serviceを、標準外も含めすべて分類する。対象外は公式資料・実環境に基づく理由を残し、管理対象のアプリ・設定・unit・schemaは`task setup-*`で取得してgit管理する。
 4. `Taskfile.yml`の役割とIPを実環境へ合わせ、標準外serviceのroleとservice名も正本へ追加して、`task gen`で生成物を作る。
@@ -41,7 +42,7 @@ description: ISUCON競技開始時に、公式資料と実環境からリポジ�
 7. `task setup-check`で全体確認する。内包する`task deploy-app-dry`と`task deploy-all-dry`の結果から転送先、role、activation順を確認する。
 8. 正規の`task deploy-*`で反映し、必要なら`task apply-roles`を行った後、`task check-roles`と`task check-network`を行う。
 9. 複数の作業環境から同じ競技サーバーを操作する場合は、サーバーの使用状況と対象RUNの所有元を照合する。対象と影響を確認したうえで`task before-bench`／`task abort-run`を使い、RUN採番・collector起動・中断時の掃除を確認する。
-10. `task artifacts`で生成物と読み手の整合を検査する。baselineが必要になったら実行担当へ依頼し、完了したRUNの`task artifacts-run`で成果物と欠損検出を検査する。同じRUN IDへ成果物と`run.json`が揃い、完全欠損は`missing`と検査失敗になることを確認する。その後、collectorあり／なしの対になるRUNで計測負荷を確認する。結果待ちの間は独立した必要作業を進める。
+10. `task artifacts`で生成物と読み手の整合を検査する。baselineが必要になったら実行担当へ依頼し、完了したRUNの`task artifacts-run`で成果物と欠損検出を検査する。同じRUN IDへ成果物と`run.json`が揃い、完全欠損は`missing`と検査失敗になることを確認する。結果待ちの間は独立した必要作業を進める。
 11. `task backlog -- objective list`で初期Objectiveを確認し、当日の採点仕様に必要なObjectiveを追加する。
 
 このテンプレートはDB初期化Taskを定義しない。公式手順に従って追加する場合は、通常deployと分離し、
