@@ -178,7 +178,7 @@ func TestCardLinePlacesCardOnlyMetadataAfterTitle(t *testing.T) {
 		ID: "B-001", Priority: "P1", Area: "mixed", Owner: "agent:test", Title: "title",
 	}, 110)
 
-	if !strings.Contains(line, "B-001 P1  -  title │ mixed  agent:test") {
+	if !strings.Contains(line, "B-001 P1  -  title │ agent:test") {
 		t.Fatalf("card line does not place card-only metadata after the title: %q", line)
 	}
 }

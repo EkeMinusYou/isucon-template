@@ -9,9 +9,7 @@
 
 ```ini
 net.core.somaxconn=65535
-net.ipv4.tcp_max_syn_backlog=65535
 net.ipv4.ip_local_port_range=10000 60999
-net.ipv4.tcp_tw_reuse=1
 net.core.rmem_max=16777216
 net.core.wmem_max=16777216
 ```
@@ -25,9 +23,7 @@ net.core.wmem_max=16777216
 | 項目 | 役割 | 注意点 |
 | --- | --- | --- |
 | `net.core.somaxconn` | `listen(2)` の accept 待ち行列のカーネル側上限 | アプリケーションが指定した backlog の上限を超えて増やすことはできない |
-| `net.ipv4.tcp_max_syn_backlog` | TCP 接続確立前の SYN 待ち行列の上限 | SYN の滞留を減らす設定であり、確立後の同時接続数の上限ではない |
 | `net.ipv4.ip_local_port_range` | 外向き TCP 接続に使う一時ポートの範囲 | nginx から app、app から MySQL などの発信接続に関係する。待受ポートの範囲ではない |
-| `net.ipv4.tcp_tw_reuse` | 条件を満たす TIME_WAIT ソケットの再利用 | 主に外向き接続の再利用に関係する。接続エラーがないことを確認し、環境のカーネルで実効値を確認する |
 | `net.core.rmem_max` / `net.core.wmem_max` | ソケットの受信・送信バッファの最大値 | 最大値を引き上げるだけで、各ソケットがその量を確保するわけではない |
 
 上記の数値は候補値であり、ホストのメモリー、接続数、`TIME_WAIT` 数、ネットワークエラーなどを計測して
@@ -40,9 +36,7 @@ net.core.wmem_max=16777216
 ```shell
 for key in \
   net.core.somaxconn \
-  net.ipv4.tcp_max_syn_backlog \
   net.ipv4.ip_local_port_range \
-  net.ipv4.tcp_tw_reuse \
   net.core.rmem_max \
   net.core.wmem_max; do
   printf '%s=' "$key"

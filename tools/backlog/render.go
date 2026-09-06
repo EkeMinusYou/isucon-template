@@ -135,18 +135,16 @@ type listLayout struct {
 	relationWidth   int
 	idWidth         int
 	constraintWidth int
-	areaWidth       int
 	ownerWidth      int
 }
 
 func makeListLayout(cards []Card, constraints []Constraint, wide int, showConstraintStatus bool) listLayout {
-	layout := listLayout{idWidth: 5, constraintWidth: 1, areaWidth: 1, ownerWidth: 1}
+	layout := listLayout{idWidth: 5, constraintWidth: 1, ownerWidth: 1}
 	maxTitleWidth := 1
 	for _, card := range cards {
 		layout.idWidth = max(layout.idWidth, width(card.ID))
 		maxTitleWidth = max(maxTitleWidth, width(card.Title))
 		layout.constraintWidth = max(layout.constraintWidth, width(cardConstraintMarker(card)))
-		layout.areaWidth = max(layout.areaWidth, width(orValue(card.Area, "-")))
 		layout.ownerWidth = max(layout.ownerWidth, min(width(orValue(card.Owner, "-")), 28))
 		layout.relationWidth = max(layout.relationWidth, width(cardRelation(card)))
 	}
@@ -158,7 +156,7 @@ func makeListLayout(cards []Card, constraints []Constraint, wide int, showConstr
 	if layout.relationWidth > 24 {
 		layout.relationWidth = 24
 	}
-	cardMetadataWidth := layout.areaWidth + 2 + layout.ownerWidth
+	cardMetadataWidth := layout.ownerWidth
 	fixedWidth := width("   P0  ") + layout.idWidth + layout.constraintWidth + 2 + width(" │ ") + cardMetadataWidth
 	if layout.relationWidth > 0 {
 		fixedWidth += layout.relationWidth + width(" │ ")
@@ -202,12 +200,11 @@ func cardLine(card Card, wide int) string {
 }
 
 func cardLineWithLayout(card Card, wide int, layout listLayout) string {
-	area := pad(orValue(card.Area, "-"), layout.areaWidth)
 	owner := pad(truncate(orValue(card.Owner, "-"), layout.ownerWidth), layout.ownerWidth)
 	constraintMarker := pad(cardConstraintMarker(card), layout.constraintWidth)
 	prefix := fmt.Sprintf("  %s %s  %s  ", bold(pad(card.ID, layout.idWidth)), paint(priorityColor(card.Priority), pad(orValue(card.Priority, "-"), 2)), dim(constraintMarker))
 	title := pad(truncate(card.Title, layout.titleWidth), layout.titleWidth)
-	metadata := dim(area + "  " + owner)
+	metadata := dim(owner)
 	relationText := cardRelation(card)
 	if relationText == "" {
 		return prefix + title + dim(" │ ") + metadata
