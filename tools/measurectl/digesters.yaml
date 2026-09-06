@@ -155,6 +155,7 @@ digesters:
   # Pass paths separately so events from every nginx can be merged by request
   # start time before each Cookie sequence is constructed.
   - name: user-transitions
+    enabled_by_default: true
     label: Cookie user transitions
     source: access
     stderr: user-transitions.stderr

@@ -1,6 +1,6 @@
 # Go profileを通常のRUNへ自動収集する
 
-テンプレートはアプリ実装を持たないため、`PROFILES_ENABLED`の既定値は`false`。
+profileは標準計測として既定で有効。テンプレートはアプリ実装を持たないため、setupでendpointを導入する。
 以下は標準pprof・fgprof・開始確認endpointをアプリに組み込む例であり、自動適用されない。
 競技ルールは `docs/official/` を確認し、ローカルのGoアプリに追加して正規deploy経路で反映する。
 アプリ固有のハンドラー・DB・nginx構成は含まない。
@@ -27,7 +27,7 @@ Taskfileの次の値を競技に合わせる。120秒・40秒は例であり、�
 
 | 設定 | 意味 |
 |---|---|
-| `PROFILES_ENABLED` | adapter導入・疎通確認後にtrueへ変更 |
+| `PROFILES_ENABLED` | 既定true。比較等で採取を停止する場合だけfalseに変更 |
 | `PROFILE_SECONDS` | 初期化・整合性チェック・負荷本体・終了処理と余裕を覆う秒数 |
 | `PROFILE_DELAY` | 自動収集では通常0s。遅延を増やすなら開始確認timeoutも調整 |
 | `SNAPSHOT_PROFILE_DELAY` | 初期化後かつ負荷終了前にsnapshotを取得する遅延 |
@@ -35,7 +35,7 @@ Taskfileの次の値を競技に合わせる。120秒・40秒は例であり、�
 | `PROFILE_READY_TIMEOUT_SECONDS` | SSH到達後に採取開始を待つ秒数 |
 | `PPROF_BASE_URL` / `FGPROF_URL` / `PROFILE_STATUS_URL` | adapterの公開先。fgprofのsecondsはPROFILE_SECONDSに追従 |
 
-有効化後は通常の`task bench` / `task bench-manual`が収集開始、全ホストの開始確認、負荷開始、
+通常の`task bench` / `task bench-manual`が`group: profiles`の有効な宣言を選び、収集開始、全ホストの開始確認、負荷開始、
 profile回収待ち、finalizeを順に行う。手動モードでは案内後すぐに負荷を開始する。
 ポータルの待機が長い場合など、採取窓が負荷を覆わなければartifact検査は失敗する。
 開始確認失敗時は負荷を開始せず、失敗RUNとして回収を試みる。
@@ -52,7 +52,7 @@ wait "$profile_pid"
 task after-bench SCORE=12345
 ```
 
-新しいRUNでは5種類×APP_HOSTSのprofileと各NGINX_HOSTSの圧縮access logを必須にする。
+新しいRUNでは宣言上有効なprofile×APP_HOSTS、各NGINX_HOSTSの圧縮access log、user-transitionを必須にする。
 profileの形式・sample種別・時刻と、ログのzstd・JSON・必須列を検査する。
 ログは空でも保存し、trafficのないホストと回収失敗を区別する。
 データは `go tool pprof` と[DuckDBのpprof表](../../tools/README.md#go-profileのduckdb閲覧)で読む。

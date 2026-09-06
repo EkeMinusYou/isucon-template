@@ -20,7 +20,7 @@ fi
 state_file=${ISUCON_BENCH_RUN_STATE_FILE:?ISUCON_BENCH_RUN_STATE_FILE is required}
 results_dir=${ISUCON_BENCH_RESULTS_DIR:?ISUCON_BENCH_RESULTS_DIR is required}
 collect_flags=${ISUCON_BENCH_COLLECT_FLAGS:-}
-profiles_enabled=${ISUCON_BENCH_PROFILES_ENABLED:-false}
+profiles_enabled=${ISUCON_BENCH_PROFILES_ENABLED:-true}
 case "$profiles_enabled" in true|false) ;; *) echo 'profiles enabled must be true or false' >&2; exit 2 ;; esac
 score=''
 finalized=0

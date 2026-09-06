@@ -113,15 +113,18 @@ task bench-manual
 task bench
 ```
 
-profile自動収集は既定では無効です。[Go profile導入例](docs/special-sources/go-profiling.md)に沿って
-全APP_HOSTSへendpointを導入し、`PROFILES_ENABLED=true`にすると、通常の`bench` / `bench-manual`で
+profile自動収集とuser-transitionは標準で有効です。[Go profile導入例](docs/special-sources/go-profiling.md)に沿って
+setupで全APP_HOSTSへendpointを導入し、識別列・API分類を整えます。通常の`bench` / `bench-manual`で
 CPU・fgprof・heap・allocs・goroutineを自動収集します。CPU・fgprofの開始を確認してから負荷を開始し、
 収集・回収完了後にRUNを確定します。追加のprofile操作は不要です。
+profile対象は`collectors.yaml`の`group: profiles`と`enabled_by_default`から選びます。
+`PROFILES_ENABLED=false`は計測負荷比較等での明示的な停止用です。setupでは分析・dashboardまで確認します。
 
-分割して操作する場合（profile無効時）:
+分割して操作する場合は、[導入例](docs/special-sources/go-profiling.md#時間と開始順序)の開始確認・回収待ちも行ってください。
+以下はprofileを明示的に停止した場合の例です。
 
 ```shell
-task before-bench
+task before-bench PROFILES_ENABLED=false
 # ベンチ実行
 task after-bench SCORE=12345
 ```
@@ -173,11 +176,11 @@ collector負荷の比較が終わるまでは`false`を維持し、採用・非�
 - `<host>-app-journal.log` / `<host>-nginx-error.log`
 - `<host>-kernel.log` / `<host>-oom.log`
 - `upstream-breakdown*.tsv`
-- `user-transitions.json` — `routes.json`を当日のAPIへ合わせた場合
+- `user-transitions.json` — setupで識別列と`routes.json`を当日のAPIへ合わせる標準集計
 
 nginxのJSON access logは、少なくとも`msec`、`method`、`uri`、`status`、`response_time`、`body_bytes`、
-`upstream_time`、`upstream_addr`、`upstream_status`、`cache_status`を出してください。ユーザー遷移を使う場合は、個人情報を保存せず、
-Cookie由来識別子を専用フィールド（既定`session_id`）に出します。識別値は集計中だけhash化され、成果物には残りません。
+`upstream_time`、`upstream_addr`、`upstream_status`、`cache_status`を出してください。標準のユーザー遷移用に、個人情報や認証Cookieの生値を恒久保存せず、
+セッションを結び付けられる識別子を専用フィールド（既定`session_id`）へ出します。集計成果物に識別値は残しません。
 
 `tools/measurectl/collectors.yaml`と`digesters.yaml`は宣言が正本です。成果物を増減したら次を実行します。
 
@@ -191,6 +194,7 @@ task artifacts-run RUN=runs/<RUN_ID>
 開始時にホスト別の必須ログ・profileを`required_artifacts`へ固定し、形式と計測窓を検査します。
 `after-bench`もfinalize・自動ローカルcommit後にこの検査を行い、欠損・不正な内容があれば非0で終了します。
 過去のRUNに新しい必須条件を遡及適用しません。
+開始時の成果物宣言は`artifact_contract`へ固定します。有効なuser-transitionも必須で、識別情報やAPI分類がない場合は検査失敗となります。
 
 `PROFILE_SECONDS`は初期化・整合性チェック・負荷時間・余裕を含めて設定します。既定の120秒は例です。
 heap・allocs・goroutineは`SNAPSHOT_PROFILE_DELAY`後に同時取得します。既定の40秒も競技に合わせて変更します。

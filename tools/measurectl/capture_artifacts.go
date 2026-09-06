@@ -15,7 +15,47 @@ import (
 	"github.com/google/pprof/profile"
 )
 
-var standardProfiles = map[string]bool{"fgprof": true, "go-cpu": true, "go-heap": true, "go-allocs": true, "go-goroutine": true}
+// Historical RUNs predate the frozen artifact contract and had optional profiles.
+var legacyProfiles = map[string]bool{"fgprof": true, "go-cpu": true, "go-heap": true, "go-allocs": true, "go-goroutine": true}
+
+func captureArtifactContract(m Manifest, collectors, digesters string) ([]ArtifactSpec, error) {
+	specs, err := loadArtifactSpecs(collectors, digesters)
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := loadConfig(collectors)
+	if err != nil {
+		return nil, err
+	}
+	if !m.ProfilesEnabled {
+		for _, o := range cfg.Oneshots {
+			if o.Group != "profiles" {
+				continue
+			}
+			for i := range specs {
+				if specs[i].Producer == "oneshot:"+o.Name {
+					specs[i].Optional = true
+				}
+			}
+		}
+	}
+	return appendCaptureSpecs(specsForCollectorMode(specs, m.CollectorsDisabled), m), nil
+}
+
+func specsForRun(current []ArtifactSpec, m Manifest) []ArtifactSpec {
+	if m.ArtifactContract != nil {
+		return append([]ArtifactSpec{}, m.ArtifactContract...)
+	}
+	// Preserve the old optional defaults; RequiredArtifacts still enforces any
+	// per-host captures explicitly recorded by the previous manifest version.
+	specs := specsForCollectorMode(current, m.CollectorsDisabled)
+	for i := range specs {
+		if legacyProfiles[strings.TrimPrefix(specs[i].Producer, "oneshot:")] || specs[i].Producer == "digester:user-transitions" {
+			specs[i].Optional = true
+		}
+	}
+	return appendCaptureSpecs(specs, m)
+}
 
 func captureRequirements(m Manifest, collectors, digesters string) ([]string, error) {
 	cfg, err := loadConfig(collectors)
@@ -33,12 +73,11 @@ func captureRequirements(m Manifest, collectors, digesters string) ([]string, er
 	roles["app"], roles["nginx"], roles["mysql"], roles["entry"] = m.Roles.App, m.Roles.Nginx, []string{m.Roles.MySQL}, []string{m.Roles.Entry}
 	var required []string
 	if m.ProfilesEnabled {
-		found := map[string]bool{}
-		for _, o := range cfg.Oneshots {
-			if !standardProfiles[o.Name] {
-				continue
-			}
-			found[o.Name] = true
+		profiles, err := enabledOneshotsInGroup(cfg.Oneshots, "profiles")
+		if err != nil {
+			return nil, err
+		}
+		for _, o := range profiles {
 			if len(roles[o.Hosts]) == 0 {
 				return nil, fmt.Errorf("profile %s has no hosts", o.Name)
 			}
@@ -46,8 +85,12 @@ func captureRequirements(m Manifest, collectors, digesters string) ([]string, er
 				required = append(required, strings.ReplaceAll(o.Output, "{host}", host))
 			}
 		}
-		if len(found) != len(standardProfiles) {
-			return nil, fmt.Errorf("standard profile declarations are incomplete")
+	}
+	for _, d := range dcfg.Digesters {
+		if d.Name == "user-transitions" && d.enabledByDefault() {
+			for _, o := range d.Outputs {
+				required = append(required, o.File)
+			}
 		}
 	}
 	for _, s := range dcfg.Sources {
@@ -90,6 +133,8 @@ func assessCaptureQuality(dir string, m Manifest, artifacts []Artifact) []Artifa
 			continue
 		}
 		switch {
+		case a.Name == "user-transitions.json":
+			a.Quality = inspectUserTransitions(filepath.Join(dir, a.Name))
 		case strings.HasSuffix(a.Name, ".pprof"):
 			a.Quality = inspectProfile(filepath.Join(dir, a.Name), m.LoadWindow)
 		case strings.HasPrefix(a.Name, "raw/access-") && strings.HasSuffix(a.Name, ".log.zst"):
@@ -115,6 +160,40 @@ func assessCaptureQuality(dir string, m Manifest, artifacts []Artifact) []Artifa
 		}
 	}
 	return artifacts
+}
+
+func inspectUserTransitions(path string) ArtifactQuality {
+	q := ArtifactQuality{Expected: true, Status: "invalid"}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		q.Reason = err.Error()
+		return q
+	}
+	var report struct {
+		SchemaVersion int `json:"schema_version"`
+		Summary       struct {
+			InputFiles           int64 `json:"input_files"`
+			APIRequests          int64 `json:"api_requests"`
+			ClassifiedRequests   int64 `json:"classified_requests"`
+			RequestsWithIdentity int64 `json:"requests_with_identity"`
+		} `json:"summary"`
+	}
+	if err := json.Unmarshal(body, &report); err != nil {
+		q.Reason = "invalid user-transition report: " + err.Error()
+		return q
+	}
+	s := report.Summary
+	q.Rows = s.ClassifiedRequests
+	if report.SchemaVersion != 3 || s.InputFiles <= 0 || s.APIRequests <= 0 || s.ClassifiedRequests <= 0 {
+		q.Reason = "user-transition report has no valid classified API input; check collection and route adapter"
+		return q
+	}
+	if s.RequestsWithIdentity <= 0 {
+		q.Reason = "user-transition identity is missing; configure the access log identity field during setup"
+		return q
+	}
+	q.Status = "valid"
+	return q
 }
 
 func inspectProfile(path string, window LoadWindow) ArtifactQuality {

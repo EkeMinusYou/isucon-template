@@ -96,7 +96,7 @@ SSH切断・復元失敗などで残った場合は、表示された退避先�
 - MySQL slow logの利用可否と、performance schemaのqueryが当日のversionで利用できるか
 - 成果物を追加・削除したときに、fallback headerと分析側のschemaが一致しているか
 
-標準設定ではproc/service/disk、MySQL status、nginx access log、slow query、app/nginx/kernel journalを収集する。journalは`run.json.load_window`と同じ時間窓で回収できることを確認する。
+標準設定ではproc/service/disk、MySQL status、nginx access log、slow query、app/nginx/kernel journal、Go pprof・fgprof、user-transitionを収集する。初期setupでadapterを整え、分析・dashboardまで確認する。journalは`run.json.load_window`と同じ時間窓で回収できることを確認する。
 50msのlock waitと250msのtask stateは既定無効であり、対象環境で負荷を測ったうえで
 `tools/measurectl/collectors.yaml`の各`enabled_by_default`を`true`へ変更して採用する。
 
@@ -110,13 +110,14 @@ digesterも`enabled_by_default: false`で既定の実行対象から外せます
 直接`manifest begin`を使う場合は`-role cache=host-a,host-b`を渡してください。
 分析の`manifests.additional_roles`からも追加roleを参照できます。古いRUNの未記録roleは推測で補いません。
 
-標準のfgprof・Go CPU・heap・allocs・goroutineは、`PROFILES_ENABLED=true`の場合に
-`bench/run.sh`から明示選択して自動収集する。テンプレートの既定値はfalse。
-[Go profile導入例](../docs/special-sources/go-profiling.md)に沿ってendpointを用意した後に有効化する。
+標準のfgprof・Go CPU・heap・allocs・goroutineは`group: profiles`かつ`enabled_by_default: true`。
+`bench/run.sh`がこの宣言から収集対象を選び、同じ対象を開始確認・必須成果物判定で使う。
+[Go profile導入例](../docs/special-sources/go-profiling.md)に沿ってsetupでendpointを用意する。
 CPUとfgprofのRUN別開始確認後にベンチを開始し、`PROFILE_SECONDS`秒の収集・回収完了後にfinalizeする。
 時間・snapshotの遅延・HTTP timeout・開始確認timeoutはTaskfileで競技に合わせる。
 endpointはloopbackで公開する。`PROFILES_ENABLED=false`またはno-collectorsタスクで停止できる。
-各RUNの`required_artifacts`にホスト別profileと圧縮access logを固定し、内容・計測窓・欠損を検査する。
+各RUNの`required_artifacts`に有効なホスト別profile・圧縮access log・user-transitionを固定し、内容・計測窓・欠損を検査する。
+`artifact_contract`には開始時の成果物宣言も保存し、途中で既定値が変わってもRUNの検査条件を維持する。
 raw配下の個別ファイルもmanifestに記録し、trafficのないホストの空ログも圧縮・保存する。
 過去のRUNへ新しい必須条件を遡及適用しない。CPU・fgprof同時取得の計測負荷は比較RUNで評価する。
 
@@ -128,8 +129,10 @@ raw配下の個別ファイルもmanifestに記録し、trafficのないホス�
 - upstream分析: `upstream_time`、`upstream_addr`、`upstream_status`、`cache_status`
 - ユーザー遷移: Cookie由来の専用識別列。既定名は`session_id`
 
-識別値は個人情報を含めず、成果物へ値やhashを保存しない。ユーザー遷移を使わない場合は、
-専用識別列と`user-transitions` digesterを無理に有効化する必要はない。
+識別値は個人情報を含めず、認証Cookie等の生値を恒久保存しない。集計成果物には識別値やhashを保存しない。
+user-transitionは標準対象であり、setupで識別列とアプリ固有API分類を整える。
+有効なAPI入力・識別情報がない成果物は検査失敗となる。未設定をoptional扱いにしない。
+仕様上成立しない場合だけ、根拠を残して`enabled_by_default: false`とする。
 
 ### 分析
 

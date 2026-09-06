@@ -41,6 +41,7 @@ type Prepare struct {
 // Oneshot は走行中に 1 回だけ実行して回収するもの。collector と違って
 // 常駐しないので、pid の管理も後片付けも要らない。
 type Oneshot struct {
+	Group            string `yaml:"group"` // Automatic collection group; members follow enabled_by_default.
 	Ready            string `yaml:"ready"` // Optional RUN-specific capture readiness command.
 	Name             string `yaml:"name"`
 	Label            string `yaml:"label"`

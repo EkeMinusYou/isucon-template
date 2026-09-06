@@ -13,6 +13,26 @@ func boolPointer(value bool) *bool {
 	return &value
 }
 
+func TestOneshotGroupsUseEnabledDefaults(t *testing.T) {
+	all := []Oneshot{
+		{Name: "cpu", Group: "profiles"},
+		{Name: "disabled", Group: "profiles", EnabledByDefault: boolPointer(false)},
+		{Name: "unrelated", Group: "snapshots"},
+	}
+	selected, err := enabledOneshotsInGroup(all, "profiles")
+	if err != nil || len(selected) != 1 || selected[0].Name != "cpu" {
+		t.Fatalf("selected=%v err=%v", selected, err)
+	}
+	if _, err := enabledOneshotsInGroup(all, "typo"); err == nil {
+		t.Fatal("unknown group accepted")
+	}
+	all[0].EnabledByDefault = boolPointer(false)
+	selected, err = enabledOneshotsInGroup(all, "profiles")
+	if err != nil || len(selected) != 0 {
+		t.Fatalf("disabled group=%v err=%v", selected, err)
+	}
+}
+
 func TestSweepScriptTerminatesVerifiedCollectorProcessGroup(t *testing.T) {
 	script := sweepScript([]string{"'/tmp/collector-root'"})
 	for _, want := range []string{

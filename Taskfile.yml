@@ -68,8 +68,8 @@ vars:
   NGINX_ONCPU_PROBE_URL: http://127.0.0.1/
   PPROF_BASE_URL: http://127.0.0.1:6060/debug/pprof
   PROFILE_STATUS_URL: http://127.0.0.1:6060/debug/profiles/status
-  # Enable after installing the endpoint adapter described in docs/special-sources/go-profiling.md.
-  PROFILES_ENABLED: 'false'
+  # Standard measurement; setup must install the endpoint adapter before a RUN.
+  PROFILES_ENABLED: 'true'
   PROFILE_DELAY: 0s
   SNAPSHOT_PROFILE_DELAY: 40s
   # Example budget: initialization + checks + load + margin. Tune for the contest.
@@ -586,7 +586,7 @@ tasks:
     vars:
       ACTIVE_RUN_ID:
         sh: sh tools/bench/active-run-id.sh '{{.RUN_STATE_FILE}}'
-    cmds: ['{{.MEASURECTL_DIR}}/measurectl collect oneshot -only fgprof,go-cpu,go-heap,go-allocs,go-goroutine -run-id {{.ACTIVE_RUN_ID}} -run-dir {{.RESULT_DIR}}/{{.ACTIVE_RUN_ID}} {{.MEASURECTL_REMOTE}}']
+    cmds: ['{{.MEASURECTL_DIR}}/measurectl collect oneshot -group profiles -run-id {{.ACTIVE_RUN_ID}} -run-dir {{.RESULT_DIR}}/{{.ACTIVE_RUN_ID}} {{.MEASURECTL_REMOTE}}']
 
   profiles-ready:
     desc: 進行中RUNのCPU・fgprof開始を全APP_HOSTSで確認
@@ -594,7 +594,7 @@ tasks:
     vars:
       ACTIVE_RUN_ID:
         sh: sh tools/bench/active-run-id.sh '{{.RUN_STATE_FILE}}'
-    cmds: ['{{.MEASURECTL_DIR}}/measurectl collect ready -only fgprof,go-cpu -run-id {{.ACTIVE_RUN_ID}} {{.MEASURECTL_REMOTE}}']
+    cmds: ['{{.MEASURECTL_DIR}}/measurectl collect ready -group profiles -run-id {{.ACTIVE_RUN_ID}} {{.MEASURECTL_REMOTE}}']
 
   fgprof-collect:
     desc: 進行中RUNへfgprofを収集

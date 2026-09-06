@@ -50,6 +50,7 @@ func runCollect(args []string) error {
 	sshUser := fs.String("ssh-user", "ubuntu", "SSH ユーザー")
 	sshOpts := fs.String("ssh-opts", "", "ssh へ渡す追加オプション (空白区切り)")
 	only := fs.String("only", "", "この collector だけを対象にする (カンマ区切り)")
+	group := fs.String("group", "", "enabled oneshots in this declaration group (oneshot/ready only)")
 	include := fs.String("include", "", "既定無効の collector を追加で有効にする (カンマ区切り)")
 	noCollectors := fs.Bool("no-collectors", false, "prepare/digestは維持し、常駐collectorだけを無効にする")
 	dryRun := fs.Bool("dry-run", false, "実行せず、流すコマンドだけを表示する")
@@ -67,6 +68,15 @@ func runCollect(args []string) error {
 	}
 	onlyNames := parseNames(*only)
 	includeNames := parseNames(*include)
+	if *group != "" {
+		if (action != "oneshot" && action != "ready") || onlyNames != nil || includeNames != nil || *noCollectors {
+			return errors.New("-group requires oneshot/ready and cannot be combined with -only, -include or -no-collectors")
+		}
+		cfg.Oneshots, err = enabledOneshotsInGroup(cfg.Oneshots, *group)
+		if err != nil {
+			return err
+		}
+	}
 	if *noCollectors && (onlyNames != nil || includeNames != nil) {
 		return errors.New("-no-collectors は -only / -include と同時に指定できません")
 	}
@@ -164,10 +174,25 @@ func (r *runner) readyAll() error {
 			jobs = append(jobs, job{script, host})
 		}
 	}
-	if len(jobs) == 0 {
-		return errors.New("no readiness commands selected")
-	}
+	// Snapshot-only or explicitly disabled groups need no readiness gate.
 	return parallel(jobs, func(j job) error { return r.ssh(j.host, j.script) })
+}
+
+func enabledOneshotsInGroup(all []Oneshot, group string) ([]Oneshot, error) {
+	var selected []Oneshot
+	found := false
+	for _, o := range all {
+		if o.Group == group {
+			found = true
+			if o.enabledByDefault() {
+				selected = append(selected, o)
+			}
+		}
+	}
+	if !found {
+		return nil, fmt.Errorf("unknown oneshot group %q", group)
+	}
+	return selected, nil
 }
 
 func parseNames(value string) map[string]bool {

@@ -105,7 +105,7 @@ printf '%s\n' "$*" >> "$ISUCON_TEST_CALL_LOG"
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := string(calls); got != "before-bench MEASURECTL_COLLECT_FLAGS= PROFILES_ENABLED=false\n" {
+	if got := string(calls); got != "before-bench MEASURECTL_COLLECT_FLAGS= PROFILES_ENABLED=true\n" {
 		t.Fatalf("task calls = %q", got)
 	}
 }

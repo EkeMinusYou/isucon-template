@@ -10,7 +10,106 @@ import (
 	"time"
 
 	"github.com/google/pprof/profile"
+	"gopkg.in/yaml.v3"
 )
+
+func TestStandardCaptureSelectionAndFrozenContract(t *testing.T) {
+	cfg, err := loadConfig("collectors.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dcfg, err := loadDigestConfig("digesters.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Oneshots[0].EnabledByDefault = boolPointer(false)
+	for i := range dcfg.Digesters {
+		if dcfg.Digesters[i].Name == "user-transitions" {
+			dcfg.Digesters[i].EnabledByDefault = boolPointer(false)
+		}
+	}
+	dir := t.TempDir()
+	writeConfig := func(name string, value any) string {
+		body, err := yaml.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, body, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	collectors := writeConfig("collectors.yaml", cfg)
+	digesters := writeConfig("digesters.yaml", dcfg)
+	m := Manifest{ProfilesEnabled: true, Roles: Roles{App: []string{"host"}, Nginx: []string{"host"}}}
+	m.RequiredArtifacts, err = captureRequirements(m, collectors, digesters)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(m.RequiredArtifacts) != 5 {
+		t.Fatalf("requirements=%v", m.RequiredArtifacts)
+	}
+	selected, err := enabledOneshotsInGroup(cfg.Oneshots, "profiles")
+	if err != nil || len(selected) != 4 {
+		t.Fatalf("selected=%v err=%v", selected, err)
+	}
+	for _, o := range selected {
+		if !strings.Contains(strings.Join(m.RequiredArtifacts, ","), "host-"+o.Name+".pprof") {
+			t.Fatalf("capture missing for %s", o.Name)
+		}
+	}
+	m.ArtifactContract, err = captureArtifactContract(m, collectors, digesters)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Re-enabling the declarations must not change a RUN already in progress.
+	current, err := loadArtifactSpecs("collectors.yaml", "digesters.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, spec := range specsForRun(current, m) {
+		if (spec.Producer == "oneshot:fgprof" || spec.Producer == "digester:user-transitions") && !spec.Optional {
+			t.Fatalf("frozen default changed: %+v", spec)
+		}
+	}
+	for _, spec := range specsForRun(current, Manifest{}) {
+		if (spec.Producer == "oneshot:fgprof" || spec.Producer == "digester:user-transitions") && !spec.Optional {
+			t.Fatalf("old RUN gained new requirement: %+v", spec)
+		}
+	}
+	m.ProfilesEnabled = false
+	m.RequiredArtifacts, err = captureRequirements(m, collectors, digesters)
+	if err != nil || len(m.RequiredArtifacts) != 1 {
+		t.Fatalf("override requirements=%v err=%v", m.RequiredArtifacts, err)
+	}
+	specs, err := captureArtifactContract(m, collectors, digesters)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, spec := range specs {
+		if strings.HasPrefix(spec.Producer, "oneshot:") && !spec.Optional {
+			t.Fatalf("disabled profile still required: %+v", spec)
+		}
+	}
+}
+
+func TestUserTransitionCaptureRequiresIdentity(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "user-transitions.json")
+	for _, tc := range []struct {
+		identity int
+		valid    bool
+	}{{0, false}, {2, true}} {
+		body := fmt.Sprintf(`{"schema_version":3,"summary":{"input_files":1,"api_requests":3,"classified_requests":3,"requests_with_identity":%d}}`, tc.identity)
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		q := inspectUserTransitions(path)
+		if (q.Status == "valid") != tc.valid {
+			t.Fatalf("quality=%+v", q)
+		}
+	}
+}
 
 func TestCaptureRequirementsArePerHostAndFrozen(t *testing.T) {
 	m := Manifest{ProfilesEnabled: true, Roles: Roles{App: []string{"host-1", "host-2", "host-3"}, Nginx: []string{"host-1", "host-2", "host-3"}}}
@@ -18,7 +117,7 @@ func TestCaptureRequirementsArePerHostAndFrozen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(required) != 18 {
+	if len(required) != 19 {
 		t.Fatalf("required=%v", required)
 	}
 	m.RequiredArtifacts = required
@@ -47,7 +146,7 @@ func TestCaptureRequirementsArePerHostAndFrozen(t *testing.T) {
 	}
 	m.ProfilesEnabled = false
 	required, err = captureRequirements(m, "collectors.yaml", "digesters.yaml")
-	if err != nil || len(required) != 3 {
+	if err != nil || len(required) != 4 {
 		t.Fatalf("disabled profiles requirements=%v err=%v", required, err)
 	}
 	if got := appendCaptureSpecs(nil, Manifest{}); len(got) != 0 {

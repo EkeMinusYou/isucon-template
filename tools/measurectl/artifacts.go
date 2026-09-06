@@ -28,11 +28,11 @@ import (
 // ArtifactSpec は「1 走行が出すはずのファイル」1 件。
 type ArtifactSpec struct {
 	// 走行ディレクトリからの相対パス。ホスト差し替えは * にしてある。
-	Pattern string
+	Pattern string `json:"pattern"`
 	// 誰が出すか (collector:proc / digester:alp など)。ズレたときに追う先。
-	Producer string
+	Producer string `json:"producer"`
 	// 正常時に残らないもの (stderr は空なら after-bench が消す)。
-	Optional bool
+	Optional bool `json:"optional"`
 }
 
 func runArtifacts(args []string) error {
@@ -60,8 +60,7 @@ func runArtifacts(args []string) error {
 		if err := json.Unmarshal(body, &manifest); err != nil {
 			return err
 		}
-		specs = specsForCollectorMode(specs, manifest.CollectorsDisabled)
-		specs = appendCaptureSpecs(specs, manifest)
+		specs = specsForRun(specs, manifest)
 		if err := checkRunDir(*runDir, specs); err != nil {
 			return err
 		}

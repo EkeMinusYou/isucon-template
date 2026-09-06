@@ -25,6 +25,7 @@ import (
 // 実ファイルから型を推論するので、RUN によってキーが出たり消えたりすると
 // 横断クエリのスキーマが揺れる。
 type Manifest struct {
+	ArtifactContract   []ArtifactSpec  `json:"artifact_contract,omitempty"`
 	ProfilesEnabled    bool            `json:"profiles_enabled"`
 	RequiredArtifacts  []string        `json:"required_artifacts,omitempty"`
 	CollectorsDisabled bool            `json:"collectors_disabled,omitempty"`
@@ -236,6 +237,10 @@ func runManifestBegin(args []string) error {
 		if err != nil {
 			return err
 		}
+		m.ArtifactContract, err = captureArtifactContract(m, *collectors, *digesters)
+		if err != nil {
+			return err
+		}
 	}
 	if *compareRunDir != "" {
 		comparison, err := compareManifest(m, *compareRunDir, m.Comparison.AllowedCards, m.Comparison.AllowedRoles)
@@ -310,8 +315,7 @@ func runManifestFinalize(args []string) error {
 	if err != nil {
 		return err
 	}
-	specs = specsForCollectorMode(specs, m.CollectorsDisabled)
-	specs = appendCaptureSpecs(specs, m)
+	specs = specsForRun(specs, m)
 	if artifacts == nil {
 		artifacts = []Artifact{}
 	}
