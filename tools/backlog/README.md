@@ -44,7 +44,7 @@ The skill decides when an assessment is required under the [relation rules](back
 
 ## CLI checks
 
-The CLI enforces the [lifecycle and READY contract](backlog-workflow.md#intervention) structurally: the three sections (Hypothesis, Change boundary, Verification) must be non-empty, an ACTIVE Objective must be linked, and BLOCKING dependencies must be satisfied. It does not grade prose or require a known effect size. ORDERING dependencies do not block READY. `READY -> DOING` uses `update` with a non-empty Owner atomically; investigation uses `resolve` to commit the body and outcome together.
+The CLI enforces the [lifecycle and READY contract](backlog-workflow.md#intervention) structurally: the three sections (Hypothesis, Change boundary, Evaluation) must be non-empty, an ACTIVE Objective must be linked, and BLOCKING dependencies must be satisfied. It does not grade prose or require a known effect size. ORDERING dependencies do not block READY. `READY -> DOING` uses `update` with a non-empty Owner atomically; investigation uses `resolve` to commit the body and outcome together.
 
 Targeted writes require `--expect-card-version`; Constraint and Objective writes use their own version checks. Dependencies explicitly supply `required-status` and `mode`. Skill-specific policies such as the worker's APPLIED limit are not CLI gates.
 
@@ -61,7 +61,7 @@ Benchmark and Evidence commands accept only APPLIED snapshot schema version 3.
 | Hash | Input | Effect of a change |
 | --- | --- | --- |
 | `change_boundary_hash` | Normalized `Change boundary` | Invalidates comparison/adoption against the old snapshot and requires reassessment of a bound performance residual |
-| `decision_hash` | `Hypothesis`, `Verification` | Review warning only; does not invalidate comparison/adoption or require residual recalculation |
+| `decision_hash` | `Hypothesis`, `Evaluation` | Review warning only; does not invalidate comparison/adoption or require residual recalculation |
 
 All other fields, including workflow metadata, relations, observations, results, and History, are excluded. Line endings, trailing spaces, and equivalent JSON formatting are normalized. These hashes detect stale declarations; they do not prove deployed-code agreement or semantic equivalence of differently worded declarations.
 
@@ -81,3 +81,5 @@ task backlog -- validate
 ```
 
 Validation checks SQLite integrity, IDs and versions, card states, READY contracts, dependencies, Objective hierarchy, ACTIVE Constraint scope, Constraint relations, and assessment bindings.
+
+For existing cards, migrate the old section with `task backlog -- migrate-evaluation B-001 --expect-card-version N --actor human:name --reason "Rename and scope evaluation" < evaluation.txt`. The input is the revised Evaluation text. This one-time operation preserves status, Owner, section order, and the previous text in History, including for terminal cards. Normal writes accept only `Evaluation`.

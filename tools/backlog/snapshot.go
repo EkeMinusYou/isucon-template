@@ -131,11 +131,12 @@ func cardChangeBoundaryHash(card Card) string {
 
 func cardDecisionHash(card Card) string {
 	decision := struct {
-		Hypothesis   string `json:"hypothesis"`
-		Verification string `json:"verification"`
+		Hypothesis string `json:"hypothesis"`
+		// Keep the hash encoding stable across the section rename.
+		Evaluation string `json:"verification"`
 	}{
-		Hypothesis:   normalizeAdoptionContractText(sectionBody(card.Sections, sectionHypothesis)),
-		Verification: normalizeAdoptionContractText(sectionBody(card.Sections, sectionVerification)),
+		Hypothesis: normalizeAdoptionContractText(sectionBody(card.Sections, sectionHypothesis)),
+		Evaluation: normalizeAdoptionContractText(sectionBody(card.Sections, sectionEvaluation)),
 	}
 	body, _ := json.Marshal(decision)
 	sum := sha256.Sum256(body)

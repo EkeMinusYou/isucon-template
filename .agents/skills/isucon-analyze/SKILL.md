@@ -48,7 +48,7 @@ workflowは見出しを検索して上記の節だけ読む。同じ内容を読
 - Observation: Evidence、snapshot、単位・母数
 - Hypothesis: Objectiveへ効く因果と期待する方向
 - Change boundary: `pending`でもよいが、想定する採否境界を示す
-- Verification: 既存の標準Evidenceで何を確認するか
+- Evaluation: 適用後に保存済み計測結果・読み取り専用SSHで確認する内容と採用・修正・不採用の基準
 
 候補単位で起票し、レポート一枚を一カードにしない。現行で解消済み、仕様上必須、効果方向を説明不能、完全重複の案は起票せず理由をレポートへ残す。
 

@@ -28,7 +28,7 @@ func seedBacklog(t *testing.T, store *Store, revision int, nextID string, cards 
 			for _, section := range card.Sections {
 				present[section.Name] = true
 			}
-			for _, name := range []string{sectionHypothesis, sectionChangeBoundary, sectionVerification} {
+			for _, name := range []string{sectionHypothesis, sectionChangeBoundary, sectionEvaluation} {
 				if !present[name] {
 					card.Sections = append(card.Sections, Section{Name: name, Position: len(card.Sections), Body: "test " + strings.ToLower(name)})
 				}
@@ -87,7 +87,7 @@ func seedBacklog(t *testing.T, store *Store, revision int, nextID string, cards 
 
 func prepareReadyContract(t *testing.T, store *Store, cardID string) {
 	t.Helper()
-	for position, name := range []string{sectionHypothesis, sectionChangeBoundary, sectionVerification} {
+	for position, name := range []string{sectionHypothesis, sectionChangeBoundary, sectionEvaluation} {
 		if _, err := store.db.Exec(`INSERT INTO card_sections(card_id, name, position, body) VALUES (?, ?, ?, ?)
 			ON CONFLICT(card_id, name) DO UPDATE SET body=excluded.body`, cardID, name, position, "test "+strings.ToLower(name)); err != nil {
 			t.Fatal(err)
@@ -248,7 +248,7 @@ func TestReadyGateRequiresMinimalContract(t *testing.T) {
 	}{
 		{"hypothesis", `DELETE FROM card_sections WHERE card_id='B-001' AND name='Hypothesis'`, "Hypothesis"},
 		{"change boundary", `DELETE FROM card_sections WHERE card_id='B-001' AND name='Change boundary'`, "Change boundary"},
-		{"verification", `DELETE FROM card_sections WHERE card_id='B-001' AND name='Verification'`, "Verification"},
+		{"verification", `DELETE FROM card_sections WHERE card_id='B-001' AND name='Evaluation'`, "Evaluation"},
 		{"active objective", `DELETE FROM objective_interventions WHERE card_id='B-001'`, "ACTIVE Objective"},
 	}
 	for _, test := range tests {
@@ -350,7 +350,7 @@ func TestResolveWithThreeSectionsUpdatesAndTransitionsInOneMutation(t *testing.T
 		Sections: map[string]string{
 			sectionHypothesis:     "remove repeated query work to increase throughput",
 			sectionChangeBoundary: "replace the query and roll it back as one unit",
-			sectionVerification:   `{"version":1,"checks":["run focused tests"],"note":"confirm score magnitude after implementation"}`,
+			sectionEvaluation:     `{"version":1,"checks":["inspect saved correctness results"],"note":"confirm score magnitude after implementation"}`,
 			sectionUnknowns:       "- Decision-blocking: none\n- Post-implementation: confirm score magnitude",
 		},
 	}, mutation{Actor: "skill:isucon-investigate", Operation: "resolve", ExpectedCardVersion: intPtr(0)}, "fast READY gate passed")
@@ -404,7 +404,7 @@ func TestResolveFailureRollsBackContentAndTransition(t *testing.T) {
 
 	_, err := store.resolveCardAndWake("B-001", "READY", CardPatch{
 		Values:   map[string]string{"status": "READY", "title": "must not persist", "removed-field": "invalid"},
-		Sections: map[string]string{sectionVerification: "free-form verification"},
+		Sections: map[string]string{sectionEvaluation: "free-form verification"},
 	}, mutation{Actor: "skill:isucon-investigate", Operation: "resolve", ExpectedCardVersion: intPtr(0)}, "invalid READY resolution")
 	if err == nil || !strings.Contains(err.Error(), "unsupported card field") {
 		t.Fatalf("resolve error = %v", err)
@@ -891,27 +891,27 @@ func TestValidateRejectsMalformedOwner(t *testing.T) {
 	}
 }
 
-func TestVerificationAcceptsFreeTextAndStructuredJSON(t *testing.T) {
+func TestEvaluationAcceptsFreeTextAndStructuredJSON(t *testing.T) {
 	store := testStore(t)
 	seedBacklog(t, store, 0, "B-002", Card{ID: "B-001", Status: "INVESTIGATE", Title: "candidate"})
 
 	err := store.updateCard("B-001", CardPatch{Sections: map[string]string{
-		sectionVerification: "run a focused test",
+		sectionEvaluation: "inspect saved correctness results",
 	}}, mutation{Actor: "agent:test", Operation: "update", ExpectedCardVersion: intPtr(0)}, "write free-text verification")
 	if err != nil {
-		t.Fatalf("free-text Verification update error = %v", err)
+		t.Fatalf("free-text Evaluation update error = %v", err)
 	}
 
 	if err := store.updateCard("B-001", CardPatch{Sections: map[string]string{
-		sectionVerification: `{"version":1,"checks":["run a focused test"],"note":"correctness-only"}`,
+		sectionEvaluation: `{"version":1,"checks":["inspect saved correctness results"],"note":"correctness-only"}`,
 	}}, mutation{Actor: "agent:test", Operation: "update", ExpectedCardVersion: intPtr(1)}, "write structured verification"); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestReadyGateAcceptsFreeTextVerification(t *testing.T) {
+func TestReadyGateAcceptsFreeTextEvaluation(t *testing.T) {
 	store := testStore(t)
-	verification := Section{Name: sectionVerification, Body: "run a focused test"}
+	verification := Section{Name: sectionEvaluation, Body: "inspect saved correctness results"}
 	seedBacklog(t, store, 0, "B-002",
 		Card{ID: "B-001", Status: "INVESTIGATE", Title: "candidate", Sections: []Section{verification}})
 	prepareReadyContract(t, store, "B-001")

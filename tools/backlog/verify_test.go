@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-func TestParseVerificationContractFence(t *testing.T) {
-	contract, err := parseVerificationContract("```json\n{\"version\":1,\"artifacts\":[\"alp.json\"],\"checks\":[\"status is correct\"],\"note\":\"human guardrail\"}\n```")
+func TestParseEvaluationContractFence(t *testing.T) {
+	contract, err := parseEvaluationContract("```json\n{\"version\":1,\"artifacts\":[\"alp.json\"],\"checks\":[\"status is correct\"],\"note\":\"human guardrail\"}\n```")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -16,24 +16,24 @@ func TestParseVerificationContractFence(t *testing.T) {
 	}
 }
 
-func TestParseVerificationContractRejectsUnknownAndTrailingFields(t *testing.T) {
+func TestParseEvaluationContractRejectsUnknownAndTrailingFields(t *testing.T) {
 	for _, body := range []string{
 		`{"version":1,"unknown":true}`,
 		`{"version":1} {"version":1}`,
 	} {
-		if _, err := parseVerificationContract(body); err == nil {
-			t.Fatalf("parseVerificationContract(%q) error = nil", body)
+		if _, err := parseEvaluationContract(body); err == nil {
+			t.Fatalf("parseEvaluationContract(%q) error = nil", body)
 		}
 	}
 }
 
-func TestBuildVerificationSummaryAcceptsFreeText(t *testing.T) {
+func TestBuildEvaluationSummaryAcceptsFreeText(t *testing.T) {
 	card := Card{
 		ID:     "B-001",
 		Status: "APPLIED",
 		Title:  "free text",
 		Sections: []Section{{
-			Name: sectionVerification,
+			Name: sectionEvaluation,
 			Body: "run the focused correctness check",
 		}},
 	}
@@ -42,7 +42,7 @@ func TestBuildVerificationSummaryAcceptsFreeText(t *testing.T) {
 		RunID: "20260101-000001", Phase: "finalized", Passed: &passed,
 		BacklogSnapshot: AppliedSnapshot{SchemaVersion: 3, Status: "ok", Cards: []AppliedSnapshotCard{snapshotCard(card)}},
 	}
-	summary, err := buildVerificationSummary(t.TempDir(), card, target, []verifyManifest{target})
+	summary, err := buildEvaluationSummary(t.TempDir(), card, target, []verifyManifest{target})
 	if err != nil {
 		t.Fatal(err)
 	}

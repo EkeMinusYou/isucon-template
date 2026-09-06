@@ -64,6 +64,8 @@ func main() {
 		runAdd(config, commandArgs)
 	case "update":
 		runUpdate(config, commandArgs)
+	case "migrate-evaluation":
+		runMigrateEvaluation(config, commandArgs)
 	case "resolve":
 		runResolve(config, commandArgs)
 	case "transition":
@@ -149,7 +151,7 @@ func parseGlobal(args []string) (cliConfig, []string, error) {
 
 func mutatesBacklog(command string, args []string) bool {
 	switch command {
-	case "init", "add", "update", "resolve", "transition", "history", "pass":
+	case "init", "add", "migrate-evaluation", "update", "resolve", "transition", "history", "pass":
 		return true
 	case "objective":
 		return len(args) > 0 && args[0] != "list" && args[0] != "show"
@@ -1256,7 +1258,7 @@ func runPass(config cliConfig, args []string) {
 			fatal(getErr)
 		}
 		if snapshotDecisionChanged(run, card) {
-			fmt.Fprintf(os.Stderr, "warning: card %s decision contract changed after evidence RUN %s; review Hypothesis and Verification before adoption\n", id, run.RunID)
+			fmt.Fprintf(os.Stderr, "warning: card %s decision contract changed after evidence RUN %s; review Hypothesis and Evaluation before adoption\n", id, run.RunID)
 		}
 	}
 	score := formatOptionalInt64(run.Score)
@@ -1403,6 +1405,7 @@ Commands:
   snapshot-applied --output PATH          atomically save the current APPLIED card set
   add --title TITLE --actor ACTOR --reason REASON [card fields] [--section-stdin]
   update CARD_ID --expect-card-version N --actor ACTOR --reason REASON [card fields] [--section-stdin]
+  migrate-evaluation CARD_ID --expect-card-version N --actor ACTOR --reason REASON < evaluation.txt
   resolve CARD_ID --expect-card-version N --status READY|BLOCKED|REJECTED --actor ACTOR --reason REASON [card fields] [--section-stdin]
   transition CARD_ID --expect-card-version N --status STATUS --actor ACTOR --reason REASON
   dependency add CARD_ID --on CARD_ID [--required-status STATUS --mode MODE] --expect-card-version N --actor ACTOR --reason REASON
@@ -1430,7 +1433,7 @@ Commands:
 Every write transaction increments backlog_revision internally. update, resolve, and transition require
 --expect-card-version so a changed target card is rejected instead of overwritten. History is append-only.
 Card fields include normalized source/compare/observed RUN relations. Record purpose, boundary,
-decision, verification, blockers, and reconsider conditions in the card sections and History.
+decision, evaluation, blockers, and reconsider conditions in the card sections and History.
 `)
 }
 

@@ -12,7 +12,7 @@ func TestAppliedSnapshotIncludesOnlyAppliedCards(t *testing.T) {
 	store := testStore(t)
 	seedBacklog(t, store, 42, "B-005",
 		Card{ID: "B-001", Status: "APPLIED", Title: "change", Sections: []Section{{Name: sectionChangeBoundary, Body: "replace query"}}},
-		Card{ID: "B-002", Status: "APPLIED", Title: "second change", Sections: []Section{{Name: sectionVerification, Body: `{"version":1}`}}},
+		Card{ID: "B-002", Status: "APPLIED", Title: "second change", Sections: []Section{{Name: sectionEvaluation, Body: `{"version":1}`}}},
 		Card{ID: "B-003", Status: "READY", Title: "ready"},
 		Card{ID: "B-004", Status: "VALIDATED", Title: "validated"})
 
@@ -61,7 +61,7 @@ func TestValidateRunSnapshotCardRequiresSameChangeBoundary(t *testing.T) {
 		{Name: sectionObservation, Body: "baseline observation"},
 		{Name: sectionHypothesis, Body: "remove repeated work"},
 		{Name: sectionChangeBoundary, Body: "replace query"},
-		{Name: sectionVerification, Body: `{"version":1}`},
+		{Name: sectionEvaluation, Body: `{"version":1}`},
 	}}
 	run := runSnapshotEnvelope{
 		Phase:           "finalized",
@@ -96,7 +96,7 @@ func TestCardHashesIgnoreJSONAndLineEndingFormatting(t *testing.T) {
 	card := Card{Sections: []Section{
 		{Name: sectionHypothesis, Body: "remove repeated work  \r\nwithout changing output"},
 		{Name: sectionChangeBoundary, Body: "query only  \r\n"},
-		{Name: sectionVerification, Body: "```json\n{\n  \"checks\": [\"correctness\"],\n  \"version\": 1\n}\n```"},
+		{Name: sectionEvaluation, Body: "```json\n{\n  \"checks\": [\"correctness\"],\n  \"version\": 1\n}\n```"},
 	}}
 	wantBoundary := cardChangeBoundaryHash(card)
 	wantDecision := cardDecisionHash(card)
@@ -115,7 +115,7 @@ func TestConstraintAssessmentHashTracksOnlyChangeBoundary(t *testing.T) {
 	card := Card{Sections: []Section{
 		{Name: sectionHypothesis, Body: "remove repeated work"},
 		{Name: sectionChangeBoundary, Body: "query only"},
-		{Name: sectionVerification, Body: "compare query count"},
+		{Name: sectionEvaluation, Body: "compare query count"},
 	}}
 	want := cardAssessmentChangeBoundaryHash(card)
 	card.Sections[2].Body = "compare latency and query count"
@@ -225,5 +225,12 @@ func TestPassSnapshotCardIDsUsesRunMembership(t *testing.T) {
 	}
 	if _, err := passSnapshotCardIDs(store, run, "B-002"); err == nil || !strings.Contains(err.Error(), "was not APPLIED") {
 		t.Fatalf("snapshot-external card error = %v", err)
+	}
+}
+
+func TestEvaluationRenamePreservesDecisionHashEncoding(t *testing.T) {
+	card := Card{Sections: []Section{{Name: sectionHypothesis, Body: "remove repeated work"}, {Name: sectionEvaluation, Body: "compare saved results"}}}
+	if got := cardDecisionHash(card); got != "sha256:2f638cdfbd10f6fcf427f404d420ffc6607bcde88d7023de6b38ffc1ea3eafa7" {
+		t.Fatalf("decision hash encoding changed: %s", got)
 	}
 }

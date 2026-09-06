@@ -165,7 +165,7 @@ func runEvidence(config cliConfig, args []string) {
 		if err != nil {
 			fatal(err)
 		}
-		summary, err := buildVerificationSummary(config.root, card, target, manifests)
+		summary, err := buildEvaluationSummary(config.root, card, target, manifests)
 		if err != nil {
 			fatal(fmt.Errorf("%s: %w", id, err))
 		}
@@ -179,7 +179,7 @@ func runEvidence(config cliConfig, args []string) {
 		fmt.Println(string(out))
 		return
 	}
-	printVerificationSummaries(summaries)
+	printEvaluationSummaries(summaries)
 }
 
 func parseVerifyArgs(args []string) (string, string, string, error) {
@@ -245,7 +245,7 @@ func loadVerifyManifests(runsDir string) ([]verifyManifest, error) {
 	return manifests, nil
 }
 
-func buildVerificationSummary(root string, card Card, target verifyManifest, manifests []verifyManifest) (verificationSummary, error) {
+func buildEvaluationSummary(root string, card Card, target verifyManifest, manifests []verifyManifest) (verificationSummary, error) {
 	compare, comparisonWarning := selectDeclaredCompareManifest(target, manifests)
 	summary := verificationSummary{
 		CardID: card.ID, Title: card.Title, Status: card.Status,
@@ -274,11 +274,11 @@ func buildVerificationSummary(root string, card Card, target verifyManifest, man
 		summary.Warnings = append(summary.Warnings, "対象RUNはpass=falseです")
 	}
 
-	body := sectionBody(card.Sections, sectionVerification)
+	body := sectionBody(card.Sections, sectionEvaluation)
 	if strings.TrimSpace(body) == "" {
 		return summary, nil
 	}
-	contract, err := parseVerificationContract(body)
+	contract, err := parseEvaluationContract(body)
 	if err != nil {
 		trimmed := strings.TrimSpace(body)
 		if strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "```") {
@@ -306,13 +306,13 @@ func buildVerificationSummary(root string, card Card, target verifyManifest, man
 	return summary, nil
 }
 
-func parseVerificationContract(body string) (verificationContract, error) {
+func parseEvaluationContract(body string) (verificationContract, error) {
 	body = strings.TrimSpace(body)
 	if strings.HasPrefix(body, "```") {
 		firstNewline := strings.IndexByte(body, '\n')
 		lastFence := strings.LastIndex(body, "```")
 		if firstNewline < 0 || lastFence <= firstNewline {
-			return verificationContract{}, errors.New("Verification code fence is incomplete")
+			return verificationContract{}, errors.New("Evaluation code fence is incomplete")
 		}
 		body = strings.TrimSpace(body[firstNewline+1 : lastFence])
 	}
@@ -320,13 +320,13 @@ func parseVerificationContract(body string) (verificationContract, error) {
 	decoder := json.NewDecoder(strings.NewReader(body))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&contract); err != nil {
-		return contract, fmt.Errorf("invalid Verification JSON: %w", err)
+		return contract, fmt.Errorf("invalid Evaluation JSON: %w", err)
 	}
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return contract, errors.New("invalid Verification JSON: trailing content")
+		return contract, errors.New("invalid Evaluation JSON: trailing content")
 	}
 	if contract.Version != 1 {
-		return contract, fmt.Errorf("unsupported Verification version %d", contract.Version)
+		return contract, fmt.Errorf("unsupported Evaluation version %d", contract.Version)
 	}
 	return contract, nil
 }
@@ -559,7 +559,7 @@ func readProfile(root string, manifest verifyManifest, item verificationProfile)
 	return result, nil
 }
 
-func printVerificationSummaries(summaries []verificationSummary) {
+func printEvaluationSummaries(summaries []verificationSummary) {
 	for index, summary := range summaries {
 		if index > 0 {
 			fmt.Println()

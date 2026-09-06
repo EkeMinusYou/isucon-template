@@ -68,11 +68,13 @@ The card body must make three decisions clear without a separate generic contrac
 
 1. `Hypothesis` — Objective and causal direction
 2. `Change boundary` — implementation and rollback unit
-3. `Verification` — observations and adoption/correction/rejection outcomes
+3. `Evaluation` — post-application observations from saved measurement results or read-only SSH, and adoption/correction/rejection criteria
+
+Evaluation is planned during INVESTIGATE and used after application, once measurement results are available. It specifies what to read and how to decide; test execution, deploy, restart, and benchmark execution belong to the implementation/measurement workflow, not this section. `VERIFY` remains the pre-deploy lifecycle state.
 
 New cards always start in INVESTIGATE. Link at least one ACTIVE Objective and satisfy BLOCKING dependencies before READY; ORDERING dependencies need not be complete. `isucon-investigate` is the only skill that creates READY and confirms the three sections in one `resolve` operation.
 
-The skill judges these decisions using standard Evidence or correctness checks; the CLI validates structure only (see [CLI checks](README.md#cli-checks)). Unknown effect size, no current Constraint, or no direct metric does not prevent READY when causal direction and verification are explainable. This includes non-bottleneck improvements, selection, loss recovery, spam control, and experiments. “Try it and inspect score” is insufficient.
+The skill judges these decisions using standard Evidence or correctness checks; the CLI validates structure only (see [CLI checks](README.md#cli-checks)). Unknown effect size, no current Constraint, or no direct metric does not prevent READY when causal direction and evaluation are explainable. This includes non-bottleneck improvements, selection, loss recovery, spam control, and experiments. “Try it and inspect score” is insufficient.
 
 ### BLOCKED
 
