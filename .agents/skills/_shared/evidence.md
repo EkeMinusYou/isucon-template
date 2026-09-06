@@ -16,7 +16,7 @@ Evidenceの選択・比較・欠損・因果の扱いを定める。
 ## RUNの扱い
 
 - `run.json`のphase、役割、source、APPLIED snapshot、artifact statusを先に確認する。
-- RUN間の比較には対象manifestが宣言した`compatible`なcontrolを使う。`scores.tsv`の単なる直前行をcontrolにしない。比較不能理由を残し、対象RUN単独で確認できる事実と分ける。
+- 採用判定とスコア差分には対象manifestが宣言した`compatible`なcontrolを使う。`scores.tsv`の単なる直前行をcontrolにしない。カードの機構指標は`Compare Run`を優先し、未指定なら対象RUNより前でrolesが同一の最新finalized RUNを比較候補にする（複数指定時は最新の指定RUN）。指定が無効な場合は別RUNへ切り替えない。選択だけで比較可能とみなさず、比較不能理由を残し、対象RUN単独で確認できる事実と分ける。
 - 欠損成果物を0として扱わない。
 - 比較RUNは役割・source・計測窓・負荷条件の互換性を確認する。
 - 時間、仕事量、待ち、成功数、失敗数、得点を混同しない。単位と母数を併記する。

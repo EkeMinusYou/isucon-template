@@ -5,6 +5,7 @@
 ## 構成
 
 - `isucon-setup` — 競技開始時の取得、生成、build、正規deploy・bench経路の準備
+- `isucon-observability` — 計測不足の調査、計測基盤の修正・適用・検証。Backlogとは独立し、ベンチはユーザーが実行
 - `isucon-analyze` — Objective・Constraintの作成・更新と、Intervention候補の発見・INVESTIGATE起票
 - `isucon-special-sauce` — 指定した設定資料、指定なしなら `docs/special-sources/` 全件を現行環境と照合し、適用候補をINVESTIGATEに起票
 - `isucon-use-solution` — 指定した一つの `docs/solutions/` 文書を現行環境と照合し、適用候補をINVESTIGATEに起票
@@ -19,6 +20,8 @@
 性能、score mechanics、benchmark behavior、topology、既知solutionの観点は `isucon-analyze/references/` から必要なものだけ読む。候補調査の個別手順は各SKILL.md、三層モデルと状態遷移は共通規律に従う。
 
 ## 共通規律
+
+計測基盤の整備は`isucon-observability`が独立して担当する。例: `$isucon-observability nginxアクセスログとpprofを整備し、他の計測不足も確認して`。計測整備のためのObjective・Constraint・Interventionは作らず、`isucon-worker`の実装対象にも混ぜない。
 
 - [Backlog workflow](../../tools/backlog/backlog-workflow.md) — 三層モデル、状態遷移、READY・採用条件、優先順、書込み規則の正本
 - [Backlog README](../../tools/backlog/README.md) — CLI操作、機械検査、保存形式

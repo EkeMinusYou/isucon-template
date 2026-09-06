@@ -17,7 +17,7 @@ description: docs/special-sources の指定した設定断片、指定なしな�
 
 適用済み・重複・明確な適用不可の場合は理由を残し、重複は既存カードへ補足する。部分適用なら未反映部分を候補とし、一体で採否・適用・切り戻すと分かる設定群は一枚にまとめる。
 
-起票時の actor は `skill:isucon-special-sauce`。
+起票時の actor は `skill:isucon-special-sauce`。Fingerprint は `special-sauce|<source>#<section>|<target>|<mechanism>|<premise>` を目安にする。
 
 ## 完了報告
 

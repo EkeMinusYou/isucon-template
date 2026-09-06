@@ -19,7 +19,7 @@ description: 指定した一つの docs/solutions 文書を現行コード・ス
 
 文書内の実装例や共有基盤を必須条件とせず、現在の構成で成立する実装経路を評価する。複数ファイル・ホスト・schema・初期化にまたがっても、一体で採用・切り戻す変更は一枚にする。独立して採否を判定できる適用箇所だけ分ける。実装・元文書の編集は行わない。
 
-起票時の actor は `skill:isucon-use-solution`。
+起票時の actor は `skill:isucon-use-solution`。Fingerprint は `solution|<source>#<section>|<target>|<mechanism>|<premise>` を目安にする。
 
 ## 完了報告
 

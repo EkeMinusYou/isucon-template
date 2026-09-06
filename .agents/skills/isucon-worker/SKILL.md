@@ -22,7 +22,7 @@ workflowは見出しを検索して必要な節だけ読む。同じ内容を読
 - リモート変更は既存の`task deploy-*`、役割変更は正規のrole収束経路だけを使う。
 - Go採用・参考実装の参照専用扱いはAGENTS.mdに従う。生成物の直接編集は禁止する。
 - ベンチは実行しない。ユーザーが明示した手動ベンチ結果を検証する。
-- 標準計測基盤をInterventionへ混ぜない。新しい計測が必要なら作業を拡大せずユーザーへ報告する。
+- 標準計測基盤をInterventionへ混ぜない。新しい計測が必要なら作業を拡大せずユーザーへ報告し、独立した整備は`isucon-observability`へ案内する。
 
 ## 優先順
 
@@ -44,4 +44,4 @@ fail、機能エラー、極端なregressionでは、対象RUNのAPPLIED snapsho
 - ベンチ後モード: 対象APPLIEDを採用、限定修正、rollbackのいずれかへ収束した。
 - `task backlog -- validate`と関係するローカル・production checkを通した。
 
-完了報告はカードID・状態、変更境界、検証・deploy・rollback結果、残るリスクに絞る。
+完了報告はカードID・状態、変更境界、検証・deploy・rollback結果、残るリスクを示す。ベンチ後は[改善結果の表示](references/post-benchmark.md#改善結果の表示)に従い、確認できた改善を比較値と対象値の表で示す。
