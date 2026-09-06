@@ -62,7 +62,6 @@ func TestValidateRunSnapshotCardRequiresSameChangeBoundary(t *testing.T) {
 		{Name: sectionHypothesis, Body: "remove repeated work"},
 		{Name: sectionChangeBoundary, Body: "replace query"},
 		{Name: sectionVerification, Body: `{"version":1}`},
-		{Name: sectionSafety, Body: "rollback on errors"},
 	}}
 	run := runSnapshotEnvelope{
 		Phase:           "finalized",
@@ -98,7 +97,6 @@ func TestCardHashesIgnoreJSONAndLineEndingFormatting(t *testing.T) {
 		{Name: sectionHypothesis, Body: "remove repeated work  \r\nwithout changing output"},
 		{Name: sectionChangeBoundary, Body: "query only  \r\n"},
 		{Name: sectionVerification, Body: "```json\n{\n  \"checks\": [\"correctness\"],\n  \"version\": 1\n}\n```"},
-		{Name: sectionSafety, Body: "restore query"},
 	}}
 	wantBoundary := cardChangeBoundaryHash(card)
 	wantDecision := cardDecisionHash(card)
@@ -118,13 +116,11 @@ func TestConstraintAssessmentHashTracksOnlyChangeBoundary(t *testing.T) {
 		{Name: sectionHypothesis, Body: "remove repeated work"},
 		{Name: sectionChangeBoundary, Body: "query only"},
 		{Name: sectionVerification, Body: "compare query count"},
-		{Name: sectionSafety, Body: "rollback on errors"},
 	}}
 	want := cardAssessmentChangeBoundaryHash(card)
 	card.Sections[2].Body = "compare latency and query count"
-	card.Sections[3].Body = "rollback on errors or score regression"
 	if got := cardAssessmentChangeBoundaryHash(card); got != want {
-		t.Fatalf("decision/safety policy altered residual-assessment hash: got %s want %s", got, want)
+		t.Fatalf("verification altered residual-assessment hash: got %s want %s", got, want)
 	}
 	card.Sections[0].Body = "remove a different source of repeated work"
 	if got := cardAssessmentChangeBoundaryHash(card); got != want {

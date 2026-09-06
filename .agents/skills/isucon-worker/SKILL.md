@@ -34,13 +34,13 @@ APPLIEDはBacklog全体で同時に最大10件とする。これはCLIではな�
 
 fail、機能エラー、極端なregressionでは、対象RUNのAPPLIED snapshotと直前の実効化変更を先に照合する。根拠のある最小rollbackまたは修正を同じIntervention境界で行い、無関係な変更をまとめて戻さない。復旧後は正規deployとcorrectness checkまで行う。
 
-## 対象がない場合の待機
+## 継続・待機・終了
 
-開始時に対象カードがない場合も、処理後に対象がなくなった場合も、即終了せず[カード追加待機](../_shared/card-wait.md)に従う。再確認する対象は、このSkillの担当範囲とユーザーが指定した範囲に限る。APPLIED上限や手動ベンチ待ちの制約は待機中も維持する。
+開始時・各カードの処理後は、共通の[継続・待機・終了手順](../_shared/card-wait.md)に従う。対象は、このSkillの担当範囲とユーザーが指定した範囲に限る。APPLIED上限や手動ベンチ待ちの制約は待機中も維持する。
 
 ## 完了条件
 
-- 実装モード: 安全に取得できる対象READYを処理し、各カードをVERIFY、APPLIED、INVESTIGATE、BLOCKED、REJECTEDへ正しく収束した。
+- 実装モード: Owner・依存・他作業との競合を確認して取得できる対象READYを処理し、各カードをVERIFY、APPLIED、INVESTIGATE、BLOCKED、REJECTEDへ正しく収束した。
 - ベンチ後モード: 対象APPLIEDを採用、限定修正、rollbackのいずれかへ収束した。
 - `task backlog -- validate`と関係するローカル・production checkを通した。
 

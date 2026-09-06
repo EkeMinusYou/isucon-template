@@ -1256,7 +1256,7 @@ func runPass(config cliConfig, args []string) {
 			fatal(getErr)
 		}
 		if snapshotDecisionChanged(run, card) {
-			fmt.Fprintf(os.Stderr, "warning: card %s decision contract changed after evidence RUN %s; review Hypothesis, Verification, and Safety before adoption\n", id, run.RunID)
+			fmt.Fprintf(os.Stderr, "warning: card %s decision contract changed after evidence RUN %s; review Hypothesis and Verification before adoption\n", id, run.RunID)
 		}
 	}
 	score := formatOptionalInt64(run.Score)
@@ -1430,7 +1430,7 @@ Commands:
 Every write transaction increments backlog_revision internally. update, resolve, and transition require
 --expect-card-version so a changed target card is rejected instead of overwritten. History is append-only.
 Card fields include normalized source/compare/observed RUN relations. Record purpose, boundary,
-decision, safety, blockers, and reconsider conditions in the card sections and History.
+decision, verification, blockers, and reconsider conditions in the card sections and History.
 `)
 }
 

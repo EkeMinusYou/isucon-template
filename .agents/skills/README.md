@@ -5,18 +5,18 @@
 ## 構成
 
 - `isucon-setup` — 競技開始時の取得、生成、build、正規deploy・bench経路の準備
-- `isucon-analyze` — Objective、Constraint、Intervention候補の発見
-- `isucon-special-sauce` — 指定した設定資料、指定なしなら `docs/special-sources/` 全件から適用候補を調査
-- `isucon-use-solution` — 指定した一つの `docs/solutions/` 文書から適用候補を調査
-- `isucon-create-solution` — 再利用できる実装パターンを `docs/solutions/` に新規作成・更新
-- `isucon-investigate` — INVESTIGATEの独立検証とREADY安全ゲート
+- `isucon-analyze` — Objective・Constraintの作成・更新と、Intervention候補の発見・INVESTIGATE起票
+- `isucon-special-sauce` — 指定した設定資料、指定なしなら `docs/special-sources/` 全件を現行環境と照合し、適用候補をINVESTIGATEに起票
+- `isucon-use-solution` — 指定した一つの `docs/solutions/` 文書を現行環境と照合し、適用候補をINVESTIGATEに起票
+- `isucon-create-solution` — 再利用できる実装パターンを `docs/solutions/` に新規作成・更新。Backlog起票・実装は行わない
+- `isucon-investigate` — INVESTIGATEの独立検証とREADY判定、関連Constraint・relationの整合
 - `isucon-worker` — READYの実装・適用、ベンチ後検証、rollback・復旧
 
-広範な探索は `isucon-analyze`、資料を指定した調査は `isucon-special-sauce` / `isucon-use-solution` を使う。候補評価は `isucon-analyze/references/known-solutions.md` と三層モデルの共通規律に従い、OwnerなしINVESTIGATEを `isucon-investigate` へ渡す。`isucon-create-solution` は資料作成だけを行い、Backlogを更新しない。
+広範な探索は `isucon-analyze`、設定資料からの候補調査は `isucon-special-sauce`、指定solutionの適用調査は `isucon-use-solution` を使う。Interventionの起票元はこの3スキルであり、いずれもINVESTIGATEとして `isucon-investigate` へ引き渡す。READYへの判断は `isucon-investigate` が担当し、実装・適用は `isucon-worker` が担当する。`isucon-create-solution` は資料作成だけを行い、Backlogを更新しない。
 
-復活した3スキルは従来の明示呼び出し設定を維持する。例: `$isucon-special-sauce`、`$isucon-use-solution docs/solutions/n-plus-one.md`、`$isucon-create-solution <文書化するテーマ>`。
+資料を扱う3スキルは明示的に呼び出す。例: `$isucon-special-sauce`、`$isucon-use-solution docs/solutions/n-plus-one.md`、`$isucon-create-solution <文書化するテーマ>`。
 
-性能、score mechanics、benchmark behavior、topologyの観点は引き続き `isucon-analyze/references/` から必要なものだけ読む。
+性能、score mechanics、benchmark behavior、topology、既知solutionの観点は `isucon-analyze/references/` から必要なものだけ読む。候補調査の個別手順は各SKILL.md、三層モデルと状態遷移は共通規律に従う。
 
 ## 共通規律
 

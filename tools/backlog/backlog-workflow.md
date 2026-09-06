@@ -64,16 +64,15 @@ Terminal states do not reopen. `READY -> DOING` must set a non-empty Owner in th
 
 ### READY gate
 
-The card body must make four decisions clear without a separate generic contract schema:
+The card body must make three decisions clear without a separate generic contract schema:
 
 1. `Hypothesis` — Objective and causal direction
 2. `Change boundary` — implementation and rollback unit
 3. `Verification` — observations and adoption/correction/rejection outcomes
-4. `Safety` — official guardrails, stop condition, rollback
 
-New cards always start in INVESTIGATE. Link at least one ACTIVE Objective and satisfy BLOCKING dependencies before READY; ORDERING dependencies need not be complete. `isucon-investigate` is the only skill that creates READY and confirms the four sections in one `resolve` operation.
+New cards always start in INVESTIGATE. Link at least one ACTIVE Objective and satisfy BLOCKING dependencies before READY; ORDERING dependencies need not be complete. `isucon-investigate` is the only skill that creates READY and confirms the three sections in one `resolve` operation.
 
-The skill judges these decisions using standard Evidence or correctness checks; the CLI validates structure only (see [CLI checks](README.md#cli-checks)). Unknown effect size, no current Constraint, or no direct metric does not prevent READY when causal direction and safety are explainable. This includes non-bottleneck improvements, selection, loss recovery, spam control, and experiments. “Try it and inspect score” is insufficient.
+The skill judges these decisions using standard Evidence or correctness checks; the CLI validates structure only (see [CLI checks](README.md#cli-checks)). Unknown effect size, no current Constraint, or no direct metric does not prevent READY when causal direction and verification are explainable. This includes non-bottleneck improvements, selection, loss recovery, spam control, and experiments. “Try it and inspect score” is insufficient.
 
 ### BLOCKED
 
@@ -95,11 +94,11 @@ Adoption events are authoritative for adoption; `run.json` for the RUN. Persiste
 
 ### Rejection during investigation
 
-REJECTED requires Evidence of an already resolved proposal, official-spec violation, unexplainable causal direction, unsafe boundary, duplicate Intervention, or technical refutation. Effort, size, or a single RUN's score alone are insufficient.
+REJECTED requires Evidence of an already resolved proposal, official-spec violation, unexplainable causal direction, duplicate Intervention, or technical refutation. Effort, size, or a single RUN's score alone are insufficient.
 
 ### Rejection after application
 
-Prefer a limited correction within the same Change boundary. If it cannot be done safely, or Evidence refutes the improvement hypothesis, confirm attribution to the target Intervention, roll back, and record REJECTED with the RUN, mechanism evidence, and rollback result.
+Prefer a limited correction within the same Change boundary. If a concrete technical issue prevents correction within official rules and explicit requirements, or Evidence refutes the improvement hypothesis, confirm attribution to the target Intervention, roll back, and record REJECTED with the RUN, mechanism evidence, and rollback result.
 
 Correctness failure, official-spec violation, operational failure, or causal refutation can justify rejection; mechanism degradation and correctness violation need not both exist. A single score fluctuation alone never justifies rejection or rollback.
 
@@ -128,7 +127,7 @@ Selection and comparison: [Evidence](../../.agents/skills/_shared/evidence.md). 
 5. direct selection, value, and loss-recovery Interventions;
 6. MITIGATES and ordinary positive Interventions.
 
-Owner, dependency, dirty-diff safety, and deployment snapshot coherence take precedence over candidate ranking. Within a class, use Priority and the completed snapshot. The APPLIED work-in-progress limit is an operational rule enforced by [isucon-worker](../../.agents/skills/isucon-worker/SKILL.md), not by the CLI.
+Owner, dependency, conflicts with existing uncommitted changes, and deployment snapshot coherence take precedence over candidate ranking. Within a class, use Priority and the completed snapshot. The APPLIED work-in-progress limit is an operational rule enforced by [isucon-worker](../../.agents/skills/isucon-worker/SKILL.md), not by the CLI.
 
 ## Writer protocol
 

@@ -133,11 +133,9 @@ func cardDecisionHash(card Card) string {
 	decision := struct {
 		Hypothesis   string `json:"hypothesis"`
 		Verification string `json:"verification"`
-		Safety       string `json:"safety"`
 	}{
 		Hypothesis:   normalizeAdoptionContractText(sectionBody(card.Sections, sectionHypothesis)),
 		Verification: normalizeAdoptionContractText(sectionBody(card.Sections, sectionVerification)),
-		Safety:       normalizeAdoptionContractText(sectionBody(card.Sections, sectionSafety)),
 	}
 	body, _ := json.Marshal(decision)
 	sum := sha256.Sum256(body)

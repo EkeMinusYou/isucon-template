@@ -868,7 +868,7 @@ func validateReadyContract(q queryer, cardID string) error {
 	if err != nil {
 		return err
 	}
-	for _, name := range []string{sectionHypothesis, sectionChangeBoundary, sectionVerification, sectionSafety} {
+	for _, name := range []string{sectionHypothesis, sectionChangeBoundary, sectionVerification} {
 		if strings.TrimSpace(sectionBody(card.Sections, name)) == "" {
 			return fmt.Errorf("card %s cannot be READY without a non-empty %s section", card.ID, name)
 		}

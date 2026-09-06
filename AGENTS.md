@@ -60,4 +60,4 @@ CLI操作・保存形式は[Backlog README](tools/backlog/README.md)、根拠の
 - ベンチの実行担当と実行許可はユーザーの指示に従う。setup依頼だけをベンチ実行の許可とみなさない
 - `task abort-run`は進行中RUNを破棄し、collectorを掃除する。残存RUNの所有元と終了状態を確認してから使う
 - `task clear-cache`はログやキャッシュを削除する破壊的操作。明示指示時だけ実行する
-- 設定断片は候補値である。元の値、採用理由、rollback条件を残す
+- 設定断片は候補値である。元の値、採用理由を残す

@@ -265,7 +265,7 @@ func buildVerificationSummary(root string, card Card, target verifyManifest, man
 			summary.Warnings = append(summary.Warnings, "現在のChange boundaryは対象RUNのsnapshotから変更されています")
 		}
 		if snapshotCard.DecisionHash != cardDecisionHash(card) {
-			summary.Warnings = append(summary.Warnings, "現在の仮説・検証・安全条件は対象RUNのsnapshotから変更されています")
+			summary.Warnings = append(summary.Warnings, "現在の仮説・検証は対象RUNのsnapshotから変更されています")
 		}
 	}
 	if target.Passed == nil {

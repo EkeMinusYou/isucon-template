@@ -28,7 +28,7 @@ func seedBacklog(t *testing.T, store *Store, revision int, nextID string, cards 
 			for _, section := range card.Sections {
 				present[section.Name] = true
 			}
-			for _, name := range []string{sectionHypothesis, sectionChangeBoundary, sectionVerification, sectionSafety} {
+			for _, name := range []string{sectionHypothesis, sectionChangeBoundary, sectionVerification} {
 				if !present[name] {
 					card.Sections = append(card.Sections, Section{Name: name, Position: len(card.Sections), Body: "test " + strings.ToLower(name)})
 				}
@@ -87,7 +87,7 @@ func seedBacklog(t *testing.T, store *Store, revision int, nextID string, cards 
 
 func prepareReadyContract(t *testing.T, store *Store, cardID string) {
 	t.Helper()
-	for position, name := range []string{sectionHypothesis, sectionChangeBoundary, sectionVerification, sectionSafety} {
+	for position, name := range []string{sectionHypothesis, sectionChangeBoundary, sectionVerification} {
 		if _, err := store.db.Exec(`INSERT INTO card_sections(card_id, name, position, body) VALUES (?, ?, ?, ?)
 			ON CONFLICT(card_id, name) DO UPDATE SET body=excluded.body`, cardID, name, position, "test "+strings.ToLower(name)); err != nil {
 			t.Fatal(err)
@@ -249,7 +249,6 @@ func TestReadyGateRequiresMinimalContract(t *testing.T) {
 		{"hypothesis", `DELETE FROM card_sections WHERE card_id='B-001' AND name='Hypothesis'`, "Hypothesis"},
 		{"change boundary", `DELETE FROM card_sections WHERE card_id='B-001' AND name='Change boundary'`, "Change boundary"},
 		{"verification", `DELETE FROM card_sections WHERE card_id='B-001' AND name='Verification'`, "Verification"},
-		{"safety", `DELETE FROM card_sections WHERE card_id='B-001' AND name='Safety'`, "Safety"},
 		{"active objective", `DELETE FROM objective_interventions WHERE card_id='B-001'`, "ACTIVE Objective"},
 	}
 	for _, test := range tests {
@@ -339,7 +338,7 @@ func TestValidateRejectsReadyWithoutContract(t *testing.T) {
 	}
 }
 
-func TestResolveUpdatesAndTransitionsInOneMutation(t *testing.T) {
+func TestResolveWithThreeSectionsUpdatesAndTransitionsInOneMutation(t *testing.T) {
 	store := testStore(t)
 	seedBacklog(t, store, 7, "B-002", Card{ID: "B-001", Status: "INVESTIGATE", Owner: "skill:isucon-investigate", Title: "candidate"})
 	if _, err := store.db.Exec(`INSERT INTO objective_interventions(objective_id, card_id, rationale) VALUES ('O-003', 'B-001', 'increase throughput')`); err != nil {
@@ -352,7 +351,6 @@ func TestResolveUpdatesAndTransitionsInOneMutation(t *testing.T) {
 			sectionHypothesis:     "remove repeated query work to increase throughput",
 			sectionChangeBoundary: "replace the query and roll it back as one unit",
 			sectionVerification:   `{"version":1,"checks":["run focused tests"],"note":"confirm score magnitude after implementation"}`,
-			sectionSafety:         "stop on correctness errors and restore the original query",
 			sectionUnknowns:       "- Decision-blocking: none\n- Post-implementation: confirm score magnitude",
 		},
 	}, mutation{Actor: "skill:isucon-investigate", Operation: "resolve", ExpectedCardVersion: intPtr(0)}, "fast READY gate passed")
@@ -369,12 +367,34 @@ func TestResolveUpdatesAndTransitionsInOneMutation(t *testing.T) {
 	if card.Status != "READY" || card.Owner != "" || card.Title != "bounded candidate" || card.Version != 1 || len(card.History) != 1 {
 		t.Fatalf("resolved card = %#v", card)
 	}
+	if err := store.validate(); err != nil {
+		t.Fatalf("three-section READY card failed validation: %v", err)
+	}
 	revision, err := store.revision()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if revision != 8 {
 		t.Fatalf("revision = %d, want 8", revision)
+	}
+}
+
+func TestResolveRejectsRemovedSafetySection(t *testing.T) {
+	store := testStore(t)
+	seedBacklog(t, store, 0, "B-002", Card{ID: "B-001", Status: "INVESTIGATE", Owner: "skill:isucon-investigate", Title: "candidate"})
+	prepareReadyContract(t, store, "B-001")
+	_, err := store.resolveCardAndWake("B-001", "READY", CardPatch{
+		Sections: map[string]string{"Safety": "require disaster recovery"},
+	}, mutation{Actor: "skill:isucon-investigate", Operation: "resolve", ExpectedCardVersion: intPtr(0)}, "reject removed section")
+	if err == nil || !strings.Contains(err.Error(), `unsupported section "Safety"`) {
+		t.Fatalf("removed section error = %v", err)
+	}
+	card, err := store.getCard("B-001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if card.Status != "INVESTIGATE" || card.Version != 0 || len(card.History) != 0 {
+		t.Fatalf("rejected section changed the card: %#v", card)
 	}
 }
 
@@ -649,7 +669,7 @@ func TestInvestigatedChangeCanBecomeReadyWithoutConstraint(t *testing.T) {
 	prepareReadyContract(t, store, "B-001")
 	_, err := store.resolveCardAndWake("B-001", "READY", CardPatch{}, mutation{
 		Actor: "skill:isucon-investigate", Operation: "resolve", ExpectedCardVersion: intPtr(0),
-	}, "safe boundary is ready")
+	}, "bounded change is ready")
 	if err != nil {
 		t.Fatalf("resolve error = %v", err)
 	}
@@ -807,7 +827,7 @@ func TestReadyStatusIsGatedForSkillActors(t *testing.T) {
 		t.Fatalf("update READY by another skill error = %v", err)
 	}
 
-	if err := store.transitionCard("B-001", "READY", mutation{Actor: "skill:isucon-investigate", Operation: "transition", ExpectedCardVersion: intPtr(0)}, "safety gate passed"); err != nil {
+	if err := store.transitionCard("B-001", "READY", mutation{Actor: "skill:isucon-investigate", Operation: "transition", ExpectedCardVersion: intPtr(0)}, "READY gate passed"); err != nil {
 		t.Fatal(err)
 	}
 
