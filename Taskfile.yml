@@ -562,7 +562,7 @@ tasks:
     deps: [build-measurectl, build-nginx-backend-report, build-user-transition-metrics]
     cmds:
       - >-
-        {{.MEASURECTL_DIR}}/measurectl run finalize -results '{{.RESULT_DIR}}' -raw-dir '{{.RAW_DIR}}'
+        {{.MEASURECTL_DIR}}/measurectl run finalize -auto-commit -results '{{.RESULT_DIR}}' -raw-dir '{{.RAW_DIR}}'
         -run-state-file '{{.RUN_STATE_FILE}}' -scores '{{.RESULT_DIR}}/scores.tsv' -score '{{.SCORE}}'
         -collector-flags '{{.MEASURECTL_FLAGS}} {{default "" .MEASURECTL_COLLECT_FLAGS}}'
         -digester-flags '{{.MEASURECTL_DIGEST_FLAGS}}' {{.MEASURECTL_REMOTE}}

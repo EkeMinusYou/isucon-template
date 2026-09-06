@@ -12,6 +12,7 @@ import (
 )
 
 type lifecycleOptions struct {
+	autoCommit          bool
 	action              string
 	runID               string
 	resultsDir          string
@@ -47,6 +48,7 @@ func runLifecycle(args []string) error {
 	action := args[0]
 	fs := flag.NewFlagSet("run "+action, flag.ContinueOnError)
 	opts := lifecycleOptions{action: action}
+	fs.BoolVar(&opts.autoCommit, "auto-commit", false, "commit RUN directory and score history after finalization")
 	fs.StringVar(&opts.runID, "run-id", "", "RUN ID (required for begin)")
 	fs.StringVar(&opts.resultsDir, "results", "runs", "RUN result directory")
 	fs.StringVar(&opts.rawDir, "raw-dir", "raw", "raw artifact directory")
@@ -157,6 +159,9 @@ func (r lifecycleRunner) finalize(opts lifecycleOptions) error {
 		return err
 	}
 	fmt.Printf("RUN_ID=%s collection completed\n", runID)
+	if opts.autoCommit {
+		return commitRunArtifacts(runDir, opts.scoresPath)
+	}
 	return nil
 }
 

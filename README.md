@@ -130,6 +130,13 @@ task after-bench SCORE=12345
 失敗RUNをEvidenceとしてfinalizeします。共通の開始・終了・trap処理は`tools/bench/run.sh`、
 RUN状態遷移とcollector・digest・manifest処理は`measurectl run begin/finalize`が担当します。
 
+`after-bench`は回収・manifest確定後、そのRUNディレクトリ全体（`.gitignore`対象は除外）と
+`runs/scores.tsv`を自動でローカルGitコミットします。失敗RUNも対象です。別RUN、
+`raw/`、アプリ・設定変更は含めず、無関係なステージ済み変更も維持します。自動コミットではGit hooksを実行しません。
+対象ファイルが既にステージ済みの場合は、そのステージ内容を保護するためコミットを中止してエラーにします。
+Gitコミットに失敗しても回収済み成果物は残ります（`git add`後の失敗では対象成果物がステージに残ります）。
+RUNは確定済みなので`after-bench`を再実行せず、対象ファイルを確認して手動コミットしてください。pushは行いません。
+
 collector負荷は、同じ構成で通常RUNと次のRUNを取り、スコアとホストメトリクスを比較します。
 
 ```shell
