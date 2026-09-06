@@ -39,8 +39,15 @@ oneshots:
     enabled_by_default: false
     hosts: app
     delay: '{var:profile_delay}'
-    run: curl -fsS --max-time {var:profile_timeout_seconds} -o {remote_out} '{var:fgprof_url}'
-    remote_out: /tmp/fgprof.pprof
+    run: curl -fsS --max-time {var:profile_timeout_seconds} -o {remote_out} '{var:fgprof_url}&run_id={run_id}'
+    ready: |
+      set -eu
+      deadline=$(( $(date +%s) + {var:profile_ready_timeout_seconds} ))
+      until curl -fsS --max-time 1 '{var:profile_status_url}' | grep -Fq '"fgprof":"{run_id}"'; do
+        if [ "$(date +%s)" -ge "$deadline" ]; then echo 'fgprof did not start for this RUN' >&2; exit 1; fi
+        sleep 0.1
+      done
+    remote_out: /tmp/isucon-{run_id}-fgprof.pprof
     output: '{host}-fgprof.pprof'
 
   - name: go-cpu
@@ -48,8 +55,15 @@ oneshots:
     enabled_by_default: false
     hosts: app
     delay: '{var:profile_delay}'
-    run: curl -fsS --max-time {var:profile_timeout_seconds} -o {remote_out} '{var:pprof_base_url}/profile?seconds={var:profile_seconds}'
-    remote_out: /tmp/go-cpu.pprof
+    run: curl -fsS --max-time {var:profile_timeout_seconds} -o {remote_out} '{var:pprof_base_url}/profile?seconds={var:profile_seconds}&run_id={run_id}'
+    ready: |
+      set -eu
+      deadline=$(( $(date +%s) + {var:profile_ready_timeout_seconds} ))
+      until curl -fsS --max-time 1 '{var:profile_status_url}' | grep -Fq '"cpu":"{run_id}"'; do
+        if [ "$(date +%s)" -ge "$deadline" ]; then echo 'CPU profile did not start for this RUN' >&2; exit 1; fi
+        sleep 0.1
+      done
+    remote_out: /tmp/isucon-{run_id}-go-cpu.pprof
     output: '{host}-go-cpu.pprof'
 
   - name: go-heap
@@ -58,7 +72,7 @@ oneshots:
     hosts: app
     delay: '{var:snapshot_profile_delay}'
     run: curl -fsS --max-time 15 -o {remote_out} '{var:pprof_base_url}/heap'
-    remote_out: /tmp/go-heap.pprof
+    remote_out: /tmp/isucon-{run_id}-go-heap.pprof
     output: '{host}-go-heap.pprof'
 
   - name: go-allocs
@@ -67,7 +81,7 @@ oneshots:
     hosts: app
     delay: '{var:snapshot_profile_delay}'
     run: curl -fsS --max-time 15 -o {remote_out} '{var:pprof_base_url}/allocs'
-    remote_out: /tmp/go-allocs.pprof
+    remote_out: /tmp/isucon-{run_id}-go-allocs.pprof
     output: '{host}-go-allocs.pprof'
 
   - name: go-goroutine
@@ -76,7 +90,7 @@ oneshots:
     hosts: app
     delay: '{var:snapshot_profile_delay}'
     run: curl -fsS --max-time 15 -o {remote_out} '{var:pprof_base_url}/goroutine'
-    remote_out: /tmp/go-goroutine.pprof
+    remote_out: /tmp/isucon-{run_id}-go-goroutine.pprof
     output: '{host}-go-goroutine.pprof'
 
 collectors:

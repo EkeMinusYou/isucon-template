@@ -45,23 +45,23 @@ func TestNormalizeProfileWallTimeAndEdges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.metadata.totalWallSeconds != 3 || got.metadata.durationSeconds != 5 || got.metadata.sampleUnit != "nanoseconds" {
+	if got.metadata.totalValue != 3 || got.metadata.durationSeconds != 5 || got.metadata.sampleUnit != "nanoseconds" {
 		t.Fatalf("metadata = %#v", got.metadata)
 	}
 	if len(got.samples) != 2 || len(got.frames) != 3 {
 		t.Fatalf("samples/frames = %d/%d", len(got.samples), len(got.frames))
 	}
-	if len(got.edges) != 1 || got.edges[0].caller != "example/parent" || got.edges[0].callee != "example/leaf" || got.edges[0].wallSeconds != 2 {
+	if len(got.edges) != 1 || got.edges[0].caller != "example/parent" || got.edges[0].callee != "example/leaf" || got.edges[0].value != 2 {
 		t.Fatalf("edges = %#v", got.edges)
 	}
 	values := map[string]functionRow{}
 	for _, row := range got.functions {
 		values[row.function] = row
 	}
-	if values["example/leaf"].flatSeconds != 2 || values["example/leaf"].cumulative != 2 {
+	if values["example/leaf"].flatValue != 2 || values["example/leaf"].cumulative != 2 {
 		t.Fatalf("leaf = %#v", values["example/leaf"])
 	}
-	if values["example/parent"].flatSeconds != 1 || values["example/parent"].cumulative != 3 {
+	if values["example/parent"].flatValue != 1 || values["example/parent"].cumulative != 3 {
 		t.Fatalf("parent = %#v", values["example/parent"])
 	}
 }

@@ -5,6 +5,8 @@ create or replace view manifests as
 select
     json_extract_string(content, '$.run_id') as run_id,
     coalesce(try_cast(json_extract_string(content, '$.collectors_disabled') as boolean), false) as collectors_disabled,
+    try_cast(json_extract_string(content, '$.profiles_enabled') as boolean) as profiles_enabled,
+    try_cast(json_extract(content, '$.required_artifacts') as varchar[]) as required_artifacts,
     try_cast(json_extract_string(content, '$.score') as bigint) as score,
     try_cast(json_extract_string(content, '$.passed') as boolean) as passed,
     try_cast(json_extract_string(content, '$.started_at') as timestamp) as started_at,

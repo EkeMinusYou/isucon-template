@@ -570,7 +570,8 @@ func (r *digestRunner) compressAll() error {
 		if !s.Compress {
 			continue
 		}
-		files, err := r.inputsFor(s)
+		// Empty logs still need a compressed artifact for every declared host.
+		files, err := filepath.Glob(r.expand(s.Local, "*"))
 		if err != nil {
 			continue
 		}

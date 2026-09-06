@@ -67,11 +67,16 @@ vars:
   NGINX_ONCPU_HOST: '{{.ENTRY_HOST}}'
   NGINX_ONCPU_PROBE_URL: http://127.0.0.1/
   PPROF_BASE_URL: http://127.0.0.1:6060/debug/pprof
-  FGPROF_URL: http://127.0.0.1:6060/debug/fgprof?seconds=30
-  PROFILE_DELAY: 10s
+  PROFILE_STATUS_URL: http://127.0.0.1:6060/debug/profiles/status
+  # Enable after installing the endpoint adapter described in docs/special-sources/go-profiling.md.
+  PROFILES_ENABLED: 'false'
+  PROFILE_DELAY: 0s
   SNAPSHOT_PROFILE_DELAY: 40s
-  PROFILE_SECONDS: '30'
-  PROFILE_TIMEOUT_SECONDS: '40'
+  # Example budget: initialization + checks + load + margin. Tune for the contest.
+  PROFILE_SECONDS: '120'
+  FGPROF_URL: 'http://127.0.0.1:6060/debug/fgprof?seconds={{.PROFILE_SECONDS}}'
+  PROFILE_TIMEOUT_SECONDS: '{{add (int .PROFILE_SECONDS) 15}}'
+  PROFILE_READY_TIMEOUT_SECONDS: '15'
   NGINX_BACKEND_REPORT_DIR: tools/nginx-backend-report
   JSON_METRICS_COLLECTOR_DIR: tools/json-metrics-collector
   USER_TRANSITION_METRICS_DIR: tools/user-transition-metrics
@@ -99,6 +104,8 @@ vars:
     -var services={{.SERVICE}},nginx,mysql
     -var app_service={{.SERVICE}}
     -var pprof_base_url={{.PPROF_BASE_URL}}
+    -var profile_status_url={{.PROFILE_STATUS_URL}}
+    -var profile_ready_timeout_seconds={{.PROFILE_READY_TIMEOUT_SECONDS}}
     -var fgprof_url={{.FGPROF_URL}}
     -var profile_delay={{.PROFILE_DELAY}}
     -var snapshot_profile_delay={{.SNAPSHOT_PROFILE_DELAY}}
@@ -513,6 +520,7 @@ tasks:
       ISUCON_BENCH_RUN_STATE_FILE: '{{.RUN_STATE_FILE}}'
       ISUCON_BENCH_RESULTS_DIR: '{{.RESULT_DIR}}'
       ISUCON_BENCH_COLLECT_FLAGS: '{{default "" .MEASURECTL_COLLECT_FLAGS}}'
+      ISUCON_BENCH_PROFILES_ENABLED: '{{.PROFILES_ENABLED}}'
     cmds:
       - >-
         sh tools/bench/run.sh auto -- {{.SSH}} {{.SSH_USER}}@{{.BENCH_HOST}}
@@ -522,7 +530,7 @@ tasks:
     desc: collector負荷比較用に標準collectorを止めてベンチ・ログ回収
     cmds:
       - task: bench
-        vars: { MEASURECTL_COLLECT_FLAGS: -no-collectors }
+        vars: { MEASURECTL_COLLECT_FLAGS: -no-collectors, PROFILES_ENABLED: 'false' }
 
   bench-manual:
     desc: 計測開始後、ユーザーによるベンチ実行と結果入力を待って回収
@@ -536,7 +544,7 @@ tasks:
     interactive: true
     cmds:
       - task: bench-manual
-        vars: { MEASURECTL_COLLECT_FLAGS: -no-collectors }
+        vars: { MEASURECTL_COLLECT_FLAGS: -no-collectors, PROFILES_ENABLED: 'false' }
 
   before-bench:
     desc: RUNを採番し、ログローテートとcollector起動を行う
@@ -551,6 +559,7 @@ tasks:
         trap 'rm -f "$snapshot"' EXIT HUP INT TERM
         (cd tools/backlog && go run . -root '{{.ROOT_DIR}}' -db '{{.ROOT_DIR}}/{{.BACKLOG_DB}}' snapshot-applied --output '{{.ROOT_DIR}}/'"$snapshot")
         {{.MEASURECTL_DIR}}/measurectl run begin -run-id '{{.RUN_ID}}' \
+          -profiles-enabled={{.PROFILES_ENABLED}} \
           -results '{{.RESULT_DIR}}' -raw-dir '{{.RAW_DIR}}' -run-state-file '{{.RUN_STATE_FILE}}' \
           -applied-snapshot "$snapshot" -compare-run '{{.COMPARE_RUN}}' \
           -compare-allow-cards '{{.COMPARE_ALLOWED_CARDS}}' -compare-allow-roles '{{.COMPARE_ALLOWED_ROLES}}' \
@@ -560,12 +569,32 @@ tasks:
   after-bench:
     desc: 進行中RUNのcollector・ログ・集計・manifestを回収
     deps: [build-measurectl, build-nginx-backend-report, build-user-transition-metrics]
+    vars:
+      FINISH_RUN_ID:
+        sh: sh tools/bench/active-run-id.sh '{{.RUN_STATE_FILE}}'
     cmds:
       - >-
         {{.MEASURECTL_DIR}}/measurectl run finalize -auto-commit -results '{{.RESULT_DIR}}' -raw-dir '{{.RAW_DIR}}'
         -run-state-file '{{.RUN_STATE_FILE}}' -scores '{{.RESULT_DIR}}/scores.tsv' -score '{{.SCORE}}'
         -collector-flags '{{.MEASURECTL_FLAGS}} {{default "" .MEASURECTL_COLLECT_FLAGS}}'
         -digester-flags '{{.MEASURECTL_DIGEST_FLAGS}}' {{.MEASURECTL_REMOTE}}
+      - '{{.MEASURECTL_DIR}}/measurectl artifacts -run-dir {{.RESULT_DIR}}/{{.FINISH_RUN_ID}}'
+
+  profiles-collect:
+    desc: 進行中RUNへ標準Go profileとfgprofを収集
+    deps: [build-measurectl]
+    vars:
+      ACTIVE_RUN_ID:
+        sh: sh tools/bench/active-run-id.sh '{{.RUN_STATE_FILE}}'
+    cmds: ['{{.MEASURECTL_DIR}}/measurectl collect oneshot -only fgprof,go-cpu,go-heap,go-allocs,go-goroutine -run-id {{.ACTIVE_RUN_ID}} -run-dir {{.RESULT_DIR}}/{{.ACTIVE_RUN_ID}} {{.MEASURECTL_REMOTE}}']
+
+  profiles-ready:
+    desc: 進行中RUNのCPU・fgprof開始を全APP_HOSTSで確認
+    deps: [build-measurectl]
+    vars:
+      ACTIVE_RUN_ID:
+        sh: sh tools/bench/active-run-id.sh '{{.RUN_STATE_FILE}}'
+    cmds: ['{{.MEASURECTL_DIR}}/measurectl collect ready -only fgprof,go-cpu -run-id {{.ACTIVE_RUN_ID}} {{.MEASURECTL_REMOTE}}']
 
   fgprof-collect:
     desc: 進行中RUNへfgprofを収集

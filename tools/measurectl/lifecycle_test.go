@@ -76,7 +76,7 @@ func TestLifecycleBeginOwnsStateAndCollectorOrder(t *testing.T) {
 		},
 		manifestBegin: func(args []string) error {
 			calls = append(calls, "manifest")
-			if !containsArgPair(args, "-app", "isucon-1") || !containsArgPair(args, "-collector-clean", "-compare-allow-cards") {
+			if !containsArgPair(args, "-app", "isucon-1") || !containsArgPair(args, "-collector-clean", "-capture-contract") {
 				t.Fatalf("manifest args = %#v", args)
 			}
 			return nil

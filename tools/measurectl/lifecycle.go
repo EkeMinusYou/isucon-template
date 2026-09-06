@@ -12,6 +12,7 @@ import (
 )
 
 type lifecycleOptions struct {
+	profilesEnabled     bool
 	autoCommit          bool
 	action              string
 	runID               string
@@ -49,6 +50,7 @@ func runLifecycle(args []string) error {
 	fs := flag.NewFlagSet("run "+action, flag.ContinueOnError)
 	opts := lifecycleOptions{action: action}
 	fs.BoolVar(&opts.autoCommit, "auto-commit", false, "commit RUN directory and score history after finalization")
+	fs.BoolVar(&opts.profilesEnabled, "profiles-enabled", false, "require automatic Go and fgprof captures for this RUN")
 	fs.StringVar(&opts.runID, "run-id", "", "RUN ID (required for begin)")
 	fs.StringVar(&opts.resultsDir, "results", "runs", "RUN result directory")
 	fs.StringVar(&opts.rawDir, "raw-dir", "raw", "raw artifact directory")
@@ -213,6 +215,8 @@ func (o lifecycleOptions) manifestBeginArgs(runDir string) ([]string, error) {
 	}
 	args := []string{
 		"-dir", runDir, "-applied-snapshot", o.snapshotPath, "-collector-clean",
+		"-capture-contract", "-profiles-enabled=" + strconv.FormatBool(o.profilesEnabled),
+		"-collectors", o.collectorConfig, "-digesters", o.digesterConfig,
 		"-compare-allow-cards", o.compareAllowedCards, "-compare-allow-roles", o.compareAllowedRoles,
 		"-app", strings.Join(o.roles["app"], ","), "-app-traffic", strings.Join(o.roles["app_traffic"], ","),
 		"-nginx", strings.Join(o.roles["nginx"], ","), "-entry", entry, "-mysql", mysql,

@@ -14,6 +14,7 @@
 - [MySQL ドライバーのパラメーター補間](interpolate-params.md)
 - [MySQL のファイルディスクリプタ上限](file-descriptor.md)
 - [カーネルパラメーター](kernel-parameters.md)
+- [Go profileの自動収集](go-profiling.md)
 
 ## このリポジトリでの反映先
 

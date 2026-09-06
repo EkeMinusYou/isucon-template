@@ -80,14 +80,14 @@ func runCollect(args []string) error {
 				cfg.Collectors, err = filterCollectors(cfg.Collectors, onlyNames)
 			case "prepare":
 				err = validateOnlyNames("prepare", onlyNames, prepareNames(cfg.Prepare))
-			case "oneshot":
+			case "oneshot", "ready":
 				err = validateOnlyNames("oneshot", onlyNames, oneshotNames(cfg.Oneshots))
 			}
 			if err != nil {
 				return err
 			}
 		} else {
-			if action == "oneshot" {
+			if action == "oneshot" || action == "ready" {
 				cfg.Oneshots, err = enabledOneshots(cfg.Oneshots, includeNames)
 			} else {
 				cfg.Collectors, err = enabledCollectors(cfg.Collectors, includeNames)
@@ -128,6 +128,11 @@ func runCollect(args []string) error {
 			return errors.New("-run-dir は必須です")
 		}
 		return r.oneshotAll()
+	case "ready":
+		if r.runID == "" {
+			return errors.New("-run-id is required for readiness")
+		}
+		return r.readyAll()
 	case "check-clean":
 		return r.checkCleanAll()
 	case "sweep":
@@ -135,6 +140,34 @@ func runCollect(args []string) error {
 	default:
 		return fmt.Errorf("不明な操作: %s (prepare / start / stop / oneshot / check-clean / sweep)", action)
 	}
+}
+
+func (r *runner) readyAll() error {
+	type job struct{ script, host string }
+	var jobs []job
+	for _, o := range r.cfg.Oneshots {
+		if r.only != nil && !r.only[o.Name] {
+			continue
+		}
+		if o.Ready == "" {
+			continue
+		}
+		if len(r.roles[o.Hosts]) == 0 {
+			return fmt.Errorf("oneshot %s has no hosts", o.Name)
+		}
+		for _, host := range r.roles[o.Hosts] {
+			exp := expander{host: host, runID: r.runID, vars: r.vars}
+			script := exp.expand(o.Ready)
+			if missing := unresolved(script); len(missing) > 0 {
+				return fmt.Errorf("unresolved readiness placeholders: %v", missing)
+			}
+			jobs = append(jobs, job{script, host})
+		}
+	}
+	if len(jobs) == 0 {
+		return errors.New("no readiness commands selected")
+	}
+	return parallel(jobs, func(j job) error { return r.ssh(j.host, j.script) })
 }
 
 func parseNames(value string) map[string]bool {
@@ -248,6 +281,7 @@ func (r *runner) oneshotAll() error {
 
 func (r *runner) oneshot(o Oneshot, host string) error {
 	exp := expander{remoteDir: "", host: host, runID: r.runID, vars: r.vars, remoteOut: o.RemoteOut}
+	exp.remoteOut = exp.expand(o.RemoteOut)
 
 	if d := exp.expand(o.Delay); d != "" {
 		delay, err := time.ParseDuration(d)
@@ -270,7 +304,7 @@ func (r *runner) oneshot(o Oneshot, host string) error {
 	}
 
 	local := filepath.Join(r.runDir, exp.expand(o.Output))
-	if err := r.rsyncFrom(host, o.RemoteOut, local); err != nil {
+	if err := r.rsyncFrom(host, exp.remoteOut, local); err != nil {
 		return err
 	}
 	if !r.dryRun {

@@ -18,15 +18,20 @@ import (
 var runIDPattern = regexp.MustCompile(`^[0-9]{8}-[0-9]{6}$`)
 
 type metadataRow struct {
+	period                                                     int64
+	periodUnit                                                 string
 	runID, host, source, profileSHA256, sampleType, sampleUnit string
-	durationSeconds, totalWallSeconds, periodSeconds           float64
+	profileType, valueUnit                                     string
+	timeUnixNano                                               int64
+	durationSeconds, totalValue, periodSeconds                 float64
 	sampleCount, incompleteSamples, embeddedFunctionNames      int
 }
 
 type sampleRow struct {
 	runID, host          string
 	sampleID, stackDepth int
-	wallSeconds          float64
+	value                float64
+	rawValue             int64
 }
 
 type frameRow struct {
@@ -37,12 +42,12 @@ type frameRow struct {
 type functionRow struct {
 	runID, host, function, file string
 	line                        int
-	flatSeconds, cumulative     float64
+	flatValue, cumulative       float64
 }
 
 type edgeRow struct {
 	runID, host, caller, callee string
-	wallSeconds                 float64
+	value                       float64
 	sampleOccurrences           int
 }
 
@@ -61,7 +66,7 @@ type functionValue struct {
 }
 
 type edgeValue struct {
-	wallSeconds       float64
+	value             float64
 	sampleOccurrences int
 }
 
@@ -130,16 +135,26 @@ func sampleFrames(sample *pprofprofile.Sample) ([]frameRow, bool) {
 	return frames, complete
 }
 
+func profileKind(path string) string {
+	for _, kind := range []string{"fgprof", "go-cpu", "go-heap", "go-allocs", "go-goroutine"} {
+		if strings.HasSuffix(filepath.Base(path), "-"+kind+".pprof") {
+			return kind
+		}
+	}
+	return ""
+}
+
 func profileIdentity(path string) (runID, host string, err error) {
 	runID = filepath.Base(filepath.Dir(path))
 	if !runIDPattern.MatchString(runID) {
 		return "", "", fmt.Errorf("profile parent directory %q is not a RUN ID", runID)
 	}
 	base := filepath.Base(path)
-	if !strings.HasSuffix(base, "-fgprof.pprof") {
-		return "", "", fmt.Errorf("profile %q does not end in -fgprof.pprof", base)
+	kind := profileKind(path)
+	if kind == "" {
+		return "", "", fmt.Errorf("profile %q has an unsupported profile kind", base)
 	}
-	host = strings.TrimSuffix(base, "-fgprof.pprof")
+	host = strings.TrimSuffix(base, "-"+kind+".pprof")
 	if host == "" {
 		return "", "", fmt.Errorf("profile %q has no host", base)
 	}
@@ -147,10 +162,6 @@ func profileIdentity(path string) (runID, host string, err error) {
 }
 
 func normalizeProfile(path string) (normalizedProfile, error) {
-	runID, host, err := profileIdentity(path)
-	if err != nil {
-		return normalizedProfile{}, err
-	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return normalizedProfile{}, err
@@ -159,11 +170,34 @@ func normalizeProfile(path string) (normalizedProfile, error) {
 	if err != nil {
 		return normalizedProfile{}, fmt.Errorf("parse %s: %w", path, err)
 	}
-	sampleIndex, sampleType, err := selectSampleType(profile)
+	sampleIndex, _, err := selectSampleType(profile)
 	if err != nil {
 		return normalizedProfile{}, err
 	}
-	if _, err := valueToSeconds(1, sampleType.Unit); err != nil {
+	return normalizeMetric(path, data, profile, sampleIndex)
+}
+
+// Time values use seconds; bytes and counts keep their original scale.
+// Only fgprof time is written to the legacy wall-time tables.
+func metricValue(value int64, unit string) (float64, string, error) {
+	if unit == "bytes" || unit == "count" {
+		return float64(value), unit, nil
+	}
+	seconds, err := valueToSeconds(value, unit)
+	return seconds, "seconds", err
+}
+
+func normalizeMetric(path string, data []byte, profile *pprofprofile.Profile, sampleIndex int) (normalizedProfile, error) {
+	runID, host, err := profileIdentity(path)
+	if err != nil {
+		return normalizedProfile{}, err
+	}
+	if err := profile.CheckValid(); err != nil {
+		return normalizedProfile{}, fmt.Errorf("invalid profile %s: %w", path, err)
+	}
+	sampleType := profile.SampleType[sampleIndex]
+	_, valueUnit, err := metricValue(1, sampleType.Unit)
+	if err != nil {
 		return normalizedProfile{}, err
 	}
 
@@ -173,10 +207,10 @@ func normalizeProfile(path string) (normalizedProfile, error) {
 	var total float64
 	var incomplete int
 	for index, sample := range profile.Sample {
-		if sample == nil || sampleIndex >= len(sample.Value) || sample.Value[sampleIndex] <= 0 {
+		if sample == nil || sampleIndex >= len(sample.Value) || sample.Value[sampleIndex] == 0 {
 			continue
 		}
-		wallSeconds, err := valueToSeconds(sample.Value[sampleIndex], sampleType.Unit)
+		sampleValue, _, err := metricValue(sample.Value[sampleIndex], sampleType.Unit)
 		if err != nil {
 			return normalizedProfile{}, err
 		}
@@ -187,9 +221,10 @@ func normalizeProfile(path string) (normalizedProfile, error) {
 		sampleID := index + 1
 		result.samples = append(result.samples, sampleRow{
 			runID: runID, host: host, sampleID: sampleID,
-			wallSeconds: wallSeconds, stackDepth: len(frames),
+			value: sampleValue, stackDepth: len(frames),
+			rawValue: sample.Value[sampleIndex],
 		})
-		total += wallSeconds
+		total += sampleValue
 		seenFunctions := make(map[string]struct{})
 		for depth := range frames {
 			frame := frames[depth]
@@ -201,10 +236,10 @@ func normalizeProfile(path string) (normalizedProfile, error) {
 				functionValues[frame.function] = value
 			}
 			if depth == 0 {
-				value.flat += wallSeconds
+				value.flat += sampleValue
 			}
 			if _, ok := seenFunctions[frame.function]; !ok {
-				value.cumulative += wallSeconds
+				value.cumulative += sampleValue
 				seenFunctions[frame.function] = struct{}{}
 			}
 			if depth+1 < len(frames) {
@@ -215,7 +250,7 @@ func normalizeProfile(path string) (normalizedProfile, error) {
 					edge = &edgeValue{}
 					edgeValues[key] = edge
 				}
-				edge.wallSeconds += wallSeconds
+				edge.value += sampleValue
 				edge.sampleOccurrences++
 			}
 		}
@@ -224,14 +259,14 @@ func normalizeProfile(path string) (normalizedProfile, error) {
 	for function, value := range functionValues {
 		result.functions = append(result.functions, functionRow{
 			runID: runID, host: host, function: function, file: value.file,
-			line: value.line, flatSeconds: value.flat, cumulative: value.cumulative,
+			line: value.line, flatValue: value.flat, cumulative: value.cumulative,
 		})
 	}
 	for key, value := range edgeValues {
 		parts := strings.SplitN(key, "\x00", 2)
 		result.edges = append(result.edges, edgeRow{
 			runID: runID, host: host, caller: parts[0], callee: parts[1],
-			wallSeconds: value.wallSeconds, sampleOccurrences: value.sampleOccurrences,
+			value: value.value, sampleOccurrences: value.sampleOccurrences,
 		})
 	}
 	sort.Slice(result.functions, func(i, j int) bool {
@@ -241,8 +276,8 @@ func normalizeProfile(path string) (normalizedProfile, error) {
 		return result.functions[i].function < result.functions[j].function
 	})
 	sort.Slice(result.edges, func(i, j int) bool {
-		if result.edges[i].wallSeconds != result.edges[j].wallSeconds {
-			return result.edges[i].wallSeconds > result.edges[j].wallSeconds
+		if result.edges[i].value != result.edges[j].value {
+			return result.edges[i].value > result.edges[j].value
 		}
 		if result.edges[i].caller != result.edges[j].caller {
 			return result.edges[i].caller < result.edges[j].caller
@@ -267,10 +302,15 @@ func normalizeProfile(path string) (normalizedProfile, error) {
 		runID: runID, host: host, source: filepath.Base(path),
 		profileSHA256: fmt.Sprintf("%x", profileHash),
 		sampleType:    sampleType.Type, sampleUnit: sampleType.Unit,
-		durationSeconds:  float64(profile.DurationNanos) / 1e9,
-		totalWallSeconds: total, periodSeconds: periodSeconds,
+		profileType: profileKind(path), valueUnit: valueUnit, timeUnixNano: profile.TimeNanos,
+		durationSeconds: float64(profile.DurationNanos) / 1e9,
+		totalValue:      total, periodSeconds: periodSeconds,
 		sampleCount: len(result.samples), incompleteSamples: incomplete,
 		embeddedFunctionNames: embeddedFunctionNames,
+	}
+	result.metadata.period = profile.Period
+	if profile.PeriodType != nil {
+		result.metadata.periodUnit = profile.PeriodType.Unit
 	}
 	return result, nil
 }
@@ -282,7 +322,7 @@ func writeTSV(path string, header []string, rows func(*csv.Writer) error) error 
 	}
 	writer := csv.NewWriter(file)
 	writer.Comma = '\t'
-	if err := writer.Write(header); err == nil {
+	if err = writer.Write(header); err == nil {
 		err = rows(writer)
 	}
 	writer.Flush()
@@ -310,7 +350,7 @@ func writeProfiles(output string, profiles []normalizedProfile) error {
 		for _, profile := range profiles {
 			m := profile.metadata
 			if err := writer.Write([]string{m.runID, m.host, m.source, m.profileSHA256, m.sampleType, m.sampleUnit,
-				formatFloat(m.durationSeconds), formatFloat(m.totalWallSeconds), formatFloat(m.periodSeconds),
+				formatFloat(m.durationSeconds), formatFloat(m.totalValue), formatFloat(m.periodSeconds),
 				strconv.Itoa(m.sampleCount), strconv.Itoa(m.incompleteSamples), strconv.Itoa(m.embeddedFunctionNames),
 				"false", "", "", "not-checked"}); err != nil {
 				return err
@@ -323,7 +363,7 @@ func writeProfiles(output string, profiles []normalizedProfile) error {
 	if err := writeTSV(filepath.Join(output, "profile-samples.rows"), []string{"run_id", "host", "sample_id", "wall_seconds", "stack_depth"}, func(writer *csv.Writer) error {
 		for _, profile := range profiles {
 			for _, row := range profile.samples {
-				if err := writer.Write([]string{row.runID, row.host, strconv.Itoa(row.sampleID), formatFloat(row.wallSeconds), strconv.Itoa(row.stackDepth)}); err != nil {
+				if err := writer.Write([]string{row.runID, row.host, strconv.Itoa(row.sampleID), formatFloat(row.value), strconv.Itoa(row.stackDepth)}); err != nil {
 					return err
 				}
 			}
@@ -347,7 +387,7 @@ func writeProfiles(output string, profiles []normalizedProfile) error {
 	if err := writeTSV(filepath.Join(output, "profile-functions.rows"), []string{"run_id", "host", "function", "file", "line", "flat_wall_seconds", "cumulative_wall_seconds"}, func(writer *csv.Writer) error {
 		for _, profile := range profiles {
 			for _, row := range profile.functions {
-				if err := writer.Write([]string{row.runID, row.host, row.function, row.file, strconv.Itoa(row.line), formatFloat(row.flatSeconds), formatFloat(row.cumulative)}); err != nil {
+				if err := writer.Write([]string{row.runID, row.host, row.function, row.file, strconv.Itoa(row.line), formatFloat(row.flatValue), formatFloat(row.cumulative)}); err != nil {
 					return err
 				}
 			}
@@ -359,7 +399,7 @@ func writeProfiles(output string, profiles []normalizedProfile) error {
 	return writeTSV(filepath.Join(output, "profile-edges.rows"), []string{"run_id", "host", "caller", "callee", "wall_seconds", "sample_occurrences"}, func(writer *csv.Writer) error {
 		for _, profile := range profiles {
 			for _, row := range profile.edges {
-				if err := writer.Write([]string{row.runID, row.host, row.caller, row.callee, formatFloat(row.wallSeconds), strconv.Itoa(row.sampleOccurrences)}); err != nil {
+				if err := writer.Write([]string{row.runID, row.host, row.caller, row.callee, formatFloat(row.value), strconv.Itoa(row.sampleOccurrences)}); err != nil {
 					return err
 				}
 			}
@@ -371,16 +411,44 @@ func writeProfiles(output string, profiles []normalizedProfile) error {
 func Run(output string, paths []string, stderr io.Writer) error {
 	sort.Strings(paths)
 	profiles := make([]normalizedProfile, 0, len(paths))
+	var legacy []normalizedProfile
 	for _, path := range paths {
-		profile, err := normalizeProfile(path)
+		data, err := os.ReadFile(path)
 		if err != nil {
 			return err
 		}
-		profiles = append(profiles, profile)
+		parsed, err := pprofprofile.ParseData(data)
+		if err != nil {
+			return fmt.Errorf("parse %s: %w", path, err)
+		}
+		if err := parsed.CheckValid(); err != nil {
+			return fmt.Errorf("invalid profile %s: %w", path, err)
+		}
+		if len(parsed.SampleType) == 0 {
+			return fmt.Errorf("profile %s has no sample types", path)
+		}
+		seen := make(map[string]bool)
+		for index, sampleType := range parsed.SampleType {
+			if sampleType == nil || sampleType.Type == "" || seen[sampleType.Type] {
+				return fmt.Errorf("profile %s has missing or duplicate sample types", path)
+			}
+			seen[sampleType.Type] = true
+			profile, err := normalizeMetric(path, data, parsed, index)
+			if err != nil {
+				return fmt.Errorf("normalize %s: %w", path, err)
+			}
+			profiles = append(profiles, profile)
+			if profile.metadata.profileType == "fgprof" && sampleType.Type == "time" {
+				legacy = append(legacy, profile)
+			}
+		}
 	}
-	if err := writeProfiles(output, profiles); err != nil {
+	if err := writeProfiles(output, legacy); err != nil {
 		return err
 	}
-	fmt.Fprintf(stderr, "normalized %d fgprof profile(s) into %s\n", len(profiles), output)
+	if err := writeGenericProfiles(output, profiles); err != nil {
+		return err
+	}
+	fmt.Fprintf(stderr, "normalized %d pprof file(s), %d sample types into %s\n", len(paths), len(profiles), output)
 	return nil
 }

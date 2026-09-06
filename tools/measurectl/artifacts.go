@@ -61,7 +61,22 @@ func runArtifacts(args []string) error {
 			return err
 		}
 		specs = specsForCollectorMode(specs, manifest.CollectorsDisabled)
-		return checkRunDir(*runDir, specs)
+		specs = appendCaptureSpecs(specs, manifest)
+		if err := checkRunDir(*runDir, specs); err != nil {
+			return err
+		}
+		artifacts, _, err := scanArtifacts(*runDir)
+		if err != nil {
+			return err
+		}
+		artifacts = assessCaptureQuality(*runDir, manifest, artifacts)
+		for _, a := range artifacts {
+			if a.Quality.Expected && a.Quality.Status != "valid" {
+				return fmt.Errorf("%s: %s", a.Name, a.Quality.Reason)
+			}
+		}
+		fmt.Printf("%s: 宣言どおりの成果物が揃い、必須captureの内容検査に成功しました\n", *runDir)
+		return nil
 	case *check:
 		return checkReaders(specs)
 	default:
@@ -190,7 +205,6 @@ func checkRunDir(dir string, specs []ArtifactSpec) error {
 		}
 	}
 	if len(missing) == 0 {
-		fmt.Printf("%s: 宣言どおりの成果物が揃っています\n", dir)
 		return nil
 	}
 	fmt.Printf("%s に無い成果物:\n%s\n", dir, strings.Join(missing, "\n"))

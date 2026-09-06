@@ -113,12 +113,16 @@ task bench-manual
 task bench
 ```
 
-分割して操作する場合:
+profile自動収集は既定では無効です。[Go profile導入例](docs/special-sources/go-profiling.md)に沿って
+全APP_HOSTSへendpointを導入し、`PROFILES_ENABLED=true`にすると、通常の`bench` / `bench-manual`で
+CPU・fgprof・heap・allocs・goroutineを自動収集します。CPU・fgprofの開始を確認してから負荷を開始し、
+収集・回収完了後にRUNを確定します。追加のprofile操作は不要です。
+
+分割して操作する場合（profile無効時）:
 
 ```shell
 task before-bench
 # ベンチ実行
-task fgprof-collect   # アプリがfgprof endpointを公開している場合
 task after-bench SCORE=12345
 ```
 
@@ -146,6 +150,7 @@ task bench-manual-no-collectors
 ```
 
 collectorなしRUNは`run.json.collectors_disabled=true`を記録し、周期collectorの成果物を任意扱いにします。
+no-collectorsタスクではprofileも無効にしますが、nginx等のログ出力・回収は継続します。
 access logやdigesterの必須成果物の欠損は引き続き検査失敗です。異なるcollectorモードのRUNは
 通常の採用比較では互換とせず、計測負荷の比較として扱います。古いRUNの省略値は`false`として読みます。
 
@@ -162,8 +167,9 @@ collector負荷の比較が終わるまでは`false`を維持し、採用・非�
 - `pt-query-digest.log` / `slp.tsv` / `mysql-digest.tsv`
 - `<host>-proc-metrics.tsv` / service / disk / task-state（task-stateは高頻度collector明示時）
 - `mysql-status.tsv` / `mysql-lock-waits.tsv`（lock waitは高頻度collector明示時）
-- `<host>-fgprof.pprof`
-- `<host>-go-cpu.pprof` / heap / allocs / goroutine（明示収集時）
+- `<host>-fgprof.pprof`（profile有効時）
+- `<host>-go-cpu.pprof` / heap / allocs / goroutine（profile有効時）
+- `raw/access-<host>.log.zst` — ホスト別nginxログ。空ログも圧縮して保存
 - `<host>-app-journal.log` / `<host>-nginx-error.log`
 - `<host>-kernel.log` / `<host>-oom.log`
 - `upstream-breakdown*.tsv`
@@ -182,13 +188,15 @@ task artifacts-run RUN=runs/<RUN_ID>
 
 `task artifacts`は宣言と読み手の整合、`task artifacts-run`は実RUNの必須成果物を検査します。
 完全に生成されなかった必須成果物も`run.json`へ`status: missing`として記録されます。
+開始時にホスト別の必須ログ・profileを`required_artifacts`へ固定し、形式と計測窓を検査します。
+`after-bench`もfinalize・自動ローカルcommit後にこの検査を行い、欠損・不正な内容があれば非0で終了します。
+過去のRUNに新しい必須条件を遡及適用しません。
 
-Goアプリが標準`net/http/pprof` endpointを計測用portで公開している場合、進行中RUNへprofileを収集できます。
-CPU profileは`PROFILE_DELAY`後から`PROFILE_SECONDS`秒、heap・allocs・goroutineは
-`SNAPSHOT_PROFILE_DELAY`後に同時取得します。公開先は`PPROF_BASE_URL`を当日の構成へ合わせてください。
+`PROFILE_SECONDS`は初期化・整合性チェック・負荷時間・余裕を含めて設定します。既定の120秒は例です。
+heap・allocs・goroutineは`SNAPSHOT_PROFILE_DELAY`後に同時取得します。既定の40秒も競技に合わせて変更します。
+自動収集には標準pprofに加え、RUN所有情報を返す開始確認endpointが必要です。詳しくは導入例を参照してください。
 
 ```shell
-task go-profiles-collect
 task go-profile-top RUN=runs/<RUN_ID> PROFILE=isucon-1-go-cpu.pprof
 ```
 

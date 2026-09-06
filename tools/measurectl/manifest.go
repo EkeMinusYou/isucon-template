@@ -25,6 +25,8 @@ import (
 // 実ファイルから型を推論するので、RUN によってキーが出たり消えたりすると
 // 横断クエリのスキーマが揺れる。
 type Manifest struct {
+	ProfilesEnabled    bool            `json:"profiles_enabled"`
+	RequiredArtifacts  []string        `json:"required_artifacts,omitempty"`
 	CollectorsDisabled bool            `json:"collectors_disabled,omitempty"`
 	SchemaVersion      int             `json:"schema_version"`
 	Phase              string          `json:"phase"`
@@ -160,6 +162,10 @@ func runManifestBegin(args []string) error {
 	fs.Var(additionalRoles, "role", "additional role=host1,host2 (repeatable)")
 	collectorsDisabled := fs.Bool("collectors-disabled", false, "periodic collectors were intentionally disabled")
 	collectorClean := fs.Bool("collector-clean", false, "collector clean gate passed")
+	profilesEnabled := fs.Bool("profiles-enabled", false, "require automatic profiles for this RUN")
+	captureContract := fs.Bool("capture-contract", false, "snapshot per-host capture requirements")
+	collectors := fs.String("collectors", defaultMeasureConfigPath("collectors.yaml"), "collector declaration")
+	digesters := fs.String("digesters", defaultMeasureConfigPath("digesters.yaml"), "digester declaration")
 	compareRunDir := fs.String("compare-run-dir", "", "compatible control RUN directory")
 	compareAllowedCards := fs.String("compare-allow-cards", "", "card IDs allowed to differ from the control RUN")
 	compareAllowedRoles := fs.String("compare-allow-roles", "", "role field names allowed to differ from the control RUN")
@@ -197,6 +203,7 @@ func runManifestBegin(args []string) error {
 
 	runID := filepath.Base(strings.TrimSuffix(*dir, string(filepath.Separator)))
 	m := Manifest{
+		ProfilesEnabled:    *profilesEnabled,
 		CollectorsDisabled: *collectorsDisabled,
 		SchemaVersion:      4,
 		Phase:              "started",
@@ -223,6 +230,12 @@ func runManifestBegin(args []string) error {
 			RoleDelta:    []string{},
 		},
 		LoadWindow: LoadWindow{Status: "pending", Source: "bench.log"},
+	}
+	if *captureContract {
+		m.RequiredArtifacts, err = captureRequirements(m, *collectors, *digesters)
+		if err != nil {
+			return err
+		}
 	}
 	if *compareRunDir != "" {
 		comparison, err := compareManifest(m, *compareRunDir, m.Comparison.AllowedCards, m.Comparison.AllowedRoles)
@@ -298,6 +311,7 @@ func runManifestFinalize(args []string) error {
 		return err
 	}
 	specs = specsForCollectorMode(specs, m.CollectorsDisabled)
+	specs = appendCaptureSpecs(specs, m)
 	if artifacts == nil {
 		artifacts = []Artifact{}
 	}
@@ -306,6 +320,7 @@ func runManifestFinalize(args []string) error {
 		return err
 	}
 	artifacts = assessArtifactQuality(*dir, m.LoadWindow, artifacts)
+	artifacts = assessCaptureQuality(*dir, m, artifacts)
 	m.Artifacts = artifacts
 	m.RawBytes = rawBytes
 	m.Phase = "finalized"
@@ -435,6 +450,31 @@ func scanArtifacts(dir string) ([]Artifact, int64, error) {
 		if e.IsDir() {
 			if name == "raw" {
 				rawBytes = dirSize(filepath.Join(dir, name))
+				err := filepath.WalkDir(filepath.Join(dir, name), func(path string, entry fs.DirEntry, walkErr error) error {
+					if walkErr != nil {
+						return walkErr
+					}
+					if entry.IsDir() {
+						return nil
+					}
+					info, err := entry.Info()
+					if err != nil {
+						return err
+					}
+					relative, err := filepath.Rel(dir, path)
+					if err != nil {
+						return err
+					}
+					a := Artifact{Name: filepath.ToSlash(relative), Bytes: info.Size(), Status: "ok"}
+					if info.Size() == 0 {
+						a.Status = "empty"
+					}
+					artifacts = append(artifacts, a)
+					return nil
+				})
+				if err != nil {
+					return nil, 0, err
+				}
 			}
 			continue
 		}
@@ -642,6 +682,9 @@ func compareManifest(target Manifest, compareRunDir string, allowedCards, allowe
 	}
 	if target.CollectorsDisabled != control.CollectorsDisabled {
 		addReason("periodic collector mode differs")
+	}
+	if target.ProfilesEnabled != control.ProfilesEnabled {
+		addReason("profile collection mode differs")
 	}
 	targetRoles := roleValues(target.Roles)
 	controlRoles := roleValues(control.Roles)

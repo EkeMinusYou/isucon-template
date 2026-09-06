@@ -11,7 +11,7 @@ reports:
   bottleneck_profile: queries/bottleneck-profile.sql
 
 profiles:
-  match: "*-fgprof.pprof"
+  match: "*.pprof"
   schema: schema/fgprof.sql
   tables:
     - profile_metadata
@@ -19,6 +19,11 @@ profiles:
     - profile_frames
     - profile_functions
     - profile_edges
+    - pprof_metadata
+    - pprof_samples
+    - pprof_frames
+    - pprof_functions
+    - pprof_edges
 
 sources:
   - table: metrics

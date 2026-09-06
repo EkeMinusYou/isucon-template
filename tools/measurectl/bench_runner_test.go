@@ -43,6 +43,7 @@ esac
 		"ISUCON_BENCH_RUN_STATE_FILE="+state,
 		"ISUCON_BENCH_RESULTS_DIR="+results,
 		"ISUCON_BENCH_COLLECT_FLAGS=-no-collectors",
+		"ISUCON_BENCH_PROFILES_ENABLED=false",
 		"ISUCON_TEST_CALL_LOG="+callLog,
 	)
 	if output, err := cmd.CombinedOutput(); err != nil {
@@ -104,7 +105,7 @@ printf '%s\n' "$*" >> "$ISUCON_TEST_CALL_LOG"
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := string(calls); got != "before-bench MEASURECTL_COLLECT_FLAGS=\n" {
+	if got := string(calls); got != "before-bench MEASURECTL_COLLECT_FLAGS= PROFILES_ENABLED=false\n" {
 		t.Fatalf("task calls = %q", got)
 	}
 }
