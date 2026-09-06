@@ -36,6 +36,10 @@ workflowは見出しを検索して必要な節だけ読む。Objective／Constr
 7. workflowのConstraint・Relationsに従って現在状態とrelationを整合させ、必要なassessmentをCLIへ渡す。無関係ならlinkしない。
 8. 本文と状態を一つの`resolve`操作で確定し、Ownerを空にする。
 
+## 対象がない場合の待機
+
+開始時に対象カードがない場合も、処理後に対象がなくなった場合も、即終了せず[カード追加待機](../_shared/card-wait.md)に従う。再確認する対象は、ユーザーが指定した範囲内の安全にclaimできるINVESTIGATEに限る。
+
 ## 完了条件
 
 workflowの判定・History規則に従い、対象をREADY、BLOCKED、REJECTEDへ原子的に収束し、relation・依存を整合させる。`task backlog -- validate`を通し、カードID・判定根拠・残る不明点を報告する。
