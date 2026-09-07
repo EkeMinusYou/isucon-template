@@ -422,6 +422,29 @@ tasks:
       - task: deploy-plan
         vars: { PLAN: deploy-all }
 
+  deploy-all-reset:
+    desc: アプリDBをスキーマから再作成して全体deploy・初期化（setup時に具体化）
+    preconditions: *no_active_run
+    cmds:
+      - task: gen
+      - task: build
+      - for: { var: APP_HOSTS }
+        cmd: '{{.SSH}} {{.SSH_USER}}@{{.ITEM}} "sudo systemctl stop {{.SERVICE}}"'
+      - task: deploy-mysql
+      - task: deploy-db-schema
+      - task: deploy-all
+      # Adapt the initialization endpoint and required state reset during isucon-setup.
+      - '{{.SSH}} {{.SSH_USER}}@{{splitList " " .APP_HOSTS | first}} "curl --fail --silent --show-error -X POST http://127.0.0.1:{{.LISTEN_PORT}}/initialize"'
+      - task: check-network
+
+  deploy-db-schema:
+    desc: MYSQL_HOSTのアプリDBを破棄してschemaを作成（setup時にSQLパスを設定）
+    preconditions: *no_active_run
+    cmds:
+      # Example asset paths; adapt to the acquired schema and actual database roles.
+      - '{{.RSYNC}} webapp/sql/ {{.SSH_USER}}@{{.MYSQL_HOST}}:{{.REMOTE_HOME}}/webapp/sql/'
+      - '{{.SSH}} {{.SSH_USER}}@{{.MYSQL_HOST}} "sudo mysql -e \"DROP DATABASE IF EXISTS {{.DB_NAME}}; CREATE DATABASE {{.DB_NAME}};\" && sudo mysql {{.DB_NAME}} < {{.REMOTE_HOME}}/webapp/sql/initdb.d/10_schema.sql"'
+
   deploy-app-dry:
     desc: app deployの転送先・role・activationを実行せず表示
     deps: [build-deployctl]
