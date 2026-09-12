@@ -22,6 +22,7 @@ func TestBenchRunnerFinalizesAutomaticRunOnce(t *testing.T) {
 	fakeTask := filepath.Join(tmp, "task")
 	body := `#!/bin/sh
 set -eu
+[ "$1" != --silent ] || shift
 case "$1" in
   before-bench)
     mkdir -p "$ISUCON_BENCH_RESULTS_DIR/20260901-120000" "$(dirname "$ISUCON_BENCH_RUN_STATE_FILE")"
@@ -29,6 +30,9 @@ case "$1" in
     ;;
   after-bench)
     printf '%s\n' "$*" >> "$ISUCON_TEST_CALL_LOG"
+    ;;
+  bench-timestamp)
+    echo '2026-09-01T03:00:10.123456789Z'
     ;;
   *) exit 2 ;;
 esac
@@ -66,6 +70,71 @@ esac
 	for _, marker := range []string{"BENCHMARK_START", "BENCHMARK_END", "BENCHMARK_PASS"} {
 		if !strings.Contains(string(benchLog), marker) {
 			t.Errorf("bench.log does not contain %s:\n%s", marker, benchLog)
+		}
+	}
+}
+
+func TestBenchClockFailureFinalizesWithoutLocalFallback(t *testing.T) {
+	root, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []string{"auto", "manual"} {
+		for _, failAt := range []string{"1", "2"} {
+			t.Run(mode+"/clock"+failAt, func(t *testing.T) {
+				tmp := t.TempDir()
+				fake := `#!/bin/sh
+set -eu
+[ "$1" != --silent ] || shift
+echo "$1" >> "$ISUCON_TEST_DIR/calls"
+case "$1" in
+before-bench)
+  mkdir -p "$ISUCON_BENCH_RESULTS_DIR/20260901-120000"
+  echo 20260901-120000 > "$ISUCON_BENCH_RUN_STATE_FILE"
+  ;;
+bench-timestamp)
+  n=1
+  if test -f "$ISUCON_TEST_DIR/clock-first"; then n=2; fi
+  touch "$ISUCON_TEST_DIR/clock-first"
+  [ "$n" != "$ISUCON_TEST_FAIL_AT" ] || exit 23
+  echo '2026-09-01T03:00:10.123456789Z'
+  ;;
+after-bench) ;;
+*) exit 96 ;;
+esac
+`
+				if err := os.WriteFile(filepath.Join(tmp, "task"), []byte(fake), 0755); err != nil {
+					t.Fatal(err)
+				}
+				args := []string{"tools/bench/run.sh", mode}
+				if mode == "auto" {
+					args = append(args, "--", "sh", "-c", `touch "$ISUCON_TEST_DIR/load-ran"; echo BENCHMARK_PASS`)
+				}
+				cmd := exec.Command("sh", args...)
+				cmd.Dir = root
+				cmd.Stdin = strings.NewReader("12\ny\n")
+				cmd.Env = append(os.Environ(), "PATH="+tmp+string(os.PathListSeparator)+os.Getenv("PATH"),
+					"ISUCON_TEST_DIR="+tmp, "ISUCON_TEST_FAIL_AT="+failAt,
+					"ISUCON_BENCH_RUN_STATE_FILE="+filepath.Join(tmp, "state"),
+					"ISUCON_BENCH_RESULTS_DIR="+filepath.Join(tmp, "runs"), "ISUCON_BENCH_PROFILES_ENABLED=false")
+				output, err := cmd.CombinedOutput()
+				if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != 23 {
+					t.Fatalf("clock failure=%v output=%s", err, output)
+				}
+				calls, err := os.ReadFile(filepath.Join(tmp, "calls"))
+				if err != nil || strings.Count(string(calls), "after-bench") != 1 {
+					t.Fatalf("finalize calls=%s err=%v", calls, err)
+				}
+				log, _ := os.ReadFile(filepath.Join(tmp, "runs", "20260901-120000", "bench.log"))
+				if strings.Contains(string(log), "BENCHMARK_END") || failAt == "1" && strings.Contains(string(log), "BENCHMARK_START") {
+					t.Fatalf("failed clock produced a marker: %s", log)
+				}
+				if mode == "auto" && failAt == "1" {
+					if _, err := os.Stat(filepath.Join(tmp, "load-ran")); !os.IsNotExist(err) {
+						t.Fatal("benchmark ran without a start timestamp")
+					}
+				}
+			})
 		}
 	}
 }

@@ -63,19 +63,23 @@ if [ "$profiles_enabled" = true ]; then
   # Do not launch a benchmark until every app is sampling for this RUN.
   task profiles-ready
   # Leave a lead-in for the asynchronous CPU profile writer and small host
-  # clock offsets. Artifact validation still requires full window coverage.
+  # server clock offsets. Artifact validation still requires full coverage.
   sleep 1
   task profiles-ready
 fi
 
+# Profiles and access logs use server clocks, not the workstation clock.
+# Assign separately so a failed clock read stops before emitting a marker.
+started_at=$(task --silent bench-timestamp)
 if [ "$mode" = manual ]; then
-  printf '%s\tBENCHMARK_START\n' "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" > "$run_dir/bench.log"
+  printf '%s\tBENCHMARK_START\n' "$started_at" > "$run_dir/bench.log"
   echo '別の端末やポータルから、手動でベンチを実行してください。'
   printf '完了後にスコアを入力してください（空欄可）: '
   read -r score || score=''
   printf '整合性チェックまで成功した場合は y を入力してください: '
   read -r passed || passed=''
-  printf '%s\tBENCHMARK_END\n' "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" >> "$run_dir/bench.log"
+  ended_at=$(task --silent bench-timestamp)
+  printf '%s\tBENCHMARK_END\n' "$ended_at" >> "$run_dir/bench.log"
   case "$passed" in
     y|Y|yes|YES) echo 'BENCHMARK_PASS' >> "$run_dir/bench.log" ;;
     *) echo 'BENCHMARK_FAIL' >> "$run_dir/bench.log" ;;
@@ -87,13 +91,14 @@ if [ "$mode" = manual ]; then
 fi
 
 bench_output=$run_dir/.bench-output
-printf '%s\tBENCHMARK_START\n' "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" | tee "$run_dir/bench.log"
+printf '%s\tBENCHMARK_START\n' "$started_at" | tee "$run_dir/bench.log"
 bench_status=0
 "$@" >"$bench_output" 2>&1 || bench_status=$?
 tee -a "$run_dir/bench.log" < "$bench_output"
 rm -f "$bench_output"
 bench_output=''
-printf '%s\tBENCHMARK_END\n' "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" | tee -a "$run_dir/bench.log"
+ended_at=$(task --silent bench-timestamp)
+printf '%s\tBENCHMARK_END\n' "$ended_at" | tee -a "$run_dir/bench.log"
 [ "$bench_status" -eq 0 ] || printf 'BENCHMARK_FAIL\texit_status=%s\n' "$bench_status" | tee -a "$run_dir/bench.log"
 
 finalize_status=0

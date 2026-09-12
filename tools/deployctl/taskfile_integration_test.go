@@ -21,6 +21,8 @@ func TestTaskfileDryDeployTasksInvokeDeployctlDryRun(t *testing.T) {
 	}{
 		{task: "deploy-app-dry", want: "deployctl apply app -dry-run"},
 		{task: "deploy-all-dry", want: "deployctl apply-plan deploy-all -dry-run"},
+		{task: "deploy-all-reset-dry", want: "deployctl apply-plan deploy-all-reset -dry-run"},
+		{task: "deploy-app-unit-dry", want: "deployctl apply app-unit -dry-run"},
 	} {
 		cmd := exec.Command("task", "--dry", test.task)
 		cmd.Dir = root

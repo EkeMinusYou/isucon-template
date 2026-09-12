@@ -1,5 +1,5 @@
-# Optional config-only upload. Valid settings remain at the live paths;
-# each failed upload is restored before deployctl returns an error.
+# Uploads replace live configuration files without reloading services.
+# Adapt additional services and host-specific overlays during setup.
 deployments:
   config-check:
     uploads:
@@ -7,11 +7,13 @@ deployments:
         role: nginx
         local: nginx/
         remote: /etc/nginx/
+        excludes: [tls/]
         delete: true
         validate: sudo nginx -t
       - label: MySQL configuration
         role: mysql
         local: mysql/
         remote: /etc/mysql/
+        excludes: [debian.cnf]
         delete: true
         validate: sudo mysqld --validate-config

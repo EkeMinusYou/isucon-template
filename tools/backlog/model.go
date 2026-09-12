@@ -37,11 +37,11 @@ var allowedStatuses = map[string]bool{
 	"REJECTED":    true,
 }
 
-var allowedConstraintStatuses = map[string]bool{
-	"ACTIVE":      true,
-	"RESOLVED":    true,
-	"INVALIDATED": true,
-	"MERGED":      true,
+var allowedTargetStatuses = map[string]bool{
+	"ACTIVE":   true,
+	"RESOLVED": true,
+	"RETIRED":  true,
+	"MERGED":   true,
 }
 
 var allowedDependencyStatuses = map[string]bool{
@@ -67,96 +67,104 @@ var allowedStatusTransitions = map[string]map[string]bool{
 }
 
 type Section struct {
-	Name     string
-	Position int
-	Body     string
+	Name     string `json:"name"`
+	Position int    `json:"position"`
+	Body     string `json:"body"`
 }
 
 type HistoryEntry struct {
-	Position   int
-	OccurredAt string
-	Actor      string
-	Body       string
-	Raw        string
+	Position   int    `json:"position"`
+	OccurredAt string `json:"occurred_at"`
+	Actor      string `json:"actor"`
+	Body       string `json:"body"`
+	Raw        string `json:"raw"`
 }
 
 type CardDependency struct {
-	CardID          string
-	DependsOnCardID string
-	RequiredStatus  string
-	Mode            string
-	Reason          string
-	TargetStatus    string
+	CardID          string `json:"card_id"`
+	DependsOnCardID string `json:"depends_on_card_id"`
+	RequiredStatus  string `json:"required_status"`
+	Mode            string `json:"mode"`
+	Reason          string `json:"reason"`
+	TargetStatus    string `json:"target_status"`
 }
 
 type Card struct {
-	ID      string
-	Version int
-	Status  string
-	Title   string
-	Closed  bool
+	PrimaryTargetID string `json:"primary_target_id"`
+	ID              string `json:"id"`
+	Version         int    `json:"version"`
+	Status          string `json:"status"`
+	Title           string `json:"title"`
+	Closed          bool   `json:"closed"`
 
-	Priority     string
-	Owner        string
-	Area         string
-	SourceRuns   string
-	CompareRun   string
-	ObservedRuns string
-	Updated      string
-	UpdatedBy    string
+	Priority     string `json:"priority"`
+	Owner        string `json:"owner"`
+	Area         string `json:"area"`
+	SourceRuns   string `json:"source_runs"`
+	CompareRun   string `json:"compare_run"`
+	ObservedRuns string `json:"observed_runs"`
+	Updated      string `json:"updated"`
+	UpdatedBy    string `json:"updated_by"`
 
-	ConstraintAssessments map[string]string
-	ConstraintRoles       map[string]string
+	TargetAssessments map[string]string `json:"target_assessments,omitempty"`
+	TargetRoles       map[string]string `json:"target_roles"`
 
-	Sections []Section
-	History  []HistoryEntry
+	Sections []Section      `json:"sections,omitempty"`
+	History  []HistoryEntry `json:"history,omitempty"`
 
-	Dependencies        []CardDependency
-	Unblocks            []CardDependency
-	ConstraintIDs       []string
-	ActiveConstraintIDs []string
-	ObjectiveIDs        []string
+	Dependencies    []CardDependency `json:"dependencies"`
+	Unblocks        []CardDependency `json:"unblocks"`
+	TargetIDs       []string         `json:"target_ids"`
+	ActiveTargetIDs []string         `json:"active_target_ids"`
+	ObjectiveIDs    []string         `json:"objective_ids"`
 }
 
-type Constraint struct {
-	ID           string
-	Version      int
-	Status       string
-	Title        string
-	Priority     string
-	Fingerprint  string
-	Scope        string
-	SourceRuns   string
-	ObservedRuns string
-	Evidence     string
-	Resolution   string
-	MergedIntoID string
-	Updated      string
-	UpdatedBy    string
+type Target struct {
+	Axis                string            `json:"axis"`
+	Goal                string            `json:"goal"`
+	Evaluation          string            `json:"evaluation"`
+	PreviousTargetID    string            `json:"previous_target_id"`
+	CompletionEvidence  string            `json:"completion_evidence"`
+	PrimaryObjectiveID  string            `json:"primary_objective_id"`
+	ObjectiveRationales map[string]string `json:"objective_rationales"`
+	ID                  string            `json:"id"`
+	Version             int               `json:"version"`
+	Status              string            `json:"status"`
+	Title               string            `json:"title"`
+	Priority            string            `json:"priority"`
+	Fingerprint         string            `json:"fingerprint"`
+	Scope               string            `json:"scope"`
+	SourceRuns          string            `json:"source_runs"`
+	ObservedRuns        string            `json:"observed_runs"`
+	Evidence            string            `json:"evidence"`
+	Resolution          string            `json:"resolution"`
+	MergedIntoID        string            `json:"merged_into_id"`
+	Updated             string            `json:"updated"`
+	UpdatedBy           string            `json:"updated_by"`
 
-	CardIDs      []string
-	CardRoles    map[string]string
-	ObjectiveIDs []string
-	History      []HistoryEntry
+	CardIDs      []string          `json:"card_ids"`
+	CardRoles    map[string]string `json:"card_roles"`
+	ObjectiveIDs []string          `json:"objective_ids"`
+	History      []HistoryEntry    `json:"history,omitempty"`
 }
 
 type Objective struct {
-	ID                     string
-	Version                int
-	Status                 string
-	Mode                   string
-	Title                  string
-	MetricOrPredicate      string
-	RequiredForValidResult bool
-	ParentObjectiveID      string
-	OfficialSources        string
-	Verification           string
-	Updated                string
-	UpdatedBy              string
+	ID                     string `json:"id"`
+	Version                int    `json:"version"`
+	Status                 string `json:"status"`
+	Mode                   string `json:"mode"`
+	Title                  string `json:"title"`
+	MetricOrPredicate      string `json:"metric_or_predicate"`
+	RequiredForValidResult bool   `json:"required_for_valid_result"`
+	ParentObjectiveID      string `json:"parent_objective_id"`
+	OfficialSources        string `json:"official_sources"`
+	Verification           string `json:"verification"`
+	Updated                string `json:"updated"`
+	UpdatedBy              string `json:"updated_by"`
 
-	ConstraintIDs   []string
-	InterventionIDs []string
-	History         []HistoryEntry
+	TargetIDs       []string       `json:"target_ids"`
+	InterventionIDs []string       `json:"intervention_ids"`
+	History         []HistoryEntry `json:"history,omitempty"`
 }
 
 func (c Card) Field(sectionName, key string) string {
@@ -200,7 +208,7 @@ func normalizeStatus(status string) string {
 	return strings.ToUpper(strings.TrimSpace(status))
 }
 
-func normalizeConstraintStatus(status string) string {
+func normalizeTargetStatus(status string) string {
 	return strings.ToUpper(strings.TrimSpace(status))
 }
 
@@ -248,7 +256,7 @@ func normalizeID(value string) string {
 	return "B-" + value
 }
 
-func normalizeConstraintID(value string) string {
+func normalizeTargetID(value string) string {
 	value = strings.ToUpper(strings.TrimSpace(value))
 	if value != "" && !strings.HasPrefix(value, "A-") {
 		value = "A-" + value

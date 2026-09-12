@@ -76,8 +76,8 @@ func main() {
 		runDependency(config, commandArgs)
 	case "objective":
 		runObjective(config, commandArgs)
-	case "constraint":
-		runConstraint(config, commandArgs)
+	case "target":
+		runTarget(config, commandArgs)
 	case "pass":
 		runPass(config, commandArgs)
 	case "validate":
@@ -157,7 +157,7 @@ func mutatesBacklog(command string, args []string) bool {
 		return len(args) > 0 && args[0] != "list" && args[0] != "show"
 	case "dependency":
 		return len(args) > 0 && (args[0] == "add" || args[0] == "remove")
-	case "constraint":
+	case "target":
 		return len(args) > 0 && args[0] != "list" && args[0] != "show"
 	default:
 		return false
@@ -262,7 +262,7 @@ func resolveCommand(args []string) (string, []string) {
 		return "show", args
 	}
 	if strings.HasPrefix(strings.ToUpper(args[0]), "A-") {
-		return "constraint", append([]string{"show"}, args...)
+		return "target", append([]string{"show"}, args...)
 	}
 	if strings.HasPrefix(strings.ToUpper(args[0]), "O-") {
 		return "objective", append([]string{"show"}, args...)
@@ -303,18 +303,25 @@ func runInit(config cliConfig, args []string) {
 
 func runList(config cliConfig, args []string) {
 	fs := flag.NewFlagSet("list", flag.ExitOnError)
+	format := outputFormatFlag(fs)
 	all := fs.Bool("all", false, "include terminal cards")
 	status := fs.String("status", "", "filter by status")
 	area := fs.String("area", "", "filter by area")
 	priority := fs.String("p", "", "filter by priority")
 	owner := fs.String("owner", "", "filter by exact owner")
-	constraintID := fs.String("constraint", "", "filter by linked constraint")
+	targetID := fs.String("target", "", "filter by linked target")
 	unowned := fs.Bool("unowned", false, "filter cards without an owner")
 	watch := fs.Bool("watch", false, "refresh the list periodically")
 	interval := fs.Duration("interval", 15*time.Second, "refresh interval in watch mode")
 	noColor := fs.Bool("no-color", false, "disable terminal colors")
 	if err := fs.Parse(args); err != nil {
 		fatal(err)
+	}
+	if fs.NArg() != 0 {
+		fatal(errors.New("list accepts no positional arguments"))
+	}
+	if *format == "json" && *watch {
+		fatal(errors.New("--format json cannot be combined with --watch"))
 	}
 	if *noColor {
 		initColor(true)
@@ -329,7 +336,7 @@ func runList(config cliConfig, args []string) {
 	defer store.Close()
 	filter := ListFilter{
 		All: *all, Status: *status, Area: *area, Priority: *priority,
-		Owner: *owner, ConstraintID: normalizeConstraintID(*constraintID), Unowned: *unowned,
+		Owner: *owner, TargetID: normalizeTargetID(*targetID), Unowned: *unowned,
 	}
 	render := func() error {
 		cards, err := store.listCards(filter)
@@ -344,7 +351,7 @@ func runList(config cliConfig, args []string) {
 		if err != nil {
 			return err
 		}
-		nextConstraintID, err := store.metadata("next_constraint_id")
+		nextTargetID, err := store.metadata("next_target_id")
 		if err != nil {
 			return err
 		}
@@ -356,11 +363,20 @@ func runList(config cliConfig, args []string) {
 		if err != nil {
 			return err
 		}
-		constraints, err := store.listConstraints(ConstraintFilter{All: *all})
+		targets, err := store.listTargets(TargetFilter{All: *all})
 		if err != nil {
 			return err
 		}
-		printList(cards, constraints, objectives, revision, nextID, nextConstraintID, nextObjectiveID, config.wide, *all)
+		if *format == "json" {
+			printJSON(struct {
+				Revision   int         `json:"backlog_revision"`
+				Cards      []Card      `json:"cards"`
+				Targets    []Target    `json:"targets"`
+				Objectives []Objective `json:"objectives"`
+			}{revision, append([]Card{}, cards...), append([]Target{}, targets...), append([]Objective{}, objectives...)})
+		} else {
+			printList(cards, targets, objectives, revision, nextID, nextTargetID, nextObjectiveID, config.wide, *all)
+		}
 		return nil
 	}
 	if !*watch {
@@ -398,7 +414,9 @@ func clearTerminal() {
 }
 
 func runShow(config cliConfig, args []string) {
+	args = moveCardIDToEnd(args, map[string]bool{"format": true})
 	fs := flag.NewFlagSet("show", flag.ExitOnError)
+	format := outputFormatFlag(fs)
 	noColor := fs.Bool("no-color", false, "disable terminal colors")
 	fs.Parse(args)
 	if *noColor {
@@ -413,7 +431,11 @@ func runShow(config cliConfig, args []string) {
 	if err != nil {
 		fatal(err)
 	}
-	printCard(card)
+	if *format == "json" {
+		printJSON(card)
+	} else {
+		printCard(card)
+	}
 }
 
 func runIntervention(config cliConfig, args []string) {
@@ -433,10 +455,12 @@ func runIntervention(config cliConfig, args []string) {
 
 func runAdd(config cliConfig, args []string) {
 	fs := flag.NewFlagSet("add", flag.ExitOnError)
+	format := outputFormatFlag(fs)
+	targetID := fs.String("target", "", "optional primary ACTIVE improvement target")
 	id := fs.String("id", "", "explicit card ID")
 	actor := fs.String("actor", "", "writer identity")
 	reason := fs.String("reason", "", "history/change reason")
-	sectionStdin := fs.Bool("section-stdin", false, "read section bodies as a JSON object from stdin")
+	input := sectionInputFlags(fs)
 	fieldFlags := cardFieldFlags(fs)
 	title := fieldFlags.values["title"]
 	if err := fs.Parse(args); err != nil {
@@ -445,21 +469,24 @@ func runAdd(config cliConfig, args []string) {
 	if *title == "" {
 		fatal(errors.New("--title is required"))
 	}
-	sections := readSectionsFromStdin(*sectionStdin)
-	values := visitedFieldValues(fs, fieldFlags)
-	store := openCLIStore(config)
-	defer store.Close()
-	newID, err := store.addCard(NewCard{ID: *id, Title: *title, Actor: *actor, Reason: *reason, CardPatch: CardPatch{Values: values, Sections: sections}}, mutation{Actor: *actor, Operation: "add"})
+	sections, err := input.read(fs, os.Stdin)
 	if err != nil {
 		fatal(err)
 	}
-	fmt.Println(newID)
+	values := visitedFieldValues(fs, fieldFlags)
+	store := openCLIStore(config)
+	defer store.Close()
+	newID, err := store.addCard(NewCard{TargetID: *targetID, ID: *id, Title: *title, Actor: *actor, Reason: *reason, CardPatch: CardPatch{Values: values, Sections: sections}}, mutation{Actor: *actor, Operation: "add"})
+	if err != nil {
+		fatal(err)
+	}
+	printCardMutation(*format, newID, 0, newID, nil)
 }
 
 type fieldFlagSet struct{ values map[string]*string }
 
 func cardValueFlags() map[string]bool {
-	result := map[string]bool{"actor": true, "reason": true, "expect-card-version": true}
+	result := map[string]bool{"actor": true, "reason": true, "expect-card-version": true, "format": true, "result": true, "result-file": true}
 	for _, key := range []string{"status", "title", "priority", "owner", "area", "source-runs", "compare-run", "observed-runs", "updated", "updated-by"} {
 		result[key] = true
 	}
@@ -484,17 +511,6 @@ func visitedFieldValues(fs *flag.FlagSet, fields fieldFlagSet) map[string]string
 		}
 	})
 	return result
-}
-
-func readSectionsFromStdin(enabled bool) map[string]string {
-	if !enabled {
-		return nil
-	}
-	sections, err := readSectionStdin(os.Stdin)
-	if err != nil {
-		fatal(err)
-	}
-	return sections
 }
 
 func readSectionStdin(reader io.Reader) (map[string]string, error) {
@@ -531,10 +547,11 @@ func readSectionStdin(reader io.Reader) (map[string]string, error) {
 func runUpdate(config cliConfig, args []string) {
 	args = moveCardIDToEnd(args, cardValueFlags())
 	fs := flag.NewFlagSet("update", flag.ExitOnError)
+	format := outputFormatFlag(fs)
 	actor := fs.String("actor", "", "writer identity")
 	reason := fs.String("reason", "", "history/change reason")
 	expected := fs.Int("expect-card-version", -1, "expected target card version")
-	sectionStdin := fs.Bool("section-stdin", false, "read section bodies as a JSON object from stdin")
+	input := sectionInputFlags(fs)
 	fields := cardFieldFlags(fs)
 	if err := fs.Parse(args); err != nil {
 		fatal(err)
@@ -545,23 +562,28 @@ func runUpdate(config cliConfig, args []string) {
 	if *expected < 0 {
 		fatal(errors.New("--expect-card-version is required for update"))
 	}
-	patch := CardPatch{Values: visitedFieldValues(fs, fields), Sections: readSectionsFromStdin(*sectionStdin)}
+	sections, err := input.read(fs, os.Stdin)
+	if err != nil {
+		fatal(err)
+	}
+	patch := CardPatch{Values: visitedFieldValues(fs, fields), Sections: sections}
 	store := openCLIStore(config)
 	defer store.Close()
 	cardID := normalizeID(fs.Arg(0))
 	if err := store.updateCard(cardID, patch, mutation{ExpectedCardVersion: expected, Actor: *actor, Operation: "update"}, *reason); err != nil {
 		fatal(err)
 	}
-	fmt.Println("updated")
+	printCardMutation(*format, cardID, *expected+1, "updated", nil)
 }
 
 func runResolve(config cliConfig, args []string) {
 	args = moveCardIDToEnd(args, cardValueFlags())
 	fs := flag.NewFlagSet("resolve", flag.ExitOnError)
+	format := outputFormatFlag(fs)
 	actor := fs.String("actor", "", "writer identity")
 	reason := fs.String("reason", "", "history/change reason")
 	expected := fs.Int("expect-card-version", -1, "expected target card version")
-	sectionStdin := fs.Bool("section-stdin", false, "read section bodies as a JSON object from stdin")
+	input := sectionInputFlags(fs)
 	fields := cardFieldFlags(fs)
 	if err := fs.Parse(args); err != nil {
 		fatal(err)
@@ -577,7 +599,11 @@ func runResolve(config cliConfig, args []string) {
 	if !ok || strings.TrimSpace(status) == "" {
 		fatal(errors.New("--status is required for resolve"))
 	}
-	patch := CardPatch{Values: values, Sections: readSectionsFromStdin(*sectionStdin)}
+	sections, err := input.read(fs, os.Stdin)
+	if err != nil {
+		fatal(err)
+	}
+	patch := CardPatch{Values: values, Sections: sections}
 	store := openCLIStore(config)
 	defer store.Close()
 	cardID := normalizeID(fs.Arg(0))
@@ -585,10 +611,7 @@ func runResolve(config cliConfig, args []string) {
 	if err != nil {
 		fatal(err)
 	}
-	fmt.Printf("resolved %s\n", normalizeStatus(status))
-	for _, id := range woke {
-		fmt.Printf("woke %s: BLOCKED -> INVESTIGATE\n", id)
-	}
+	printCardMutation(*format, cardID, *expected+1, "resolved "+normalizeStatus(status), woke)
 }
 
 func flagSeen(fs *flag.FlagSet, name string) bool {
@@ -628,8 +651,10 @@ func moveCardIDToEnd(args []string, valueFlags map[string]bool) []string {
 }
 
 func runTransition(config cliConfig, args []string) {
-	args = moveCardIDToEnd(args, map[string]bool{"status": true, "actor": true, "reason": true, "expect-card-version": true})
+	args = moveCardIDToEnd(args, cardValueFlags())
 	fs := flag.NewFlagSet("transition", flag.ExitOnError)
+	format := outputFormatFlag(fs)
+	input := resultInputFlags(fs)
 	status := fs.String("status", "", "new status")
 	actor := fs.String("actor", "", "writer identity")
 	reason := fs.String("reason", "", "history/change reason")
@@ -643,17 +668,18 @@ func runTransition(config cliConfig, args []string) {
 	if *expected < 0 {
 		fatal(errors.New("--expect-card-version is required for transition"))
 	}
-	store := openCLIStore(config)
-	defer store.Close()
-	cardID := normalizeID(fs.Arg(0))
-	woke, err := store.transitionCardAndWake(cardID, *status, mutation{ExpectedCardVersion: expected, Actor: *actor, Operation: "transition"}, *reason)
+	result, err := input.read(fs, os.Stdin)
 	if err != nil {
 		fatal(err)
 	}
-	fmt.Println("transitioned")
-	for _, id := range woke {
-		fmt.Printf("woke %s: BLOCKED -> INVESTIGATE\n", id)
+	store := openCLIStore(config)
+	defer store.Close()
+	cardID := normalizeID(fs.Arg(0))
+	woke, err := store.transitionCardWithResultAndWake(cardID, *status, result, mutation{ExpectedCardVersion: expected, Actor: *actor, Operation: "transition"}, *reason)
+	if err != nil {
+		fatal(err)
 	}
+	printCardMutation(*format, cardID, *expected+1, "transitioned", woke)
 }
 
 func runSnapshotApplied(config cliConfig, args []string) {
@@ -794,6 +820,7 @@ func runObjective(config cliConfig, args []string) {
 
 func runObjectiveList(config cliConfig, args []string) {
 	fs := flag.NewFlagSet("objective list", flag.ExitOnError)
+	format := outputFormatFlag(fs)
 	all := fs.Bool("all", false, "include retired objectives")
 	status := fs.String("status", "", "filter by objective status")
 	if err := fs.Parse(args); err != nil {
@@ -805,11 +832,17 @@ func runObjectiveList(config cliConfig, args []string) {
 	if err != nil {
 		fatal(err)
 	}
-	printObjectiveList(objectives)
+	if *format == "json" {
+		printJSON(append([]Objective{}, objectives...))
+	} else {
+		printObjectiveList(objectives)
+	}
 }
 
 func runObjectiveShow(config cliConfig, args []string) {
+	args = moveCardIDToEnd(args, map[string]bool{"format": true})
 	fs := flag.NewFlagSet("objective show", flag.ExitOnError)
+	format := outputFormatFlag(fs)
 	if err := fs.Parse(args); err != nil {
 		fatal(err)
 	}
@@ -822,7 +855,11 @@ func runObjectiveShow(config cliConfig, args []string) {
 	if err != nil {
 		fatal(err)
 	}
-	printObjective(objective)
+	if *format == "json" {
+		printJSON(objective)
+	} else {
+		printObjective(objective)
+	}
 }
 
 func runObjectiveAdd(config cliConfig, args []string) {
@@ -907,10 +944,12 @@ func runObjectiveUpdate(config cliConfig, args []string) {
 }
 
 func runObjectiveRelation(config cliConfig, action string, args []string) {
-	args = moveCardIDToEnd(args, map[string]bool{"constraint": true, "intervention": true, "rationale": true, "expect-objective-version": true, "actor": true, "reason": true})
+	args = moveCardIDToEnd(args, map[string]bool{"expect-target-version": true, "target": true, "intervention": true, "rationale": true, "expect-objective-version": true, "actor": true, "reason": true})
 	fs := flag.NewFlagSet("objective "+action, flag.ExitOnError)
-	constraintID := fs.String("constraint", "", "constraint ID")
+	targetID := fs.String("target", "", "target ID")
 	interventionID := fs.String("intervention", "", "intervention card ID")
+	expectedTarget := fs.Int("expect-target-version", -1, "expected improvement target version; required with --primary")
+	primary := fs.Bool("primary", false, "make this the primary objective for the target")
 	rationale := fs.String("rationale", "", "causal rationale for an intervention relation")
 	expected := fs.Int("expect-objective-version", -1, "expected objective version")
 	actor := fs.String("actor", "", "writer identity")
@@ -918,16 +957,16 @@ func runObjectiveRelation(config cliConfig, action string, args []string) {
 	if err := fs.Parse(args); err != nil {
 		fatal(err)
 	}
-	if fs.NArg() != 1 || *expected < 0 || (*constraintID == "") == (*interventionID == "") {
-		fatal(errors.New("objective link/unlink requires one objective ID, exactly one of --constraint or --intervention, and --expect-objective-version"))
+	if fs.NArg() != 1 || *expected < 0 || (*targetID == "") == (*interventionID == "") {
+		fatal(errors.New("objective link/unlink requires one objective ID, exactly one of --target or --intervention, and --expect-objective-version"))
 	}
-	targetType, targetID := "constraint", *constraintID
+	targetType, relationID := "target", *targetID
 	if *interventionID != "" {
-		targetType, targetID = "intervention", *interventionID
+		targetType, relationID = "intervention", *interventionID
 	}
 	store := openCLIStore(config)
 	defer store.Close()
-	if err := store.setObjectiveRelation(fs.Arg(0), targetID, targetType, *rationale, action == "link", *expected, mutation{Actor: *actor, Operation: "objective." + action}, *reason); err != nil {
+	if err := store.setObjectiveRelation(fs.Arg(0), relationID, targetType, *rationale, action == "link", *expected, mutation{ExpectedTargetVersion: optionalVersion(*expectedTarget), Primary: *primary, Actor: *actor, Operation: "objective." + action}, *reason); err != nil {
 		fatal(err)
 	}
 	if action == "link" {
@@ -937,88 +976,104 @@ func runObjectiveRelation(config cliConfig, action string, args []string) {
 	}
 }
 
-func runConstraint(config cliConfig, args []string) {
+func runTarget(config cliConfig, args []string) {
 	if len(args) == 0 {
-		runConstraintList(config, nil)
+		runTargetList(config, nil)
 		return
 	}
 	switch strings.ToLower(args[0]) {
 	case "list":
-		runConstraintList(config, args[1:])
+		runTargetList(config, args[1:])
 	case "show":
-		runConstraintShow(config, args[1:])
+		runTargetShow(config, args[1:])
 	case "add":
-		runConstraintAdd(config, args[1:])
+		runTargetAdd(config, args[1:])
 	case "update":
-		runConstraintUpdate(config, args[1:])
+		runTargetUpdate(config, args[1:])
 	case "transition":
-		runConstraintTransition(config, args[1:])
+		runTargetTransition(config, args[1:])
 	case "assess":
-		runConstraintAssess(config, args[1:])
+		fatal(errors.New("residual assessments are historical only; use target goal and intervention evaluation"))
 	case "link", "unlink":
-		runConstraintLink(config, args[0], args[1:])
+		runTargetLink(config, args[0], args[1:])
 	default:
-		fatal(fmt.Errorf("unknown constraint subcommand %q", args[0]))
+		fatal(fmt.Errorf("unknown target subcommand %q", args[0]))
 	}
 }
 
-func runConstraintList(config cliConfig, args []string) {
-	fs := flag.NewFlagSet("constraint list", flag.ExitOnError)
-	all := fs.Bool("all", false, "include terminal constraints")
-	status := fs.String("status", "", "filter by constraint status")
+func runTargetList(config cliConfig, args []string) {
+	fs := flag.NewFlagSet("target list", flag.ExitOnError)
+	format := outputFormatFlag(fs)
+	all := fs.Bool("all", false, "include terminal targets")
+	status := fs.String("status", "", "filter by target status")
 	priority := fs.String("p", "", "filter by priority")
 	if err := fs.Parse(args); err != nil {
 		fatal(err)
 	}
 	store := openCLIStore(config)
 	defer store.Close()
-	constraints, err := store.listConstraints(ConstraintFilter{All: *all, Status: *status, Priority: *priority})
+	targets, err := store.listTargets(TargetFilter{All: *all, Status: *status, Priority: *priority})
 	if err != nil {
 		fatal(err)
 	}
-	printConstraintList(constraints, config.wide, true)
-	if len(constraints) == 0 {
-		fmt.Println("no constraints")
+	if *format == "json" {
+		printJSON(append([]Target{}, targets...))
+		return
+	}
+	printTargetList(targets, config.wide, true)
+	if len(targets) == 0 {
+		fmt.Println("no targets")
 	}
 }
 
-func runConstraintShow(config cliConfig, args []string) {
-	fs := flag.NewFlagSet("constraint show", flag.ExitOnError)
+func runTargetShow(config cliConfig, args []string) {
+	args = moveCardIDToEnd(args, map[string]bool{"format": true})
+	fs := flag.NewFlagSet("target show", flag.ExitOnError)
+	format := outputFormatFlag(fs)
 	if err := fs.Parse(args); err != nil {
 		fatal(err)
 	}
 	if fs.NArg() != 1 {
-		fatal(errors.New("constraint show requires one constraint ID"))
+		fatal(errors.New("target show requires one target ID"))
 	}
 	store := openCLIStore(config)
 	defer store.Close()
-	constraint, err := store.getConstraint(fs.Arg(0))
+	target, err := store.getTarget(fs.Arg(0))
 	if err != nil {
 		fatal(err)
 	}
-	printConstraint(constraint)
+	if *format == "json" {
+		printJSON(target)
+	} else {
+		printTarget(target)
+	}
 }
 
-func runConstraintAdd(config cliConfig, args []string) {
-	fs := flag.NewFlagSet("constraint add", flag.ExitOnError)
-	id := fs.String("id", "", "explicit constraint ID")
-	status := fs.String("status", "ACTIVE", "new constraints must be ACTIVE")
-	title := fs.String("title", "", "constraint title")
-	priority := fs.String("priority", "", "constraint priority")
-	objectiveID := fs.String("objective", "", "ACTIVE objective constrained by this fact")
-	fingerprint := fs.String("fingerprint", "", "stable problem fingerprint")
+func runTargetAdd(config cliConfig, args []string) {
+	fs := flag.NewFlagSet("target add", flag.ExitOnError)
+	id := fs.String("id", "", "explicit target ID")
+	status := fs.String("status", "ACTIVE", "new targets must be ACTIVE")
+	title := fs.String("title", "", "target title")
+	priority := fs.String("priority", "", "target priority")
+	objectiveID := fs.String("objective", "", "ACTIVE score-direct outcome this target improves")
+	fingerprint := fs.String("fingerprint", "", "stable subject fingerprint; recurrence may reuse it")
 	scope := fs.String("scope", "", "affected subject, path, loop, or validity condition")
 	sourceRuns := fs.String("source-runs", "", "source RUN IDs")
 	observedRuns := fs.String("observed-runs", "", "observed RUN IDs")
 	evidence := fs.String("evidence", "", "absolute evidence with unit and denominator")
-	resolution := fs.String("resolution", "", "condition that resolves the constraint")
+	resolution := fs.String("resolution", "", "condition that resolves the target")
+	rationale := fs.String("rationale", "", "causal contribution to Objective; defaults to reason")
+	axis := fs.String("axis", "", "improvement evaluation axis")
+	goal := fs.String("goal", "", "measurable goal for this target episode")
+	evaluation := fs.String("evaluation", "", "comparison conditions and method")
+	previous := fs.String("previous-target", "", "previous terminal target ID; explain changed conditions in reason")
 	actor := fs.String("actor", "", "writer identity")
 	reason := fs.String("reason", "", "creation reason")
 	if err := fs.Parse(args); err != nil {
 		fatal(err)
 	}
 	if strings.TrimSpace(*objectiveID) == "" {
-		fatal(errors.New("constraint add requires --objective"))
+		fatal(errors.New("target add requires --objective"))
 	}
 	store := openCLIStore(config)
 	defer store.Close()
@@ -1027,38 +1082,44 @@ func runConstraintAdd(config cliConfig, args []string) {
 		fatal(err)
 	}
 	if objective.Status != "ACTIVE" {
-		fatal(fmt.Errorf("constraint requires an ACTIVE objective; %s is %s", objective.ID, objective.Status))
+		fatal(fmt.Errorf("target requires an ACTIVE objective; %s is %s", objective.ID, objective.Status))
 	}
-	newID, err := store.addConstraint(NewConstraint{ID: *id, ObjectiveID: objective.ID, Status: *status, Title: *title, Priority: *priority, Fingerprint: *fingerprint,
+	newID, err := store.addTarget(NewTarget{Rationale: *rationale, Axis: *axis, Goal: *goal, Evaluation: *evaluation, PreviousTargetID: *previous, ID: *id, ObjectiveID: objective.ID, Status: *status, Title: *title, Priority: *priority, Fingerprint: *fingerprint,
 		Scope: *scope, SourceRuns: *sourceRuns, ObservedRuns: *observedRuns,
-		Evidence: *evidence, Resolution: *resolution}, mutation{Actor: *actor, Operation: "constraint.add"}, *reason)
+		Evidence: *evidence, Resolution: *resolution}, mutation{Actor: *actor, Operation: "target.add"}, *reason)
 	if err != nil {
 		fatal(err)
 	}
 	fmt.Println(newID)
 }
 
-func runConstraintUpdate(config cliConfig, args []string) {
-	args = moveCardIDToEnd(args, map[string]bool{"expect-constraint-version": true, "actor": true, "reason": true, "title": true, "priority": true, "fingerprint": true, "scope": true, "source-runs": true, "observed-runs": true, "evidence": true, "resolution": true})
-	fs := flag.NewFlagSet("constraint update", flag.ExitOnError)
-	expected := fs.Int("expect-constraint-version", -1, "expected constraint version")
+func runTargetUpdate(config cliConfig, args []string) {
+	args = moveCardIDToEnd(args, map[string]bool{"expect-target-version": true, "actor": true, "reason": true, "title": true, "priority": true, "fingerprint": true, "scope": true, "source-runs": true, "observed-runs": true, "evidence": true, "resolution": true, "axis": true, "goal": true, "evaluation": true})
+	fs := flag.NewFlagSet("target update", flag.ExitOnError)
+	expected := fs.Int("expect-target-version", -1, "expected target version")
 	actor := fs.String("actor", "", "writer identity")
 	reason := fs.String("reason", "", "update reason")
 	values := map[string]*string{}
-	for _, name := range []string{"title", "priority", "fingerprint", "scope", "source-runs", "observed-runs", "evidence", "resolution"} {
+	for _, name := range []string{"title", "priority", "fingerprint", "scope", "source-runs", "observed-runs", "evidence", "resolution", "axis", "goal", "evaluation"} {
 		value := ""
-		fs.StringVar(&value, name, "", "constraint field")
+		fs.StringVar(&value, name, "", "target field")
 		values[name] = &value
 	}
 	if err := fs.Parse(args); err != nil {
 		fatal(err)
 	}
 	if fs.NArg() != 1 || *expected < 0 {
-		fatal(errors.New("constraint update requires one constraint ID and --expect-constraint-version"))
+		fatal(errors.New("target update requires one target ID and --expect-target-version"))
 	}
-	patch := ConstraintPatch{}
+	patch := TargetPatch{}
 	fs.Visit(func(f *flag.Flag) {
 		switch f.Name {
+		case "axis":
+			patch.Axis = values[f.Name]
+		case "goal":
+			patch.Goal = values[f.Name]
+		case "evaluation":
+			patch.Evaluation = values[f.Name]
 		case "title":
 			patch.Title = values[f.Name]
 		case "priority":
@@ -1079,40 +1140,43 @@ func runConstraintUpdate(config cliConfig, args []string) {
 	})
 	store := openCLIStore(config)
 	defer store.Close()
-	if err := store.updateConstraint(fs.Arg(0), patch, *expected, mutation{Actor: *actor, Operation: "constraint.update"}, *reason); err != nil {
+	if err := store.updateTarget(fs.Arg(0), patch, *expected, mutation{Actor: *actor, Operation: "target.update"}, *reason); err != nil {
 		fatal(err)
 	}
-	fmt.Println("constraint updated")
+	fmt.Println("target updated")
 }
 
-func runConstraintTransition(config cliConfig, args []string) {
-	args = moveCardIDToEnd(args, map[string]bool{"expect-constraint-version": true, "status": true, "merged-into": true, "actor": true, "reason": true})
-	fs := flag.NewFlagSet("constraint transition", flag.ExitOnError)
-	expected := fs.Int("expect-constraint-version", -1, "expected constraint version")
-	status := fs.String("status", "", "target constraint status")
-	mergedInto := fs.String("merged-into", "", "surviving constraint ID for MERGED")
+func runTargetTransition(config cliConfig, args []string) {
+	args = moveCardIDToEnd(args, map[string]bool{"expect-target-version": true, "status": true, "merged-into": true, "actor": true, "reason": true, "completion-evidence": true})
+	fs := flag.NewFlagSet("target transition", flag.ExitOnError)
+	expected := fs.Int("expect-target-version", -1, "expected target version")
+	status := fs.String("status", "", "target lifecycle status")
+	mergedInto := fs.String("merged-into", "", "surviving target ID for MERGED")
+	completionEvidence := fs.String("completion-evidence", "", "evidence that the target goal has been attained; required for RESOLVED")
 	actor := fs.String("actor", "", "writer identity")
 	reason := fs.String("reason", "", "transition reason")
 	if err := fs.Parse(args); err != nil {
 		fatal(err)
 	}
 	if fs.NArg() != 1 || *expected < 0 || *status == "" {
-		fatal(errors.New("constraint transition requires one constraint ID, --expect-constraint-version, and --status"))
+		fatal(errors.New("target transition requires one target ID, --expect-target-version, and --status"))
 	}
 	store := openCLIStore(config)
 	defer store.Close()
-	if err := store.transitionConstraint(fs.Arg(0), *status, *mergedInto, *expected, mutation{Actor: *actor, Operation: "constraint.transition"}, *reason); err != nil {
+	if err := store.transitionTarget(fs.Arg(0), *status, *mergedInto, *expected, mutation{CompletionEvidence: *completionEvidence, Actor: *actor, Operation: "target.transition"}, *reason); err != nil {
 		fatal(err)
 	}
-	fmt.Println("constraint transitioned")
+	fmt.Println("target transitioned")
 }
 
-func runConstraintLink(config cliConfig, action string, args []string) {
-	args = moveCardIDToEnd(args, map[string]bool{"card": true, "role": true, "assessment-json": true, "expect-constraint-version": true, "actor": true, "reason": true})
-	fs := flag.NewFlagSet("constraint "+action, flag.ExitOnError)
+func runTargetLink(config cliConfig, action string, args []string) {
+	args = moveCardIDToEnd(args, map[string]bool{"expect-card-version": true, "card": true, "role": true, "assessment-json": true, "expect-target-version": true, "actor": true, "reason": true})
+	fs := flag.NewFlagSet("target "+action, flag.ExitOnError)
 	cardID := fs.String("card", "", "intervention card ID")
-	role := fs.String("role", "", "RESOLVES or MITIGATES; may be inferred from a performance assessment")
-	expected := fs.Int("expect-constraint-version", -1, "expected constraint version")
+	role := fs.String("role", "IMPROVES", "improvement target relation")
+	expectedCard := fs.Int("expect-card-version", -1, "expected intervention version; required with --primary")
+	primary := fs.Bool("primary", false, "make this the primary target for the intervention")
+	expected := fs.Int("expect-target-version", -1, "expected target version")
 	actor := fs.String("actor", "", "writer identity")
 	reason := fs.String("reason", "", "link reason")
 	assessmentJSON := fs.String("assessment-json", "", "optional structured performance residual assessment JSON")
@@ -1120,40 +1184,40 @@ func runConstraintLink(config cliConfig, action string, args []string) {
 		fatal(err)
 	}
 	if fs.NArg() != 1 || *cardID == "" || *expected < 0 {
-		fatal(errors.New("constraint link/unlink requires one constraint ID, --card, and --expect-constraint-version"))
+		fatal(errors.New("target link/unlink requires one target ID, --card, and --expect-target-version"))
 	}
 	store := openCLIStore(config)
 	defer store.Close()
-	if err := store.setConstraintLink(fs.Arg(0), *cardID, action == "link", *role, *assessmentJSON, *expected, mutation{Actor: *actor, Operation: "constraint." + action}, *reason); err != nil {
+	if err := store.setTargetLink(fs.Arg(0), *cardID, action == "link", *role, *assessmentJSON, *expected, mutation{ExpectedCardVersion: optionalVersion(*expectedCard), Primary: *primary, Actor: *actor, Operation: "target." + action}, *reason); err != nil {
 		fatal(err)
 	}
 	if action == "link" {
-		fmt.Println("constraint linked")
+		fmt.Println("target linked")
 	} else {
-		fmt.Println("constraint unlinked")
+		fmt.Println("target unlinked")
 	}
 }
 
-func runConstraintAssess(config cliConfig, args []string) {
-	args = moveCardIDToEnd(args, map[string]bool{"card": true, "assessment-json": true, "expect-constraint-version": true, "actor": true, "reason": true})
-	fs := flag.NewFlagSet("constraint assess", flag.ExitOnError)
+func runTargetAssess(config cliConfig, args []string) {
+	args = moveCardIDToEnd(args, map[string]bool{"card": true, "assessment-json": true, "expect-target-version": true, "actor": true, "reason": true})
+	fs := flag.NewFlagSet("target assess", flag.ExitOnError)
 	cardID := fs.String("card", "", "intervention card ID")
 	assessmentJSON := fs.String("assessment-json", "", "structured performance residual assessment JSON")
-	expected := fs.Int("expect-constraint-version", -1, "expected constraint version")
+	expected := fs.Int("expect-target-version", -1, "expected target version")
 	actor := fs.String("actor", "", "writer identity")
 	reason := fs.String("reason", "", "assessment reason")
 	if err := fs.Parse(args); err != nil {
 		fatal(err)
 	}
 	if fs.NArg() != 1 || *cardID == "" || *assessmentJSON == "" || *expected < 0 {
-		fatal(errors.New("constraint assess requires one constraint ID, --card, --assessment-json, and --expect-constraint-version"))
+		fatal(errors.New("target assess requires one target ID, --card, --assessment-json, and --expect-target-version"))
 	}
 	store := openCLIStore(config)
 	defer store.Close()
-	if err := store.setConstraintInterventionAssessment(fs.Arg(0), *cardID, *assessmentJSON, *expected, mutation{Actor: *actor, Operation: "constraint.assess"}, *reason); err != nil {
+	if err := store.setTargetInterventionAssessment(fs.Arg(0), *cardID, *assessmentJSON, *expected, mutation{Actor: *actor, Operation: "target.assess"}, *reason); err != nil {
 		fatal(err)
 	}
-	fmt.Println("constraint intervention assessed")
+	fmt.Println("target intervention assessed")
 }
 
 func runHistory(config cliConfig, args []string) {
@@ -1196,7 +1260,7 @@ func runValidate(config cliConfig, args []string) {
 	if err != nil {
 		fatal(err)
 	}
-	constraints, err := store.listConstraints(ConstraintFilter{All: true})
+	targets, err := store.listTargets(TargetFilter{All: true})
 	if err != nil {
 		fatal(err)
 	}
@@ -1204,7 +1268,7 @@ func runValidate(config cliConfig, args []string) {
 	if err != nil {
 		fatal(err)
 	}
-	fmt.Printf("OK: backlog integrity, %d interventions, %d constraints, %d objectives, revision %d\n", count, len(constraints), len(objectives), revision)
+	fmt.Printf("OK: backlog integrity, %d interventions, %d targets, %d objectives, revision %d\n", count, len(targets), len(objectives), revision)
 }
 
 func runPass(config cliConfig, args []string) {
@@ -1399,36 +1463,44 @@ Global options:
 
 Commands:
   init                                    initialize the backlog
-  list [--all] [--status S] [--area A] [-p P] [--constraint A-NNN] [--unowned|--owner ACTOR] [--watch] [--interval D]
+  list [--all] [--status S] [--area A] [-p P] [--target A-NNN] [--unowned|--owner ACTOR] [--watch] [--interval D] [--format text|json]
   watch [list options]                   refresh the list periodically
-  show CARD_ID
+  show CARD_ID [--format text|json]
   snapshot-applied --output PATH          atomically save the current APPLIED card set
-  add --title TITLE --actor ACTOR --reason REASON [card fields] [--section-stdin]
-  update CARD_ID --expect-card-version N --actor ACTOR --reason REASON [card fields] [--section-stdin]
+  add --title TITLE --actor ACTOR --reason REASON [card fields] [section input] [--format text|json]
+  update CARD_ID --expect-card-version N --actor ACTOR --reason REASON [card fields] [section input] [--format text|json]
   migrate-evaluation CARD_ID --expect-card-version N --actor ACTOR --reason REASON < evaluation.txt
-  resolve CARD_ID --expect-card-version N --status READY|BLOCKED|REJECTED --actor ACTOR --reason REASON [card fields] [--section-stdin]
-  transition CARD_ID --expect-card-version N --status STATUS --actor ACTOR --reason REASON
+  resolve CARD_ID --expect-card-version N --status READY|BLOCKED|REJECTED --actor ACTOR --reason REASON [card fields] [section input] [--format text|json]
+  transition CARD_ID --expect-card-version N --status STATUS --actor ACTOR --reason REASON [--result TEXT|--result-file PATH] [--format text|json]
   dependency add CARD_ID --on CARD_ID [--required-status STATUS --mode MODE] --expect-card-version N --actor ACTOR --reason REASON
   dependency remove CARD_ID --on CARD_ID --expect-card-version N --actor ACTOR --reason REASON
   dependency list CARD_ID
-  objective list [--all] [--status S]
-  objective show OBJECTIVE_ID
+  objective list [--all] [--status S] [--format text|json]
+  objective show OBJECTIVE_ID [--format text|json]
   objective add --mode MODE --title TITLE --metric-or-predicate VALUE --verification VALUE --actor ACTOR --reason REASON
   objective update OBJECTIVE_ID --expect-objective-version N --actor ACTOR --reason REASON [objective fields]
-  objective link|unlink OBJECTIVE_ID (--constraint A-NNN|--intervention B-NNN) --expect-objective-version N --actor ACTOR --reason REASON
-  constraint list [--all] [--status S] [-p P]
-  constraint show CONSTRAINT_ID
-  constraint add --objective O-NNN --title TITLE --fingerprint FP --scope SCOPE --evidence E --resolution R --actor ACTOR --reason REASON
-  constraint update CONSTRAINT_ID --expect-constraint-version N --actor ACTOR --reason REASON [constraint fields]
-  constraint transition CONSTRAINT_ID --expect-constraint-version N --status STATUS [--merged-into CONSTRAINT_ID] --actor ACTOR --reason REASON
-  constraint assess CONSTRAINT_ID --card CARD_ID --assessment-json JSON --expect-constraint-version N --actor ACTOR --reason REASON
-  constraint link CONSTRAINT_ID --card CARD_ID --role RESOLVES|MITIGATES [--assessment-json JSON] --expect-constraint-version N --actor ACTOR --reason REASON
-  constraint unlink CONSTRAINT_ID --card CARD_ID --expect-constraint-version N --actor ACTOR --reason REASON
+  objective link|unlink OBJECTIVE_ID (--target A-NNN|--intervention B-NNN) --expect-objective-version N --actor ACTOR --reason REASON
+  target list [--all] [--status S] [-p P] [--format text|json]
+  target show TARGET_ID [--format text|json]
+  target add --objective O-NNN --title TITLE --fingerprint FP --scope SCOPE --axis AXIS --goal GOAL --evaluation METHOD --evidence E [--previous-target A-NNN] --actor ACTOR --reason REASON
+  target update TARGET_ID --expect-target-version N --actor ACTOR --reason REASON [target fields]
+  target transition TARGET_ID --expect-target-version N --status STATUS [--merged-into TARGET_ID] [--completion-evidence E] --actor ACTOR --reason REASON
+  target link TARGET_ID --card CARD_ID [--primary] --expect-target-version N --actor ACTOR --reason REASON
+  target unlink TARGET_ID --card CARD_ID --expect-target-version N --actor ACTOR --reason REASON
   history add CARD_ID --actor ACTOR --message MESSAGE
   pass CARD_ID[,CARD_ID...]|all --actor task:pass [--evidence-run RUN_ID|latest] [--outcomes FILE] [--reason REASON] [--force]
                                           internal command used by top-level 'task pass'
   evidence [-format text|json] [--run RUN_ID] CARD_ID[,CARD_ID...]  summarize evidence from a RUN whose APPLIED snapshot contains each card
   validate
+
+Section input: --section-stdin reads a JSON object; --result TEXT or --result-file PATH replaces Result
+with plain text (PATH=- reads stdin). Empty Result text removes the section. Duplicate Result inputs
+and simultaneous stdin consumers are rejected. transition records Result and status atomically.
+
+JSON list returns {backlog_revision, cards, targets, objectives}; entity-specific lists return arrays.
+JSON show returns an entity with id and version. Card add/update/resolve/transition return
+{id, version, woke}, where version is committed by that operation and woke contains awakened card IDs.
+Text output remains the default. JSON output cannot be combined with watch.
 
 Every write transaction increments backlog_revision internally. update, resolve, and transition require
 --expect-card-version so a changed target card is rejected instead of overwritten. History is append-only.
@@ -1440,4 +1512,11 @@ decision, evaluation, blockers, and reconsider conditions in the card sections a
 func fatal(err error) {
 	fmt.Fprintln(os.Stderr, "backlog:", err)
 	os.Exit(1)
+}
+
+func optionalVersion(version int) *int {
+	if version < 0 {
+		return nil
+	}
+	return &version
 }

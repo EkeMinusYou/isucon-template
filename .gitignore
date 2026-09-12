@@ -40,3 +40,8 @@ runs/*/raw/
 
 # Local credentials
 application_default_credentials.json
+
+# Keep host credentials at their original destinations.
+nginx/tls/
+mysql/debian.cnf
+etc/hosts/*/env.sh

@@ -75,33 +75,6 @@ func validateObjective(input NewObjective) error {
 	return nil
 }
 
-func (s *Store) initializeBaseObjectives() error {
-	seeds := []NewObjective{
-		{ID: "O-001", Status: "ACTIVE", Mode: "SATISFY", Title: "ベンチマークと整合性チェックを通過する", MetricOrPredicate: "benchmark result is valid and every required correctness check passes", RequiredForValidResult: true, OfficialSources: "docs/official/", Verification: "verify the final benchmark result and correctness log against the official rules"},
-		{ID: "O-002", Status: "ACTIVE", Mode: "SATISFY", Title: "再起動後の永続性と再現性条件を満たす", MetricOrPredicate: "the official restart and reproducibility requirements are satisfied", RequiredForValidResult: true, OfficialSources: "docs/official/", Verification: "restart the required servers and rerun the official verification procedure"},
-		{ID: "O-003", Status: "ACTIVE", Mode: "MAXIMIZE", Title: "有効なベンチマークスコアを最大化する", MetricOrPredicate: "final score of a benchmark run that satisfies all validity requirements", OfficialSources: "docs/official/", Verification: "use the finalized benchmark score and bench log"},
-	}
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	for _, seed := range seeds {
-		if _, err := tx.Exec(`INSERT OR IGNORE INTO objectives(id, objective_version, status, mode, title, metric_or_predicate, required_for_valid_result, parent_objective_id, official_sources, verification, updated, updated_by) VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'system:init')`, seed.ID, seed.Status, seed.Mode, seed.Title, seed.MetricOrPredicate, boolInt(seed.RequiredForValidResult), seed.ParentObjectiveID, seed.OfficialSources, seed.Verification, now()); err != nil {
-			tx.Rollback()
-			return err
-		}
-		if _, err := tx.Exec(`INSERT OR IGNORE INTO objective_history(objective_id, position, occurred_at, actor, body) VALUES (?, 0, ?, 'system:init', 'initial objective registered from official specification')`, seed.ID, now()); err != nil {
-			tx.Rollback()
-			return err
-		}
-	}
-	if _, err := tx.Exec(`UPDATE metadata SET value = 'O-004' WHERE key = 'next_objective_id' AND CAST(SUBSTR(value, 3) AS INTEGER) < 4`); err != nil {
-		tx.Rollback()
-		return err
-	}
-	return tx.Commit()
-}
-
 func boolInt(value bool) int {
 	if value {
 		return 1
@@ -197,7 +170,7 @@ func getObjectiveFrom(q queryer, id string) (Objective, error) {
 		return Objective{}, err
 	}
 	objective.RequiredForValidResult = required != 0
-	rows, err := q.Query(`SELECT constraint_id FROM objective_constraints WHERE objective_id = ? ORDER BY constraint_id`, id)
+	rows, err := q.Query(`SELECT target_id FROM objective_targets WHERE objective_id = ? ORDER BY target_id`, id)
 	if err != nil {
 		return Objective{}, err
 	}
@@ -207,7 +180,7 @@ func getObjectiveFrom(q queryer, id string) (Objective, error) {
 			rows.Close()
 			return Objective{}, err
 		}
-		objective.ConstraintIDs = append(objective.ConstraintIDs, value)
+		objective.TargetIDs = append(objective.TargetIDs, value)
 	}
 	rows.Close()
 	rows, err = q.Query(`SELECT card_id FROM objective_interventions WHERE objective_id = ? ORDER BY card_id`, id)
@@ -376,6 +349,12 @@ func (s *Store) updateObjective(id string, patch ObjectivePatch, expected int, o
 }
 
 func (s *Store) setObjectiveRelation(objectiveID, targetID, targetType, rationale string, add bool, expected int, options mutation, reason string) error {
+	if strings.TrimSpace(rationale) == "" {
+		rationale = reason
+	}
+	if options.Primary && options.ExpectedTargetVersion == nil {
+		return errors.New("--primary requires --expect-target-version to protect the target objective set")
+	}
 	if err := ensureReason(options.Actor, reason); err != nil {
 		return err
 	}
@@ -394,18 +373,32 @@ func (s *Store) setObjectiveRelation(objectiveID, targetID, targetType, rational
 		return err
 	}
 	switch targetType {
-	case "constraint":
-		targetID = normalizeConstraintID(targetID)
-		if _, err := getConstraintFrom(tx, targetID); err != nil {
+	case "target":
+		targetID = normalizeTargetID(targetID)
+		if err := claimTargetVersionTx(tx, targetID, options.ExpectedTargetVersion); err != nil {
 			tx.Rollback()
 			return err
 		}
+		if _, err := getTargetFrom(tx, targetID); err != nil {
+			tx.Rollback()
+			return err
+		}
+		if add && options.Primary {
+			if _, err := tx.Exec(`UPDATE objective_targets SET is_primary=0 WHERE target_id=?`, targetID); err != nil {
+				tx.Rollback()
+				return err
+			}
+		}
 		if add {
-			_, err = tx.Exec(`INSERT OR IGNORE INTO objective_constraints(objective_id, constraint_id) VALUES (?, ?)`, objectiveID, targetID)
+			_, err = tx.Exec(`INSERT INTO objective_targets(objective_id, target_id,is_primary,rationale) VALUES (?, ?, CASE WHEN EXISTS(SELECT 1 FROM objective_targets WHERE target_id=? AND is_primary=1) THEN 0 ELSE 1 END,?) ON CONFLICT(objective_id,target_id) DO UPDATE SET rationale=excluded.rationale,is_primary=CASE WHEN excluded.is_primary=1 THEN 1 ELSE objective_targets.is_primary END`, objectiveID, targetID, targetID, rationale)
 		} else {
-			_, err = tx.Exec(`DELETE FROM objective_constraints WHERE objective_id = ? AND constraint_id = ?`, objectiveID, targetID)
+			_, err = tx.Exec(`DELETE FROM objective_targets WHERE objective_id = ? AND target_id = ?`, objectiveID, targetID)
 		}
 	case "intervention":
+		if add {
+			tx.Rollback()
+			return errors.New("direct Objective to Intervention links are historical only; link an improvement Target instead")
+		}
 		targetID = normalizeID(targetID)
 		if _, err := getCardFrom(tx, targetID); err != nil {
 			tx.Rollback()
@@ -423,6 +416,12 @@ func (s *Store) setObjectiveRelation(objectiveID, targetID, targetType, rational
 	if err != nil {
 		tx.Rollback()
 		return err
+	}
+	if targetType == "target" && !add {
+		if _, err := tx.Exec(`UPDATE objective_targets SET is_primary=1 WHERE target_id=? AND objective_id=(SELECT MIN(objective_id) FROM objective_targets WHERE target_id=?) AND NOT EXISTS(SELECT 1 FROM objective_targets WHERE target_id=? AND is_primary=1)`, targetID, targetID, targetID); err != nil {
+			tx.Rollback()
+			return err
+		}
 	}
 	if targetType == "intervention" && !add {
 		card, cardErr := getCardFrom(tx, targetID)
@@ -513,14 +512,14 @@ func validateObjectiveRelations(q queryer) error {
 		return fmt.Errorf("objective hierarchy contains %d cycles", cycles)
 	}
 	var unscoped int
-	if err := q.QueryRow(`SELECT COUNT(*) FROM constraints c WHERE c.status = 'ACTIVE' AND NOT EXISTS (
-		SELECT 1 FROM objective_constraints r JOIN objectives o ON o.id = r.objective_id
-		WHERE r.constraint_id = c.id AND o.status = 'ACTIVE'
+	if err := q.QueryRow(`SELECT COUNT(*) FROM targets c WHERE c.status = 'ACTIVE' AND NOT EXISTS (
+		SELECT 1 FROM objective_targets r JOIN objectives o ON o.id = r.objective_id
+		WHERE r.target_id = c.id AND o.status = 'ACTIVE' AND r.is_primary=1
 	)`).Scan(&unscoped); err != nil {
 		return err
 	}
 	if unscoped != 0 {
-		return fmt.Errorf("%d ACTIVE constraints are not connected to an ACTIVE objective", unscoped)
+		return fmt.Errorf("%d ACTIVE targets are not connected to an ACTIVE objective", unscoped)
 	}
 	return nil
 }

@@ -53,35 +53,43 @@ type backlogObjectiveRelation struct {
 	Mode      string `json:"mode"`
 	Title     string `json:"title"`
 	Rationale string `json:"rationale"`
+	TargetID  string `json:"target_id"`
+	IsPrimary bool   `json:"is_primary"`
 }
 
-type backlogConstraintRelation struct {
-	ID        string `json:"id"`
-	Status    string `json:"status"`
-	Title     string `json:"title"`
-	Role      string `json:"role"`
-	Rationale string `json:"rationale"`
+type backlogTargetRelation struct {
+	ID               string `json:"id"`
+	Status           string `json:"status"`
+	Title            string `json:"title"`
+	IsPrimary        bool   `json:"is_primary"`
+	Scope            string `json:"scope"`
+	Axis             string `json:"axis"`
+	Goal             string `json:"goal"`
+	Evaluation       string `json:"evaluation"`
+	Evidence         string `json:"evidence"`
+	PreviousTargetID string `json:"previous_target_id"`
+	Rationale        string `json:"rationale"`
 }
 
 type backlogCardDetail struct {
-	ID           string                      `json:"id"`
-	Status       string                      `json:"status"`
-	Title        string                      `json:"title"`
-	Closed       bool                        `json:"closed"`
-	Priority     string                      `json:"priority"`
-	Owner        string                      `json:"owner"`
-	Area         string                      `json:"area"`
-	SourceRuns   string                      `json:"source_runs"`
-	CompareRun   string                      `json:"compare_run"`
-	ObservedRuns string                      `json:"observed_runs"`
-	Updated      string                      `json:"updated"`
-	UpdatedBy    string                      `json:"updated_by"`
-	Sections     []backlogSection            `json:"sections"`
-	History      []backlogHistoryEntry       `json:"history"`
-	Dependencies []backlogDependency         `json:"dependencies"`
-	Unblocks     []backlogDependency         `json:"unblocks"`
-	Objectives   []backlogObjectiveRelation  `json:"objectives"`
-	Constraints  []backlogConstraintRelation `json:"constraints"`
+	ID           string                     `json:"id"`
+	Status       string                     `json:"status"`
+	Title        string                     `json:"title"`
+	Closed       bool                       `json:"closed"`
+	Priority     string                     `json:"priority"`
+	Owner        string                     `json:"owner"`
+	Area         string                     `json:"area"`
+	SourceRuns   string                     `json:"source_runs"`
+	CompareRun   string                     `json:"compare_run"`
+	ObservedRuns string                     `json:"observed_runs"`
+	Updated      string                     `json:"updated"`
+	UpdatedBy    string                     `json:"updated_by"`
+	Sections     []backlogSection           `json:"sections"`
+	History      []backlogHistoryEntry      `json:"history"`
+	Dependencies []backlogDependency        `json:"dependencies"`
+	Unblocks     []backlogDependency        `json:"unblocks"`
+	Objectives   []backlogObjectiveRelation `json:"objectives"`
+	Targets      []backlogTargetRelation    `json:"targets"`
 }
 
 const backlogCardColumns = `
@@ -202,15 +210,16 @@ func queryBacklogCard(dbPath, id string) (*backlogCardDetail, error) {
 	unblockRows.Close()
 
 	d.Objectives = []backlogObjectiveRelation{}
-	objectiveRows, err := db.Query(`SELECT o.id, o.status, o.mode, o.title, oi.rationale
-		FROM objective_interventions oi JOIN objectives o ON o.id = oi.objective_id
-		WHERE oi.card_id = ? ORDER BY o.id`, id)
+	objectiveRows, err := db.Query(`SELECT o.id, o.status, o.mode, o.title, ot.rationale, ot.target_id, ot.is_primary
+		FROM target_interventions ti JOIN objective_targets ot ON ot.target_id = ti.target_id
+		JOIN objectives o ON o.id = ot.objective_id
+		WHERE ti.card_id = ? AND o.status = 'ACTIVE' ORDER BY ti.is_primary DESC, ot.target_id, ot.is_primary DESC, o.id`, id)
 	if err != nil {
 		return nil, err
 	}
 	for objectiveRows.Next() {
 		var relation backlogObjectiveRelation
-		if err := objectiveRows.Scan(&relation.ID, &relation.Status, &relation.Mode, &relation.Title, &relation.Rationale); err != nil {
+		if err := objectiveRows.Scan(&relation.ID, &relation.Status, &relation.Mode, &relation.Title, &relation.Rationale, &relation.TargetID, &relation.IsPrimary); err != nil {
 			objectiveRows.Close()
 			return nil, err
 		}
@@ -224,26 +233,26 @@ func queryBacklogCard(dbPath, id string) (*backlogCardDetail, error) {
 		return nil, err
 	}
 
-	d.Constraints = []backlogConstraintRelation{}
-	constraintRows, err := db.Query(`SELECT c.id, c.status, c.title, ci.role, ci.rationale
-		FROM constraint_interventions ci JOIN constraints c ON c.id = ci.constraint_id
-		WHERE ci.card_id = ? ORDER BY c.id`, id)
+	d.Targets = []backlogTargetRelation{}
+	targetRows, err := db.Query(`SELECT t.id, t.status, t.title, ti.is_primary, ti.rationale, t.scope, t.axis, t.goal, t.evaluation, t.evidence, t.previous_target_id
+		FROM target_interventions ti JOIN targets t ON t.id = ti.target_id
+		WHERE ti.card_id = ? ORDER BY ti.is_primary DESC, t.id`, id)
 	if err != nil {
 		return nil, err
 	}
-	for constraintRows.Next() {
-		var relation backlogConstraintRelation
-		if err := constraintRows.Scan(&relation.ID, &relation.Status, &relation.Title, &relation.Role, &relation.Rationale); err != nil {
-			constraintRows.Close()
+	for targetRows.Next() {
+		var relation backlogTargetRelation
+		if err := targetRows.Scan(&relation.ID, &relation.Status, &relation.Title, &relation.IsPrimary, &relation.Rationale, &relation.Scope, &relation.Axis, &relation.Goal, &relation.Evaluation, &relation.Evidence, &relation.PreviousTargetID); err != nil {
+			targetRows.Close()
 			return nil, err
 		}
-		d.Constraints = append(d.Constraints, relation)
+		d.Targets = append(d.Targets, relation)
 	}
-	if err := constraintRows.Err(); err != nil {
-		constraintRows.Close()
+	if err := targetRows.Err(); err != nil {
+		targetRows.Close()
 		return nil, err
 	}
-	if err := constraintRows.Close(); err != nil {
+	if err := targetRows.Close(); err != nil {
 		return nil, err
 	}
 

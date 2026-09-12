@@ -75,7 +75,7 @@ func TestValidateRunSnapshotCardRequiresSameChangeBoundary(t *testing.T) {
 	card.Sections[0].Body = "new observation"
 	card.Title = "better display title"
 	card.Priority = "P0"
-	card.ObjectiveIDs = []string{"O-003"}
+	card.ObjectiveIDs = []string{"O-001"}
 	if err := validateRunSnapshotCard(run, card); err != nil {
 		t.Fatalf("metadata-only change rejected: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestCardHashesIgnoreJSONAndLineEndingFormatting(t *testing.T) {
 	}
 }
 
-func TestConstraintAssessmentHashTracksOnlyChangeBoundary(t *testing.T) {
+func TestTargetAssessmentHashTracksOnlyChangeBoundary(t *testing.T) {
 	card := Card{Sections: []Section{
 		{Name: sectionHypothesis, Body: "remove repeated work"},
 		{Name: sectionChangeBoundary, Body: "query only"},

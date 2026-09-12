@@ -32,6 +32,11 @@ CREATE TABLE IF NOT EXISTS cards (
     updated_by TEXT NOT NULL DEFAULT ''
 );
 
+CREATE TABLE IF NOT EXISTS legacy_target_exemptions (
+ card_id TEXT PRIMARY KEY REFERENCES cards(id),
+ reason TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS card_runs (
     card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
     run_id TEXT NOT NULL,
@@ -74,55 +79,64 @@ CREATE TABLE IF NOT EXISTS objective_history (
     PRIMARY KEY (objective_id, position)
 );
 
-CREATE TABLE IF NOT EXISTS constraints (
+CREATE TABLE IF NOT EXISTS targets (
     id TEXT PRIMARY KEY,
-    constraint_version INTEGER NOT NULL DEFAULT 0,
-    status TEXT NOT NULL CHECK (status IN ('ACTIVE', 'RESOLVED', 'INVALIDATED', 'MERGED')),
+    target_version INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL CHECK (status IN ('ACTIVE', 'RESOLVED', 'RETIRED', 'MERGED')),
     title TEXT NOT NULL,
 	priority TEXT NOT NULL DEFAULT '',
-	fingerprint TEXT NOT NULL UNIQUE,
+	fingerprint TEXT NOT NULL,
 	scope TEXT NOT NULL DEFAULT '',
     source_runs TEXT NOT NULL DEFAULT '',
     observed_runs TEXT NOT NULL DEFAULT '',
     evidence TEXT NOT NULL DEFAULT '',
     resolution TEXT NOT NULL DEFAULT '',
-	merged_into_constraint_id TEXT NOT NULL DEFAULT '',
+    axis TEXT NOT NULL DEFAULT '',
+    goal TEXT NOT NULL DEFAULT '',
+    evaluation TEXT NOT NULL DEFAULT '',
+    previous_target_id TEXT NOT NULL DEFAULT '',
+    completion_evidence TEXT NOT NULL DEFAULT '',
+	merged_into_target_id TEXT NOT NULL DEFAULT '',
     updated TEXT NOT NULL DEFAULT '',
     updated_by TEXT NOT NULL DEFAULT ''
 );
 
-CREATE TABLE IF NOT EXISTS constraint_interventions (
+CREATE TABLE IF NOT EXISTS target_interventions (
     card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
-    constraint_id TEXT NOT NULL REFERENCES constraints(id) ON DELETE CASCADE,
-    role TEXT NOT NULL DEFAULT 'RESOLVES' CHECK (role IN ('RESOLVES', 'MITIGATES')),
+    target_id TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+    role TEXT NOT NULL DEFAULT 'IMPROVES' CHECK (role = 'IMPROVES'),
+    legacy_role TEXT NOT NULL DEFAULT '',
+    is_primary INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0, 1)),
     rationale TEXT NOT NULL DEFAULT '',
-    PRIMARY KEY (card_id, constraint_id)
+    PRIMARY KEY (card_id, target_id)
 );
 
-CREATE TABLE IF NOT EXISTS constraint_intervention_assessments (
+CREATE TABLE IF NOT EXISTS target_intervention_assessments (
     card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
-    constraint_id TEXT NOT NULL REFERENCES constraints(id) ON DELETE CASCADE,
+    target_id TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
     assessment_json TEXT NOT NULL,
-    constraint_definition_hash TEXT NOT NULL DEFAULT '',
+    target_definition_hash TEXT NOT NULL DEFAULT '',
     card_change_boundary_hash TEXT NOT NULL DEFAULT '',
     updated TEXT NOT NULL DEFAULT '',
     updated_by TEXT NOT NULL DEFAULT '',
-    PRIMARY KEY (card_id, constraint_id)
+    PRIMARY KEY (card_id, target_id)
 );
 
-CREATE TABLE IF NOT EXISTS constraint_history (
-    constraint_id TEXT NOT NULL REFERENCES constraints(id) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS target_history (
+    target_id TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
     position INTEGER NOT NULL,
     occurred_at TEXT NOT NULL DEFAULT '',
     actor TEXT NOT NULL DEFAULT '',
     body TEXT NOT NULL DEFAULT '',
-    PRIMARY KEY (constraint_id, position)
+    PRIMARY KEY (target_id, position)
 );
 
-CREATE TABLE IF NOT EXISTS objective_constraints (
+CREATE TABLE IF NOT EXISTS objective_targets (
     objective_id TEXT NOT NULL REFERENCES objectives(id) ON DELETE CASCADE,
-    constraint_id TEXT NOT NULL REFERENCES constraints(id) ON DELETE CASCADE,
-    PRIMARY KEY (objective_id, constraint_id)
+    target_id TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+    is_primary INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0, 1)),
+    rationale TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (objective_id, target_id)
 );
 
 CREATE TABLE IF NOT EXISTS objective_interventions (
@@ -196,10 +210,10 @@ CREATE INDEX IF NOT EXISTS idx_adoption_events_run ON adoption_events(run_id, id
 CREATE INDEX IF NOT EXISTS idx_adoption_event_cards_card ON adoption_event_cards(card_id, adoption_event_id);
 CREATE INDEX IF NOT EXISTS idx_sections_card ON card_sections(card_id, position);
 CREATE INDEX IF NOT EXISTS idx_dependencies_target ON card_dependencies(depends_on_card_id, card_id);
-CREATE INDEX IF NOT EXISTS idx_constraints_status ON constraints(status);
-CREATE INDEX IF NOT EXISTS idx_constraint_interventions_constraint ON constraint_interventions(constraint_id, card_id);
-CREATE INDEX IF NOT EXISTS idx_constraint_intervention_assessments_constraint ON constraint_intervention_assessments(constraint_id, card_id);
-CREATE INDEX IF NOT EXISTS idx_objective_constraints_constraint ON objective_constraints(constraint_id, objective_id);
+CREATE INDEX IF NOT EXISTS idx_targets_status ON targets(status);
+CREATE INDEX IF NOT EXISTS idx_target_interventions_target ON target_interventions(target_id, card_id);
+CREATE INDEX IF NOT EXISTS idx_target_intervention_assessments_target ON target_intervention_assessments(target_id, card_id);
+CREATE INDEX IF NOT EXISTS idx_objective_targets_target ON objective_targets(target_id, objective_id);
 CREATE INDEX IF NOT EXISTS idx_objective_interventions_card ON objective_interventions(card_id, objective_id);
 `
 
@@ -243,11 +257,11 @@ func (s *Store) initialize() error {
 		return fmt.Errorf("create backlog schema: %w", err)
 	}
 	if _, err := s.db.Exec(`INSERT OR IGNORE INTO metadata(key, value) VALUES
-		('backlog_revision', '0'), ('next_id', 'B-001'), ('next_constraint_id', 'A-001'), ('next_objective_id', 'O-001')`); err != nil {
+		('backlog_revision', '0'), ('next_id', 'B-001'), ('next_target_id', 'A-001'), ('next_objective_id', 'O-001')`); err != nil {
 		return fmt.Errorf("initialize metadata: %w", err)
 	}
-	if err := s.initializeBaseObjectives(); err != nil {
-		return fmt.Errorf("initialize objectives: %w", err)
+	if err := s.migrateLegacyTargets(); err != nil {
+		return err
 	}
 	return nil
 }
@@ -379,18 +393,18 @@ func loadCardContent(q queryer, card *Card) error {
 	if err := loadCardRuns(q, card); err != nil {
 		return err
 	}
-	rows, err := q.Query(`SELECT constraint_id, assessment_json FROM constraint_intervention_assessments WHERE card_id = ? ORDER BY constraint_id`, card.ID)
+	rows, err := q.Query(`SELECT target_id, assessment_json FROM target_intervention_assessments WHERE card_id = ? ORDER BY target_id`, card.ID)
 	if err != nil {
 		return err
 	}
-	card.ConstraintAssessments = map[string]string{}
+	card.TargetAssessments = map[string]string{}
 	for rows.Next() {
 		var anchorID, raw string
 		if err := rows.Scan(&anchorID, &raw); err != nil {
 			rows.Close()
 			return err
 		}
-		card.ConstraintAssessments[anchorID] = raw
+		card.TargetAssessments[anchorID] = raw
 	}
 	if err := rows.Close(); err != nil {
 		return err
@@ -477,23 +491,27 @@ func loadCardContent(q queryer, card *Card) error {
 		return err
 	}
 
-	rows, err = q.Query(`SELECT a.id, a.status, l.role FROM constraint_interventions l
-        JOIN constraints a ON a.id = l.constraint_id
+	rows, err = q.Query(`SELECT a.id, a.status, l.role,l.is_primary FROM target_interventions l
+        JOIN targets a ON a.id = l.target_id
         WHERE l.card_id = ? ORDER BY a.id`, card.ID)
 	if err != nil {
 		return err
 	}
-	card.ConstraintRoles = map[string]string{}
+	card.TargetRoles = map[string]string{}
 	defer rows.Close()
 	for rows.Next() {
 		var id, status, role string
-		if err := rows.Scan(&id, &status, &role); err != nil {
+		var primary int
+		if err := rows.Scan(&id, &status, &role, &primary); err != nil {
 			return err
 		}
-		card.ConstraintIDs = append(card.ConstraintIDs, id)
-		card.ConstraintRoles[id] = role
+		if primary == 1 {
+			card.PrimaryTargetID = id
+		}
+		card.TargetIDs = append(card.TargetIDs, id)
+		card.TargetRoles[id] = role
 		if status == "ACTIVE" {
-			card.ActiveConstraintIDs = append(card.ActiveConstraintIDs, id)
+			card.ActiveTargetIDs = append(card.ActiveTargetIDs, id)
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -502,7 +520,7 @@ func loadCardContent(q queryer, card *Card) error {
 	if err := rows.Close(); err != nil {
 		return err
 	}
-	rows, err = q.Query(`SELECT objective_id FROM objective_interventions WHERE card_id = ? ORDER BY objective_id`, card.ID)
+	rows, err = q.Query(`SELECT ot.objective_id FROM objective_targets ot JOIN target_interventions ti ON ti.target_id=ot.target_id WHERE ti.card_id=? UNION SELECT objective_id FROM objective_interventions WHERE card_id=? ORDER BY objective_id`, card.ID, card.ID)
 	if err != nil {
 		return err
 	}
@@ -545,13 +563,13 @@ func loadCardRuns(q queryer, card *Card) error {
 }
 
 type ListFilter struct {
-	All          bool
-	Status       string
-	Area         string
-	Priority     string
-	Owner        string
-	ConstraintID string
-	Unowned      bool
+	All      bool
+	Status   string
+	Area     string
+	Priority string
+	Owner    string
+	TargetID string
+	Unowned  bool
 }
 
 func (s *Store) listCards(filter ListFilter) ([]Card, error) {
@@ -604,14 +622,14 @@ func (s *Store) listCards(filter ListFilter) ([]Card, error) {
 			return nil, err
 		}
 	}
-	if err := loadListConstraints(s.db, cards); err != nil {
+	if err := loadListTargets(s.db, cards); err != nil {
 		return nil, err
 	}
-	if filter.ConstraintID != "" {
+	if filter.TargetID != "" {
 		filtered := cards[:0]
 		for _, card := range cards {
-			for _, anchorID := range card.ConstraintIDs {
-				if anchorID == filter.ConstraintID {
+			for _, anchorID := range card.TargetIDs {
+				if anchorID == filter.TargetID {
 					filtered = append(filtered, card)
 					break
 				}
@@ -622,7 +640,7 @@ func (s *Store) listCards(filter ListFilter) ([]Card, error) {
 	return cards, nil
 }
 
-func loadListConstraints(q queryer, cards []Card) error {
+func loadListTargets(q queryer, cards []Card) error {
 	if len(cards) == 0 {
 		return nil
 	}
@@ -630,25 +648,29 @@ func loadListConstraints(q queryer, cards []Card) error {
 	for i := range cards {
 		cardIndexes[cards[i].ID] = i
 	}
-	rows, err := q.Query(`SELECT l.card_id, a.id, a.status, l.role FROM constraint_interventions l
-        JOIN constraints a ON a.id = l.constraint_id ORDER BY l.card_id, a.id`)
+	rows, err := q.Query(`SELECT l.card_id, a.id, a.status, l.role,l.is_primary FROM target_interventions l
+        JOIN targets a ON a.id = l.target_id ORDER BY l.card_id, a.id`)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var cardID, anchorID, status, role string
-		if err := rows.Scan(&cardID, &anchorID, &status, &role); err != nil {
+		var primary int
+		if err := rows.Scan(&cardID, &anchorID, &status, &role, &primary); err != nil {
 			return err
 		}
 		if index, ok := cardIndexes[cardID]; ok {
-			if cards[index].ConstraintRoles == nil {
-				cards[index].ConstraintRoles = map[string]string{}
+			if cards[index].TargetRoles == nil {
+				cards[index].TargetRoles = map[string]string{}
 			}
-			cards[index].ConstraintIDs = append(cards[index].ConstraintIDs, anchorID)
-			cards[index].ConstraintRoles[anchorID] = role
+			if primary == 1 {
+				cards[index].PrimaryTargetID = anchorID
+			}
+			cards[index].TargetIDs = append(cards[index].TargetIDs, anchorID)
+			cards[index].TargetRoles[anchorID] = role
 			if status == "ACTIVE" {
-				cards[index].ActiveConstraintIDs = append(cards[index].ActiveConstraintIDs, anchorID)
+				cards[index].ActiveTargetIDs = append(cards[index].ActiveTargetIDs, anchorID)
 			}
 		}
 	}
@@ -693,11 +715,14 @@ func loadListDependencies(q queryer, cards []Card) error {
 }
 
 type mutation struct {
-	ExpectedCardVersion *int
-	Actor               string
-	Operation           string
-	CardID              string
-	Summary             string
+	ExpectedTargetVersion *int
+	Primary               bool
+	CompletionEvidence    string
+	ExpectedCardVersion   *int
+	Actor                 string
+	Operation             string
+	CardID                string
+	Summary               string
 }
 
 type cardVersionConflictError struct {
@@ -763,7 +788,7 @@ func claimCardVersionTx(tx *sql.Tx, cardID string, expected *int) error {
 }
 
 func finishMutation(tx *sql.Tx, current int, options mutation) error {
-	if err := validateActiveConstraintBindingsTx(tx); err != nil {
+	if err := validateActiveTargetBindingsTx(tx); err != nil {
 		tx.Rollback()
 		return err
 	}
@@ -784,50 +809,22 @@ func finishMutation(tx *sql.Tx, current int, options mutation) error {
 	return tx.Commit()
 }
 
-func validateActiveConstraintBindingsTx(tx *sql.Tx) error {
-	rows, err := tx.Query(`SELECT l.constraint_id, l.card_id, l.role FROM constraint_interventions l
-		JOIN constraints a ON a.id = l.constraint_id WHERE a.status = 'ACTIVE' ORDER BY l.constraint_id, l.card_id`)
-	if err != nil {
-		return err
+func validateActiveTargetBindingsTx(tx *sql.Tx) error {
+	return validateTargetBindings(tx)
+}
+
+func validateTargetBindings(q queryer) error {
+	checks := []struct{ query, message string }{
+		{`SELECT COUNT(*) FROM targets t WHERE (SELECT COUNT(*) FROM objective_targets l WHERE l.target_id=t.id AND l.is_primary=1)<>1`, "targets require exactly one primary Objective"},
+		{`SELECT COUNT(*) FROM (SELECT card_id FROM target_interventions GROUP BY card_id HAVING SUM(is_primary)<>1)`, "linked interventions require exactly one primary Target"},
 	}
-	type link struct{ constraintID, cardID, role string }
-	var links []link
-	for rows.Next() {
-		var item link
-		if err := rows.Scan(&item.constraintID, &item.cardID, &item.role); err != nil {
-			rows.Close()
+	for _, check := range checks {
+		var count int
+		if err := q.QueryRow(check.query).Scan(&count); err != nil {
 			return err
 		}
-		links = append(links, item)
-	}
-	if err := rows.Close(); err != nil {
-		return err
-	}
-	for _, link := range links {
-		if link.role == "MITIGATES" {
-			continue
-		}
-		constraint, err := getConstraintFrom(tx, link.constraintID)
-		if err != nil {
-			return err
-		}
-		card, err := getCardFrom(tx, link.cardID)
-		if err != nil {
-			return err
-		}
-		var assessmentCount int
-		if err := tx.QueryRow(`SELECT COUNT(*) FROM constraint_intervention_assessments WHERE constraint_id = ? AND card_id = ?`, constraint.ID, card.ID).Scan(&assessmentCount); err != nil {
-			return err
-		}
-		if assessmentCount == 0 {
-			continue
-		}
-		assessment, err := getPerformanceResidualAssessmentFrom(tx, constraint, card)
-		if err != nil {
-			return err
-		}
-		if !assessment.resolves() {
-			return fmt.Errorf("active constraint RESOLVES relation %s -> %s does not satisfy the resolution threshold", constraint.ID, card.ID)
+		if count > 0 {
+			return fmt.Errorf("%s (%d)", check.message, count)
 		}
 	}
 	return nil
@@ -863,6 +860,24 @@ func requiresReadyContract(status string) bool {
 	}
 }
 
+func validateActiveTargetAdmission(q queryer, cardID string) error {
+	var links int
+	if err := q.QueryRow(`SELECT COUNT(*) FROM target_interventions WHERE card_id=?`, cardID).Scan(&links); err != nil {
+		return err
+	}
+	if links == 0 {
+		return nil
+	}
+	var count int
+	if err := q.QueryRow(`SELECT COUNT(*) FROM target_interventions ti JOIN targets t ON t.id=ti.target_id JOIN objective_targets ot ON ot.target_id=t.id JOIN objectives o ON o.id=ot.objective_id WHERE ti.card_id=? AND ti.is_primary=1 AND ot.is_primary=1 AND t.status='ACTIVE' AND o.status='ACTIVE'`, cardID).Scan(&count); err != nil {
+		return err
+	}
+	if count != 1 {
+		return fmt.Errorf("card %s cannot enter READY without a primary ACTIVE Target and Objective", cardID)
+	}
+	return nil
+}
+
 func validateReadyContract(q queryer, cardID string) error {
 	card, err := getCardFrom(q, cardID)
 	if err != nil {
@@ -873,15 +888,22 @@ func validateReadyContract(q queryer, cardID string) error {
 			return fmt.Errorf("card %s cannot be READY without a non-empty %s section", card.ID, name)
 		}
 	}
-	var activeObjectives int
-	if err := q.QueryRow(`SELECT COUNT(*) FROM objective_interventions oi
-		JOIN objectives o ON o.id = oi.objective_id
-		WHERE oi.card_id = ? AND o.status = 'ACTIVE'`, card.ID).Scan(&activeObjectives); err != nil {
-		return err
+	var exempt int
+	if card.Status == "VALIDATED" || card.Status == "REJECTED" {
+		if err := q.QueryRow(`SELECT COUNT(*) FROM legacy_target_exemptions WHERE card_id=?`, card.ID).Scan(&exempt); err != nil {
+			return err
+		}
 	}
-	if activeObjectives == 0 {
-		return fmt.Errorf("card %s cannot be READY without an ACTIVE Objective relation", card.ID)
+	if exempt == 0 && len(card.TargetIDs) > 0 {
+		var linked int
+		if err := q.QueryRow(`SELECT COUNT(*) FROM target_interventions ti JOIN targets t ON t.id=ti.target_id JOIN objective_targets ot ON ot.target_id=t.id JOIN objectives o ON o.id=ot.objective_id WHERE ti.card_id=? AND ti.is_primary=1 AND ot.is_primary=1`, card.ID).Scan(&linked); err != nil {
+			return err
+		}
+		if linked != 1 {
+			return fmt.Errorf("card %s requires one primary Target linked to one primary Objective", card.ID)
+		}
 	}
+
 	rows, err := q.Query(`SELECT d.depends_on_card_id, d.required_status, target.status
 		FROM card_dependencies d JOIN cards target ON target.id = d.depends_on_card_id
 		WHERE d.card_id = ? AND d.mode = 'BLOCKING' ORDER BY d.depends_on_card_id`, card.ID)
@@ -1101,6 +1123,12 @@ func (s *Store) mutateCard(id string, patch CardPatch, options mutation, reason 
 			return nil, err
 		}
 		if err := upsertSectionTx(tx, id, name, body); err != nil {
+			tx.Rollback()
+			return nil, err
+		}
+	}
+	if targetStatus == "READY" && currentCard.Status != "READY" {
+		if err := validateActiveTargetAdmission(tx, id); err != nil {
 			tx.Rollback()
 			return nil, err
 		}
@@ -1481,6 +1509,10 @@ func (s *Store) transitionCard(id, status string, options mutation, reason strin
 }
 
 func (s *Store) transitionCardAndWake(id, status string, options mutation, reason string) ([]string, error) {
+	return s.transitionCardWithResultAndWake(id, status, nil, options, reason)
+}
+
+func (s *Store) transitionCardWithResultAndWake(id, status string, result *string, options mutation, reason string) ([]string, error) {
 	status = normalizeStatus(status)
 	if !allowedStatuses[status] {
 		return nil, fmt.Errorf("invalid status %q", status)
@@ -1509,6 +1541,12 @@ func (s *Store) transitionCardAndWake(id, status string, options mutation, reaso
 		tx.Rollback()
 		return nil, err
 	}
+	if status == "READY" {
+		if err := validateActiveTargetAdmission(tx, id); err != nil {
+			tx.Rollback()
+			return nil, err
+		}
+	}
 	if requiresReadyContract(status) {
 		if err := validateReadyContract(tx, id); err != nil {
 			tx.Rollback()
@@ -1533,6 +1571,12 @@ func (s *Store) transitionCardAndWake(id, status string, options mutation, reaso
 	if err := validateReadyDependents(tx, id); err != nil {
 		tx.Rollback()
 		return nil, err
+	}
+	if result != nil {
+		if err := upsertSectionTx(tx, id, "Result", *result); err != nil {
+			tx.Rollback()
+			return nil, err
+		}
 	}
 	if err := addHistoryTx(tx, id, updated, options.Actor, reason); err != nil {
 		tx.Rollback()
@@ -1582,7 +1626,8 @@ func (s *Store) addHistory(id, actor, body, occurredAt string, options mutation)
 }
 
 type NewCard struct {
-	ID string
+	TargetID string
+	ID       string
 	CardPatch
 	Title  string
 	Actor  string
@@ -1669,6 +1714,25 @@ func (s *Store) addCard(input NewCard, options mutation) (string, error) {
 		tx.Rollback()
 		return "", err
 	}
+	if strings.TrimSpace(input.TargetID) != "" {
+		target, err := getTargetFrom(tx, input.TargetID)
+		if err != nil {
+			tx.Rollback()
+			return "", err
+		}
+		if target.Status != "ACTIVE" {
+			tx.Rollback()
+			return "", errors.New("new intervention requires an ACTIVE target")
+		}
+		if _, err := tx.Exec(`INSERT INTO target_interventions(card_id,target_id,role,rationale,is_primary) VALUES (?,?,'IMPROVES',?,1)`, nextID, target.ID, input.Reason); err != nil {
+			tx.Rollback()
+			return "", err
+		}
+		if err := addTargetHistoryTx(tx, target.ID, input.Actor, "linked "+nextID+": "+input.Reason); err != nil {
+			tx.Rollback()
+			return "", err
+		}
+	}
 	for key, relation := range runRelationFields {
 		if value, ok := input.Values[key]; ok {
 			if err := setCardRunsTx(tx, nextID, relation, value); err != nil {
@@ -1742,6 +1806,9 @@ func (s *Store) validate() error {
 		return fmt.Errorf("backlog integrity_check: %s", integrity)
 	}
 	if _, err := s.revision(); err != nil {
+		return err
+	}
+	if err := validateTargetBindings(s.db); err != nil {
 		return err
 	}
 	if err := validateObjectiveRelations(s.db); err != nil {
@@ -1882,78 +1949,86 @@ func (s *Store) validate() error {
 	if cycles > 0 {
 		return fmt.Errorf("backlog contains %d dependency cycles", cycles)
 	}
-	constraintRows, err := s.db.Query(`SELECT a.id, a.constraint_version, a.status, a.title, a.fingerprint, a.scope,
-		a.evidence, a.resolution, a.merged_into_constraint_id, COALESCE(survivor.status, '')
-		FROM constraints a LEFT JOIN constraints survivor ON survivor.id = a.merged_into_constraint_id`)
+	targetRows, err := s.db.Query(`SELECT a.id, a.target_version, a.status, a.title, a.fingerprint, a.scope,
+		a.evidence, a.resolution, a.merged_into_target_id, COALESCE(survivor.status, '')
+		FROM targets a LEFT JOIN targets survivor ON survivor.id = a.merged_into_target_id`)
 	if err != nil {
 		return err
 	}
-	maxConstraintNumber := 0
-	for constraintRows.Next() {
+	maxTargetNumber := 0
+	for targetRows.Next() {
 		var id, status, title, fingerprint, scope, evidence, resolution, mergedIntoID, survivorStatus string
 		var version int
-		if err := constraintRows.Scan(&id, &version, &status, &title, &fingerprint, &scope, &evidence, &resolution, &mergedIntoID, &survivorStatus); err != nil {
+		if err := targetRows.Scan(&id, &version, &status, &title, &fingerprint, &scope, &evidence, &resolution, &mergedIntoID, &survivorStatus); err != nil {
 			return err
 		}
-		number, err := constraintIDNumber(id)
+		number, err := targetIDNumber(id)
 		if err != nil {
 			return err
 		}
-		if number > maxConstraintNumber {
-			maxConstraintNumber = number
+		if number > maxTargetNumber {
+			maxTargetNumber = number
 		}
-		if version < 0 || !allowedConstraintStatuses[status] {
-			return fmt.Errorf("constraint %s has invalid version/status %d/%s", id, version, status)
+		if version < 0 || !allowedTargetStatuses[status] {
+			return fmt.Errorf("target %s has invalid version/status %d/%s", id, version, status)
 		}
 		if strings.TrimSpace(title) == "" || strings.TrimSpace(fingerprint) == "" || strings.TrimSpace(scope) == "" || strings.TrimSpace(evidence) == "" || strings.TrimSpace(resolution) == "" {
-			return fmt.Errorf("constraint %s is missing required identity, evidence, or resolution fields", id)
+			return fmt.Errorf("target %s is missing required identity, evidence, or resolution fields", id)
 		}
 		if status == "MERGED" && strings.TrimSpace(mergedIntoID) == "" {
-			return fmt.Errorf("merged constraint %s is missing its surviving constraint", id)
+			return fmt.Errorf("merged target %s is missing its surviving target", id)
 		}
 		if status != "MERGED" && strings.TrimSpace(mergedIntoID) != "" {
-			return fmt.Errorf("non-merged constraint %s has a merged-into constraint", id)
+			return fmt.Errorf("non-merged target %s has a merged-into target", id)
 		}
 		if mergedIntoID == id {
-			return fmt.Errorf("constraint %s cannot merge into itself", id)
+			return fmt.Errorf("target %s cannot merge into itself", id)
 		}
 		if mergedIntoID != "" {
 			if survivorStatus == "" {
-				return fmt.Errorf("merged constraint %s has missing survivor %s", id, mergedIntoID)
-			}
-			if survivorStatus != "ACTIVE" {
-				return fmt.Errorf("merged constraint %s points to non-live survivor %s (%s)", id, mergedIntoID, survivorStatus)
+				return fmt.Errorf("merged target %s has missing survivor %s", id, mergedIntoID)
 			}
 		}
 	}
-	if err := constraintRows.Err(); err != nil {
-		constraintRows.Close()
+	if err := targetRows.Err(); err != nil {
+		targetRows.Close()
 		return err
 	}
-	if err := constraintRows.Close(); err != nil {
+	if err := targetRows.Close(); err != nil {
 		return err
 	}
-	nextConstraint, err := s.metadata("next_constraint_id")
+	var targetCycles int
+	if err := s.db.QueryRow(`WITH RECURSIVE path(start,current) AS (
+ SELECT id,merged_into_target_id FROM targets WHERE merged_into_target_id<>''
+ UNION
+ SELECT path.start,t.merged_into_target_id FROM path JOIN targets t ON t.id=path.current WHERE t.merged_into_target_id<>''
+ ) SELECT COUNT(*) FROM path WHERE start=current`).Scan(&targetCycles); err != nil {
+		return err
+	}
+	if targetCycles > 0 {
+		return fmt.Errorf("target merge history contains %d cycles", targetCycles)
+	}
+	nextTarget, err := s.metadata("next_target_id")
 	if err != nil {
 		return err
 	}
-	nextConstraintNumber, err := constraintIDNumber(nextConstraint)
+	nextTargetNumber, err := targetIDNumber(nextTarget)
 	if err != nil {
-		return fmt.Errorf("invalid next_constraint_id: %w", err)
+		return fmt.Errorf("invalid next_target_id: %w", err)
 	}
-	if nextConstraintNumber <= maxConstraintNumber {
-		return fmt.Errorf("next_constraint_id %s must be greater than maximum constraint ID %s", nextConstraint, formatConstraintID(maxConstraintNumber))
+	if nextTargetNumber <= maxTargetNumber {
+		return fmt.Errorf("next_target_id %s must be greater than maximum target ID %s", nextTarget, formatTargetID(maxTargetNumber))
 	}
-	assessmentRows, err := s.db.Query(`SELECT l.constraint_id, l.card_id, l.role FROM constraint_interventions l
-		JOIN constraints a ON a.id = l.constraint_id WHERE a.status = 'ACTIVE' ORDER BY l.constraint_id, l.card_id`)
+	assessmentRows, err := s.db.Query(`SELECT l.target_id, l.card_id, l.role FROM target_interventions l
+		JOIN targets a ON a.id = l.target_id WHERE a.status = 'ACTIVE' ORDER BY l.target_id, l.card_id`)
 	if err != nil {
 		return err
 	}
-	type activeConstraintLink struct{ constraintID, cardID, role string }
-	var activeLinks []activeConstraintLink
+	type activeTargetLink struct{ targetID, cardID, role string }
+	var activeLinks []activeTargetLink
 	for assessmentRows.Next() {
-		var link activeConstraintLink
-		if err := assessmentRows.Scan(&link.constraintID, &link.cardID, &link.role); err != nil {
+		var link activeTargetLink
+		if err := assessmentRows.Scan(&link.targetID, &link.cardID, &link.role); err != nil {
 			assessmentRows.Close()
 			return err
 		}
@@ -1967,10 +2042,10 @@ func (s *Store) validate() error {
 		return err
 	}
 	for _, link := range activeLinks {
-		if link.role == "MITIGATES" {
+		if link.role == "IMPROVES" || link.role == "MITIGATES" {
 			continue
 		}
-		constraint, err := getConstraintFrom(s.db, link.constraintID)
+		target, err := getTargetFrom(s.db, link.targetID)
 		if err != nil {
 			return err
 		}
@@ -1979,18 +2054,18 @@ func (s *Store) validate() error {
 			return err
 		}
 		var assessmentCount int
-		if err := s.db.QueryRow(`SELECT COUNT(*) FROM constraint_intervention_assessments WHERE constraint_id = ? AND card_id = ?`, constraint.ID, card.ID).Scan(&assessmentCount); err != nil {
+		if err := s.db.QueryRow(`SELECT COUNT(*) FROM target_intervention_assessments WHERE target_id = ? AND card_id = ?`, target.ID, card.ID).Scan(&assessmentCount); err != nil {
 			return err
 		}
 		if assessmentCount == 0 {
 			continue
 		}
-		assessment, err := getPerformanceResidualAssessmentFrom(s.db, constraint, card)
+		assessment, err := getPerformanceResidualAssessmentFrom(s.db, target, card)
 		if err != nil {
 			return err
 		}
 		if !assessment.resolves() {
-			return fmt.Errorf("active constraint RESOLVES relation %s -> %s does not satisfy the resolution threshold", link.constraintID, link.cardID)
+			return fmt.Errorf("active target RESOLVES relation %s -> %s does not satisfy the resolution threshold", link.targetID, link.cardID)
 		}
 	}
 	return nil

@@ -1,5 +1,21 @@
 # Generic deployment graph. Taskfile.yml owns concrete host roles and values.
 deployments:
+  app-unit:
+    uploads:
+      - label: systemd unit
+        role: app
+        local: 'etc/systemd/system/{var:service}.service'
+        remote: '/etc/systemd/system/{var:service}.service'
+        validate: 'sudo systemd-analyze verify /etc/systemd/system/{var:service}.service'
+    activations:
+      - label: reload unit and start stopped application
+        role: app
+        script: |
+          set -eu
+          sudo systemctl daemon-reload
+          sudo systemctl start {var:service}
+          sudo systemctl is-active --quiet {var:service}
+
   app:
     uploads:
       - label: application
@@ -28,6 +44,7 @@ deployments:
         role: nginx
         local: nginx/
         remote: /etc/nginx/
+        excludes: [tls/]
         delete: true
         validate: sudo nginx -t
     activations:
@@ -48,6 +65,7 @@ deployments:
         role: mysql
         local: mysql/
         remote: /etc/mysql/
+        excludes: [debian.cnf]
         delete: true
         validate: sudo mysqld --validate-config
       - label: MySQL systemd limits
@@ -75,6 +93,52 @@ deployments:
         script: |
           set -eu
           sudo sysctl -p >/dev/null
+
+  app-stop:
+    activations:
+      - label: stop application writers before reset
+        role: app
+        script: |
+          set -eu
+          # The reset graph accepts only a confirmed absent or stopped unit.
+          state=$(sudo systemctl show {var:service} -p LoadState -p ActiveState -p SubState -p MainPID)
+          if printf '%s\n' "$state" | grep -qx 'LoadState=not-found'; then
+            printf '%s\n' "$state" | grep -qx 'ActiveState=inactive'
+            printf '%s\n' "$state" | grep -qx 'SubState=dead'
+            printf '%s\n' "$state" | grep -qx 'MainPID=0'
+            echo 'Application unit not installed; no process to retain a cache'
+          else
+            sudo systemctl stop {var:service}
+            state=$(sudo systemctl show {var:service} -p LoadState -p ActiveState -p SubState -p MainPID)
+            printf '%s\n' "$state" | grep -qx 'LoadState=loaded'
+            printf '%s\n' "$state" | grep -qx 'ActiveState=inactive'
+            printf '%s\n' "$state" | grep -qx 'SubState=dead'
+            printf '%s\n' "$state" | grep -qx 'MainPID=0'
+          fi
+
+  db-schema:
+    uploads:
+      - label: SQL schema assets
+        role: app_db
+        local: '{var:sql_dir}/'
+        remote: '{var:remote_home}/{var:sql_dir}/'
+        delete: true
+    activations:
+      - label: recreate application database from the acquired schema
+        role: app_db
+        script: |
+          set -eu
+          test -f '{var:remote_home}/{var:sql_dir}/{var:sql_schema_file}'
+          sudo mysql -e 'DROP DATABASE IF EXISTS `{var:db_name}`; CREATE DATABASE `{var:db_name}`;'
+          sudo mysql '{var:db_name}' < '{var:remote_home}/{var:sql_dir}/{var:sql_schema_file}'
+
+  app-initialize:
+    activations:
+      - label: initialize application data once
+        role: app_init
+        script: |
+          set -eu
+          curl --fail-with-body --silent --show-error --max-time 120 -X POST 'http://127.0.0.1:{var:listen_port}{var:initialize_path}'
 
   roles-off:
     activations:
@@ -117,6 +181,17 @@ plans:
       mysql: {}
       app: {needs: [mysql]}
       nginx: {needs: [app]}
+  deploy-all-reset:
+    deployments:
+      roles-off: {}
+      app-stop: {needs: [roles-off]}
+      sysctl: {needs: [app-stop]}
+      mysql: {needs: [sysctl]}
+      db-schema: {needs: [mysql]}
+      app: {needs: [db-schema]}
+      app-initialize: {needs: [app]}
+      nginx: {needs: [app-initialize]}
+      roles-on: {needs: [nginx]}
   roles:
     deployments:
       roles-off: {}

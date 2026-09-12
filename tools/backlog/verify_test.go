@@ -66,22 +66,42 @@ func TestReadALPRow(t *testing.T) {
 	}
 }
 
-func TestSelectDeclaredCompareManifestUsesOnlyCompatibleDeclaredRun(t *testing.T) {
+func TestSelectCompareManifest(t *testing.T) {
+	roles := verifyRoles{App: []string{"h1"}, Entry: "h1", Additional: map[string][]string{"pdns": {"h2"}}}
 	manifests := []verifyManifest{
-		{RunID: "20260101-000001"},
-		{RunID: "20260101-000002"},
-		{RunID: "20260101-000003", Comparison: runComparison{RunID: "20260101-000001", Status: "compatible"}},
+		{RunID: "20260101-000001", Roles: roles},
+		{RunID: "20260101-000002", Roles: roles},
+		{RunID: "20260101-000003", Roles: verifyRoles{App: []string{"h1"}, Entry: "h2", Additional: roles.Additional}},
+		{RunID: "20260101-000004", Roles: verifyRoles{App: []string{"h1"}, Entry: "h1", Additional: map[string][]string{"pdns": {"h3"}}}},
+		{RunID: "20260101-000005", Roles: roles, Comparison: runComparison{RunID: "20260101-000001", Status: "compatible"}},
+		{RunID: "20260101-000006", Roles: roles},
 	}
-	selected, warning := selectDeclaredCompareManifest(manifests[2], manifests)
-	if selected == nil || selected.RunID != "20260101-000001" {
-		t.Fatalf("unexpected comparison: %#v", selected)
+	for _, tc := range []struct{ name, explicit, want string }{
+		{"latest earlier identical roles", "", "20260101-000002"},
+		{"explicit baseline", "20260101-000001", "20260101-000001"},
+		{"explicit role change for review", "20260101-000003", "20260101-000003"},
+		{"multiple explicit baselines", "20260101-000002,20260101-000001", "20260101-000002"},
+		{"missing explicit baseline", "20250101-000001", ""},
+		{"self comparison", "20260101-000005", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			selected, warning := selectCompareManifest(tc.explicit, manifests[4], manifests)
+			if tc.want == "" {
+				if selected != nil || warning == "" {
+					t.Fatalf("selected=%#v warning=%q", selected, warning)
+				}
+			} else if selected == nil || selected.RunID != tc.want || warning != "" {
+				t.Fatalf("selected=%#v warning=%q want=%s", selected, warning, tc.want)
+			}
+		})
 	}
-	if warning != "" {
-		t.Fatalf("unexpected warning: %s", warning)
+	if selected, warning := selectCompareManifest("", manifests[0], manifests); selected != nil || warning == "" {
+		t.Fatalf("unexpected predecessor: %#v, %q", selected, warning)
 	}
-	manifests[2].Comparison.Status = "incompatible"
-	if selected, warning := selectDeclaredCompareManifest(manifests[2], manifests); selected != nil || warning == "" {
-		t.Fatalf("incompatible comparison selected: selected=%#v warning=%q", selected, warning)
+	card := Card{ID: "B-001", Status: "APPLIED", CompareRun: manifests[0].RunID}
+	summary, err := buildEvaluationSummary(t.TempDir(), card, manifests[4], manifests)
+	if err != nil || summary.CompareRun == nil || summary.CompareRun.ID != card.CompareRun {
+		t.Fatalf("card comparison not used: %#v, %v", summary, err)
 	}
 }
 

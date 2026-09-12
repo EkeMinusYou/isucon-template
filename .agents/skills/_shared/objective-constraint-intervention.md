@@ -1,4 +1,4 @@
-# Objective / Constraint / Intervention
+# Objective / Target / Intervention
 
 三層モデル、状態遷移、READY・採用条件、優先順、書込み規則の正本は[Backlog workflow](../../../tools/backlog/backlog-workflow.md)である。これらの判断を行う前にworkflowを読む。
 

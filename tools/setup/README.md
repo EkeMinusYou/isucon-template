@@ -52,22 +52,13 @@ SQL、初期化スクリプト、画像などの実行時依存は残してく�
 変更しないよう転送前にエラーにします。内部のinclude・symlinkは通常の配置のまま検査します。
 全uploadの検査が成功するまで、サービスを変更するactivationは開始しません。
 
-構文検査だけを行う場合は[config-check.example.yaml](config-check.example.yaml)を使えます。
-次のTaskを大会リポジトリへ追加し、`CONFIG_CHECK_COMMAND: 'task config-check'`と設定します。
+構文検査だけを行う場合は`task config-check`と[config-check.yaml](config-check.yaml)を使えます。
+当日の検査内容を調整した後、`CONFIG_CHECK_COMMAND: 'task config-check'`と設定します。
 成功した設定は配布先に残ります。この場合もサーバーのファイルを書き換えるため、進行中RUNや
 同じ配布先を操作している別作業がないことを確認してください。
-
-```yaml
-config-check:
-  desc: 配布先の設定を上書きして構文検査（失敗時は復元、reloadなし）
-  preconditions:
-    - sh: test ! -f '{{.RUN_STATE_FILE}}'
-      msg: finish the active RUN before replacing configuration
-  deps: [build-deployctl]
-  cmds:
-    - task: gen
-    - '{{.DEPLOYCTL_DIR}}/deployctl apply config-check -config tools/setup/config-check.example.yaml {{.DEPLOYCTL_COMMON}}'
-```
+標準のnginx `tls/`とMySQL `debian.cnf`は取得・配布とも除外し、ホスト上の値を保持します。
+ホスト別overlayを追加する場合は、共通設定の`delete: true`で消えない除外指定と、個別upload・検査を
+通常deployとconfig-checkの両方へ揃えてください。
 
 nginxは`NGINX_HOSTS`、MySQLは`MYSQL_HOSTS`が対象です。検査コマンドはそれぞれ`nginx -t`と
 `mysqld --validate-config`です。MySQLのversionや起動時の`--defaults-file`が異なる場合は、

@@ -9,6 +9,7 @@
 - 公式資料と実環境を確認してから設定する。過去大会の値をそのまま採用しない。
 - ツール本体を書き換える前に、設定ファイルまたは実行引数で表現できないか確認する。
 - collectorを増やす場合は、成果物の宣言・回収・分析側の読み手を同じ変更で揃える。
+- 計測設定の評価ではcollectorあり・なしを比較し、間隔や有効化範囲を決める。この負荷比較は初期setupの完了条件には含めず、依頼された場合に`isucon-setup`の追加検証としてユーザーが実行したベンチ結果を使う。
 - optionalなcollectorやprofilerは、目的と停止・cleanup手順が確認できた場合だけ有効にする。
 - deploy、service restart、ログローテート、collector起動はサーバー状態を変更する。対象を確認してから実行する。
 
@@ -18,6 +19,8 @@
 ## 読み方
 
 作業順・service分類・完了判断は[isucon-setup](../.agents/skills/isucon-setup/SKILL.md)を正本とする。本書はツール固有の設定資料であり、下表で対象を選び、詳細節を読む。標準外構成も管理対象に含め、optional機能の詳細は利用時だけ読む。
+
+既存環境の計測不足の調査・修正・検証は[isucon-setup](../.agents/skills/isucon-setup/SKILL.md)の部分補修手順に従う。Backlogから独立した計測基盤作業として扱う。
 
 ## ディレクトリ別チェックリスト
 
@@ -113,10 +116,14 @@ digesterも`enabled_by_default: false`で既定の実行対象から外せます
 標準のfgprof・Go CPU・heap・allocs・goroutineは`group: profiles`かつ`enabled_by_default: true`。
 `bench/run.sh`がこの宣言から収集対象を選び、同じ対象を開始確認・必須成果物判定で使う。
 [Go profile導入例](../docs/special-sources/go-profiling.md)に沿ってsetupでendpointを用意する。
-CPUとfgprofのRUN別開始確認後にベンチを開始し、`PROFILE_SECONDS`秒の収集・回収完了後にfinalizeする。
+CPUとfgprofのRUN別開始確認後にベンチを開始し、設定した時間の収集・回収完了後にfinalizeする。
 開始通知はprofilerの起動成功後に公開する。開始確認後は、CPU profile writerの非同期起動と
 小さなホスト時計差に備えて1秒先行収録し、同じRUNが収録中であることを再確認してからベンチを開始する。
 この1秒は大きな時計差を補正するものではなく、成果物の時間窓検査は緩和しない。
+開始・終了マーカーのUTC時刻は`task bench-timestamp`で`ENTRY_HOST`から取得する。
+ローカルPCの時計をサーバーのprofile・アクセスログと混ぜない。時刻取得に失敗した場合は
+マーカーを出さずにエラーとし、通常のfinalize処理で取得済み成果物を保存する。
+競技サーバー同士の時計差は別途確認する必要がある。
 時間・snapshotの遅延・HTTP timeout・開始確認timeoutはTaskfileで競技に合わせる。
 endpointはloopbackで公開する。`PROFILES_ENABLED=false`またはno-collectorsタスクで停止できる。
 各RUNの`required_artifacts`に有効なホスト別profile・圧縮access log・user-transitionを固定し、内容・計測窓・欠損を検査する。

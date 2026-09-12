@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 )
@@ -64,10 +65,12 @@ type verifyManifest struct {
 }
 
 type verifyRoles struct {
-	App        []string `json:"app"`
-	AppTraffic []string `json:"app_traffic"`
-	Nginx      []string `json:"nginx"`
-	MySQL      string   `json:"mysql"`
+	Additional map[string][]string `json:"additional,omitempty"`
+	Entry      string              `json:"entry"`
+	App        []string            `json:"app"`
+	AppTraffic []string            `json:"app_traffic"`
+	Nginx      []string            `json:"nginx"`
+	MySQL      string              `json:"mysql"`
 }
 
 type verifyCodeSource struct {
@@ -246,7 +249,7 @@ func loadVerifyManifests(runsDir string) ([]verifyManifest, error) {
 }
 
 func buildEvaluationSummary(root string, card Card, target verifyManifest, manifests []verifyManifest) (verificationSummary, error) {
-	compare, comparisonWarning := selectDeclaredCompareManifest(target, manifests)
+	compare, comparisonWarning := selectCompareManifest(card.CompareRun, target, manifests)
 	summary := verificationSummary{
 		CardID: card.ID, Title: card.Title, Status: card.Status,
 		TargetRun: summarizeRun(root, target), Contract: "missing",
@@ -364,22 +367,36 @@ func selectEvidenceManifest(cardID, requestedRunID string, manifests []verifyMan
 	return verifyManifest{}, fmt.Errorf("no finalized RUN snapshot contains APPLIED card %s", cardID)
 }
 
-func selectDeclaredCompareManifest(target verifyManifest, manifests []verifyManifest) (*verifyManifest, string) {
-	if target.Comparison.RunID == "" || target.Comparison.Status == "none" {
-		return nil, "対象RUNに比較RUNは宣言されていません"
+func selectCompareManifest(value string, target verifyManifest, manifests []verifyManifest) (*verifyManifest, string) {
+	wanted := strings.TrimSpace(value)
+	if wanted != "" {
+		ids := strings.Split(wanted, ",")
+		for i := range ids {
+			ids[i] = filepath.Base(strings.TrimSuffix(strings.TrimSpace(ids[i]), "/"))
+		}
+		sort.Strings(ids)
+		wanted = ids[len(ids)-1]
+		if wanted == target.RunID {
+			return nil, "対象RUN自身を比較RUNとして使用できません"
+		}
+		for i := range manifests {
+			if manifests[i].RunID == wanted {
+				return &manifests[i], ""
+			}
+		}
+		return nil, fmt.Sprintf("指定された比較RUN %s のfinalized manifestがありません", wanted)
 	}
-	if target.Comparison.Status != "compatible" {
-		return nil, fmt.Sprintf("対象RUNの比較 %s は %s です", target.Comparison.RunID, target.Comparison.Status)
-	}
-	if target.Comparison.RunID == target.RunID {
-		return nil, "対象RUN自身を比較RUNとして使用できません"
-	}
+	var selected *verifyManifest
 	for i := range manifests {
-		if manifests[i].RunID == target.Comparison.RunID {
-			return &manifests[i], ""
+		candidate := &manifests[i]
+		if candidate.RunID < target.RunID && reflect.DeepEqual(candidate.Roles, target.Roles) && (selected == nil || candidate.RunID > selected.RunID) {
+			selected = candidate
 		}
 	}
-	return nil, fmt.Sprintf("宣言された比較RUN %s のfinalized manifestがありません", target.Comparison.RunID)
+	if selected == nil {
+		return nil, "対象RUNより前でrolesが同一のfinalized比較RUNがありません"
+	}
+	return selected, ""
 }
 
 func summarizeRun(root string, manifest verifyManifest) runSummary {

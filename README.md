@@ -83,6 +83,7 @@ task deploy-nginx    # 設定上書き・nginx -t成功後にreload
 task deploy-mysql    # MySQL設定配布 + restart
 task deploy-sysctl   # 全ホストへ配布 + sysctl -p
 task deploy-all      # 上記を依存順に反映。DB初期化はしない
+task deploy-all-reset # アプリDBを破棄・再作成し全体deploy・公式初期化（setup後）
 task apply-roles     # 役割変更後だけenable/disableを収束
 task check-roles
 task check-network
@@ -94,10 +95,30 @@ deployctlのdry-runを呼ぶ次のTaskを使います。
 ```shell
 task deploy-app-dry
 task deploy-all-dry
+task deploy-all-reset-dry
 ```
 
 `tools/deployctl/deployments.yaml`が転送とactivationの差分、`Taskfile.yml`が役割と値を持ちます。
 新しいサービスが必要ならdeploymentを追加し、通常の変更に一時的な迂回Taskを増やさないでください。
+
+`deploy-all-reset`はローカルの生成・buildと全uploadの検査を済ませ、役割外serviceの停止、全APP_HOSTSの
+書込み元停止、MySQL反映、MYSQL_HOSTでDB再作成、アプリ起動、先頭APP_HOSTSで一度だけ初期化、
+nginx反映、役割の有効化、疎通検査の順に進みます。途中のactivation失敗時は依存する後続を実行しません。
+`DB_NAME`のデータを破棄するため、通常の`deploy-all`とは使い分けてください。
+`SQL_DIR`（既定`webapp/sql`）、その配下の`SQL_SCHEMA_FILE`（既定`schema.sql`）、`INITIALIZE_PATH`
+（既定`/initialize`）は例です。公式schema・初期化に合わせ、初期データや追加serviceの資産配布・初期化を
+setupでdeployment graphへ組み込んでください。`SCHEMA_PATHS`は取得確認用で、再作成SQLの選択とは別です。
+`deploy-db-schema`単独は書込み元を停止しません。全体初期化には`deploy-all-reset`を使います。
+
+`task config-check`はnginx/MySQLの正規配布先へ設定を書き込み、構文検査します。reloadは行いませんが、
+成功した設定は配布先に残ります。初期化時の`CONFIG_CHECK_COMMAND`へ設定する前に、検査コマンドと
+追加service・ホスト別設定の除外／上書き順序を実環境へ合わせてください。
+nginxの`tls/`とMySQLの`debian.cnf`は取得・配布から除外し、各ホストに保持します。
+別の場所の秘密情報も取得前に確認し、除外対象を調整してください。
+
+`deploy-app-unit`はunitだけを反映してdaemon-reloadし、停止中のアプリを起動します。稼働中プロセスへ
+unit変更を適用するには通常の`deploy-app`による再起動が必要です。
+`deploy-app-unit-dry`で対象と操作を表示できます。
 
 ## ベンチ計測
 
@@ -136,6 +157,9 @@ task after-bench SCORE=12345
 `task bench`と`task bench-manual`は、ベンチ失敗や割り込みでも可能な限り`after-bench`を実行し、
 失敗RUNをEvidenceとしてfinalizeします。共通の開始・終了・trap処理は`tools/bench/run.sh`、
 RUN状態遷移とcollector・digest・manifest処理は`measurectl run begin/finalize`が担当します。
+開始・終了マーカーは`task bench-timestamp`でENTRY_HOSTのUTC時刻を取得し、ローカルPCの時計を
+profileやアクセスログの時間窓へ混ぜません。取得失敗時はエラーとしてRUNをfinalizeします。
+競技サーバー間の時計差はsetupで別途確認してください。
 
 `after-bench`は回収・manifest確定後、そのRUNディレクトリ全体（`.gitignore`対象は除外）と
 `runs/scores.tsv`を自動でローカルGitコミットします。失敗RUNも対象です。別RUN、
@@ -229,26 +253,31 @@ nginxのon-CPU profile、任意JSON endpointのsnapshot、ダッシュボード�
 
 ## Agent workflow
 
-`.agents/skills/`には4段階のskillがあります。
+`.agents/skills/`では環境整備・改善方針・改善対象・実現方法・検証・実装を分担します。
 
 - `isucon-setup` — 初期取得と正規deploy/bench経路の準備
-- `isucon-analyze` — Objective、Constraint、Intervention候補の発見
+- `isucon-objective` — 得点への寄与仮説となるObjectiveの作成・再評価
+- `isucon-target` — 既存Objectiveに紐付く改善対象・目標の管理
+- `isucon-analyze` — ACTIVE Targetから実現方法を探索しInterventionを起票
+- `isucon-rethink` — 既存Targetに限定せずシステム構造を再検討
 - `isucon-investigate` — INVESTIGATEの独立検証とREADY安全ゲート
-- `isucon-worker` — READYの実装、正規deploy、ベンチ後の採否・rollback
+- `isucon-worker` — READYの実装、正規deploy、ベンチ後の採否・修正
 
 ```shell
 task backlog -- objective list
-task backlog -- constraint list
+task backlog -- target list
 task backlog
 task backlog -- validate
 ```
 
 台帳の正本は`tools/backlog/backlog.sql`、ローカル生成物は`backlog.sqlite3`です。
-最初の書き込み操作でSQL dumpが生成されます。
+新規台帳は空で開始します。初期Objectiveは当日の公式資料とEvidenceに基づき作成し、他大会の分類や履歴を引き継ぎません。書き込み操作でSQL dumpが更新されます。
 
 ## 再利用資料
 
 - [`docs/special-sources/`](docs/special-sources/README.md) — nginx、MySQL、systemd、sysctlの設定候補
 - [`docs/solutions/`](docs/solutions/README.md) — N+1、index、bulk upsert、非同期化、in-memory、静的配信、PGO、UDSなど
 
-これらは自動適用する完成設定ではありません。公式仕様、現行構成、計測値、rollback条件を確認して採用します。
+これらは自動適用する完成設定ではありません。公式仕様、現行構成、計測値、正当性・評価条件を確認して採用します。
+
+分析レポートの保存先・命名規則は[レポートの手引き](docs/reports/README.md)を参照してください。

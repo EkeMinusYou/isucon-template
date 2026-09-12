@@ -1,64 +1,76 @@
 # AGENTS.md
 
-ISUCON用の作業テンプレートリポジトリ。競技サーバーをSSH経由でセットアップ・デプロイし、
-計測結果をローカルへ集約してEvidenceに基づいて改善する。
+ISUCON用の作業テンプレートリポジトリ。競技サーバーをSSH経由でセットアップ・デプロイし、計測結果をローカルへ集約して改善する。
+`CLAUDE.md`はこのファイルへのsymlinkであり、Claude Code / Codex共通の指示として扱う。
 
-このファイルは`CLAUDE.md`と同一実体（symlink）。Claude Code / Codex共通の指示として扱う。
+## 目的と改善判断の原則
 
-## リポジトリ構成
+最上位目的は、公式ルールと正当性要件を満たしたうえで、最終スコアを最大化することである。
+目標得点を設定する場合は、当該競技の採点仕様とユーザーの指示に従う。
+Backlogの各Objectiveは、この目的への寄与仮説を持つ改善方針として定義する。
+作業前に[公式資料](docs/official/)の関連箇所を確認し、他資料と矛盾したら公式資料を優先する。
 
-- `Taskfile.yml` — 全操作の入口。冒頭のホスト・役割・アプリ変数が構成の正本
-- `README.md` — 競技開始時のセットアップ、デプロイ、計測手順
-- `docs/official/` — 当日マニュアル、仕様、API定義などの正本
-- `docs/special-sources/` — 複数構成で再利用できる設定断片
-- `docs/solutions/` — スキーマや配置に依存する解決策の例
-- `docs/reports/` — 分析レポート。`README.md`の命名規則に従い、既存ファイルを上書きしない
-- `.agents/skills/` — Claude Code / Codex共有skills
-  - `isucon-setup/` — 初期環境と標準計測（pprof・fgprof・nginxログ・user-transition）を整備し、既存環境の計測不足も補修。ベンチはユーザーが実行
-  - `isucon-special-sauce/` — 指定した設定資料、指定なしなら `docs/special-sources/` 全件からINVESTIGATE候補を調査
-  - `isucon-use-solution/` — 指定した一つの `docs/solutions/` 文書からINVESTIGATE候補を調査
-  - `isucon-create-solution/` — 再利用できる実装パターンを `docs/solutions/` に新規作成・更新。Backlog起票・実装は行わない
-- `tools/measurectl/` — RUNの開始、collector、回収、集計、manifest
-- `tools/deployctl/` — 宣言的な転送・activation・deploy plan
-- `tools/analysisctl/`、`tools/analysis/` — RUN横断のDuckDB分析
-- `tools/backlog/` — Objective・Constraint・Intervention台帳
-- `tools/dashboard/` — 計測結果とbacklogのローカル閲覧UI
-- `runs/<RUN_ID>/` — 1走行分の集計結果と`run.json`
-- `raw/`、`runs/<RUN_ID>/raw/` — 巨大な生ログ。git管理外
+### Evidenceに基づいて判断する
 
-## 前提
+- 推測だけで最適化しない。割合だけで律速を決めず、時間・処理量・待ち・capacityを同じ単位と母数で扱う。ログ・profile・時系列メトリクスは同じRUNと時間窓で比較する
+- 欠損成果物は0とみなさず、`run.json`のartifact statusと`missing`を確認する。失敗RUNも破棄せずfinalizeし、成果物全体は`task artifacts-run`で確認する
+- 数値集計・時系列の結合・RUN横断解析は、既存のDuckDB基盤（`task q -- "SQL"`）を原則として優先する。`tools/analysis/sources.yaml`と`tools/analysis/schema/`の取り込み定義・既存ビューを確認して活用する。既存基盤で扱えない処理や単純なファイル確認には別手段を使ってよい。DuckDB利用だけを目的に計測基盤の変更へ作業を広げない
+- 設定断片は候補値として扱い、元の値と採用理由を残す
 
-- 作業前に`docs/official/`の関連資料を確認する。仕様と他資料が矛盾したら公式資料を優先する
-- `Taskfile.yml`冒頭の`APP_NAME`、`SERVICE`、`DB_NAME`、`ALL_HOSTS`、`IP`、`*_HOSTS`を競技ごとに更新する
+### 現行構成からの追加改善を考える
+
+過去の改善・採用済みIntervention・達成済みTargetは比較の出発点であり、その対象に改善余地がないことの証明ではない。
+
+- 現行実装に残る処理・待ち・転送・資源消費と、その発生条件をEvidenceから確認する。既存方式の追加改善・補完・置換について、減る仕事と増える仕事、正当性の成立条件、得点への寄与を現行と比較する
+- 同じ対象・似た方式・過去に改善済みという理由だけで候補を除外しない。重複判定は具体的な変更差分を評価した後に、同一の変更を二重管理しないために行う
+- 追加改善を根拠付きで説明できれば、効果量が未確定でも仮説と評価条件を明示して次の調査・検証へ進める。既存カードの継続か新規候補かは、変更境界・状態・OwnerとBacklogの規則で決める
+- 全対象の概観と、今回の詳細探索・新規着手を分ける。[Work selection](tools/backlog/backlog-workflow.md#work-selection)に従い得点への寄与仮説から対象を選び、ACTIVE・READYであることだけを実施理由にしない。実装の容易さや変更規模で探索対象を狭めず、前回の結果を今回の選択へ反映する
+- 見送り・調査終了時は、調べた追加改善、現行との差分、見送りの根拠または未確定点と再探索条件を残す。「適用済み」「重複」だけを対象全体の終了理由にしない。改善案の数や無限の探索を目的にせず、依頼範囲で利用可能なEvidenceから進められる具体的な問いを評価する
+
+これらの原則は各スキルの担当範囲・状態遷移・実行権限を広げない。担当外の改善は根拠とともに引き渡す。
+
+## ISUCONでの変更方針
+
+- 競技時間内の改善と最終スコアを優先する。一般的な本番サービスの無停止移行、旧実装との互換運用、既存データの保持を暗黙の必須条件にしない
+- 依頼された改善に必要な破壊的変更は許可済みとする。競技DB・テーブルの破棄と再作成、スキーマや配置の変更、不要なコード・設定・ファイルの削除を許容し、破壊的であることだけを理由に再確認しない。対象は依頼の範囲内とし、ユーザーが明示したデータ保持条件は守る
+- ロールバックの計画・専用実装・事前検証は不要。修正が必要になった時点で、コードと変更履歴を使って対応する。将来の切り戻しだけを目的に、旧コードの併存、バックアップ、切替フラグ、逆移行・復旧スクリプトを追加しない。不要になったコードとファイルは削除する
+- まず既存のTaskfile・設定・公式初期化処理で目的を満たす。DB配置変更は接続先設定と`task deploy-all-reset`による再作成を使う。独自スクリプトや運用手順は理解・保守の負担になるため、依頼の範囲内の最小変更を優先する
+- 公式の正当性・初期化・永続性・再起動後の再現要件は維持する。競技DBを初期化で再作成できることと、負荷走行中に書き込まれたデータを追試で取得できることは両立させる。進行中の別作業・計測や保存済みEvidenceを破棄する許可にはしない
+
+## 禁止事項と作業上の制約
+
+### 調査・ベンチ実行
+
+- 当該競技およびそのベンチマーカーについてインターネットで調べない
+- ベンチマーカーを実行しない。必要な場合はユーザーに依頼する。setup依頼をベンチ実行の許可とみなさない
+
+### 編集・デプロイ
+
+- 全操作の入口と構成の正本は`Taskfile.yml`。冒頭の`APP_NAME`、`SERVICE`、`DB_NAME`、`ALL_HOSTS`、`IP`、`*_HOSTS`を競技ごとに更新する
 - サーバー上で直接編集せず、`task setup-*`で取得し、ローカル編集後に`task deploy-*`で反映する
-- `nginx/conf.d/upstream.conf`は`task gen`の生成物なので手編集しない
+- アプリはGo実装を編集・deploy対象とする。Node実装（`webapp/node/`）を含む他言語の参考実装は参照専用とし、編集せず正規deploy経路へ混ぜない
 - Goアプリとcollectorは、実ホストで確認した`TARGET_OS` / `TARGET_ARCH`へローカルでクロスコンパイルする
-- アプリはGo実装を採用し、編集・deploy対象とする。Node実装（`webapp/node/`）を含む他言語の参考実装は参照専用とし、編集せず正規deploy経路へ混ぜない
+- `nginx/conf.d/upstream.conf`は`task gen`の生成物なので手編集しない
+- `task deploy-*`はreload/restart、`task apply-roles`はサービスのenable/disableを伴う。実行前に対象ホストと影響を確認する
 
-## 計測と改善
+### 作業・計測結果の保護
 
-1. `task before-bench` — RUN採番、APPLIED snapshot、ログローテート、collector起動
-2. ベンチ実行
-3. `task after-bench` — collector停止、ログ回収、digest、`run.json`確定
-4. alp、slow query、fgprof、時系列メトリクスを同じRUNと時間窓で比較する
-
-`task bench` / `task bench-manual`の失敗RUNも破棄せずfinalizeする。完全に生成されなかった必須成果物は
-`run.json`の`missing`、実RUN全体は`task artifacts-run`で確認する。
-
-推測だけで最適化しない。割合だけで律速を決めず、時間・処理量・待ち・capacityを同じ単位と母数で扱う。
-欠損成果物は0とみなさず、`run.json`のartifact statusを確認する。
-
-BacklogはObjective・Constraint・Interventionの三層で管理する。計測、ログ、profile、コード、設定、
-公式資料はEvidenceでありカード種別ではない。共通ルールは[Backlog workflow](tools/backlog/backlog-workflow.md)、
-CLI操作・保存形式は[Backlog README](tools/backlog/README.md)、根拠の扱いは[Evidence](.agents/skills/_shared/evidence.md)、
-担当範囲と実行手順は[Skills一覧](.agents/skills/README.md)を参照する。
-
-## 作業上の注意
-
-- `task deploy-*`はサーバーのreload/restartを伴う。実行前に対象ホストと影響を確認する
-- `task apply-roles`はサービスのenable/disableを伴う
 - 複数の作業環境から同じ競技サーバーを操作する場合は、作業ディレクトリ・Taskfile・対象ホスト・進行中RUNの所有元を照合する。別環境で稼働中の計測を停止・上書きしない
-- ベンチの実行担当と実行許可はユーザーの指示に従う。setup依頼だけをベンチ実行の許可とみなさない
 - `task abort-run`は進行中RUNを破棄し、collectorを掃除する。残存RUNの所有元と終了状態を確認してから使う
-- `task clear-cache`はログやキャッシュを削除する破壊的操作。明示指示時だけ実行する
-- 設定断片は候補値である。元の値、採用理由を残す
+- `task clear-cache`はログやキャッシュを削除するため、ユーザーの明示指示時だけ実行する
+- 分析レポートは`docs/reports/`へ保存し、[README](README.md)の命名規則に従う。既存ファイルは上書きしない
+
+## 作業ごとの参照先
+
+必要な作業に応じて以下を確認する。構成説明や詳細手順は各資料を参照する。
+
+| 作業 | 参照先 |
+| --- | --- |
+| セットアップ・デプロイ・計測 | [README](README.md)、[Taskfile](Taskfile.yml) |
+| 仕様・正当性の確認 | [公式資料](docs/official/) |
+| Backlogの判断・状態遷移 | [Backlog workflow](tools/backlog/backlog-workflow.md) |
+| BacklogのCLI操作・保存形式 | [Backlog README](tools/backlog/README.md) |
+| 根拠の選択・記録 | [Evidence](.agents/skills/_shared/evidence.md) |
+| スキルの担当範囲・実行手順 | [Skills一覧](.agents/skills/README.md) |
+
+BacklogはObjective・Target・Interventionの三層で管理する。計測、ログ、profile、コード、設定、公式資料はEvidenceでありカード種別ではない。

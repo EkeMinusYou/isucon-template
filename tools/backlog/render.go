@@ -71,7 +71,7 @@ func priorityColor(priority string) string {
 	}
 }
 
-func constraintStatusColor(status string) string {
+func targetStatusColor(status string) string {
 	switch status {
 	case "ACTIVE":
 		return "1;31"
@@ -131,33 +131,37 @@ func countLabel(count int, singular string) string {
 }
 
 type listLayout struct {
-	titleWidth      int
-	relationWidth   int
-	idWidth         int
-	constraintWidth int
-	ownerWidth      int
+	titleWidth    int
+	relationWidth int
+	idWidth       int
+	targetWidth   int
+	ownerWidth    int
 }
 
-func makeListLayout(cards []Card, constraints []Constraint, wide int, showConstraintStatus bool) listLayout {
-	layout := listLayout{idWidth: 5, constraintWidth: 1, ownerWidth: 1}
+func makeListLayout(cards []Card, targets []Target, wide int, showTargetStatus bool, objectives ...Objective) listLayout {
+	layout := listLayout{idWidth: 5, targetWidth: 1, ownerWidth: 1}
 	maxTitleWidth := 1
 	for _, card := range cards {
 		layout.idWidth = max(layout.idWidth, width(card.ID))
 		maxTitleWidth = max(maxTitleWidth, width(card.Title))
-		layout.constraintWidth = max(layout.constraintWidth, width(cardConstraintMarker(card)))
+		layout.targetWidth = max(layout.targetWidth, width(cardTargetMarker(card)))
 		layout.ownerWidth = max(layout.ownerWidth, min(width(orValue(card.Owner, "-")), 28))
 		layout.relationWidth = max(layout.relationWidth, width(cardRelation(card)))
 	}
-	for _, constraint := range constraints {
-		layout.idWidth = max(layout.idWidth, width(constraint.ID))
-		maxTitleWidth = max(maxTitleWidth, width(constraint.Title))
-		layout.relationWidth = max(layout.relationWidth, width(constraintRelation(constraint, showConstraintStatus)))
+	for _, target := range targets {
+		layout.idWidth = max(layout.idWidth, width(target.ID))
+		layout.targetWidth = max(layout.targetWidth, width(targetObjectiveMarker(target)))
+		maxTitleWidth = max(maxTitleWidth, width(target.Title))
+		layout.relationWidth = max(layout.relationWidth, width(targetRelation(target, showTargetStatus)))
+	}
+	for _, objective := range objectives {
+		layout.idWidth = max(layout.idWidth, width(objective.ID))
 	}
 	if layout.relationWidth > 24 {
 		layout.relationWidth = 24
 	}
 	cardMetadataWidth := layout.ownerWidth
-	fixedWidth := width("   P0  ") + layout.idWidth + layout.constraintWidth + 2 + width(" │ ") + cardMetadataWidth
+	fixedWidth := width("   P0  ") + layout.idWidth + layout.targetWidth + 2 + width(" │ ") + cardMetadataWidth
 	if layout.relationWidth > 0 {
 		fixedWidth += layout.relationWidth + width(" │ ")
 	}
@@ -169,11 +173,18 @@ func makeListLayout(cards []Card, constraints []Constraint, wide int, showConstr
 	return layout
 }
 
-func cardConstraintMarker(card Card) string {
-	if len(card.ActiveConstraintIDs) == 0 {
+func cardTargetMarker(card Card) string {
+	if len(card.ActiveTargetIDs) == 0 {
 		return "-"
 	}
-	return "[" + strings.Join(card.ActiveConstraintIDs, ",") + "]"
+	return "[" + strings.Join(card.ActiveTargetIDs, ",") + "]"
+}
+
+func targetObjectiveMarker(target Target) string {
+	if len(target.ObjectiveIDs) == 0 {
+		return ""
+	}
+	return "[" + strings.Join(target.ObjectiveIDs, ",") + "]"
 }
 
 func cardRelation(card Card) string {
@@ -184,13 +195,13 @@ func cardRelation(card Card) string {
 	return strings.Join(parts, " ")
 }
 
-func constraintRelation(constraint Constraint, showStatus bool) string {
+func targetRelation(target Target, showStatus bool) string {
 	var parts []string
 	if showStatus {
-		parts = append(parts, "["+constraint.Status+"]")
+		parts = append(parts, "["+target.Status+"]")
 	}
-	if len(constraint.CardIDs) > 0 {
-		parts = append(parts, "cards:"+strings.Join(constraint.CardIDs, ","))
+	if len(target.CardIDs) > 0 {
+		parts = append(parts, "cards:"+strings.Join(target.CardIDs, ","))
 	}
 	return strings.Join(parts, " ")
 }
@@ -201,8 +212,8 @@ func cardLine(card Card, wide int) string {
 
 func cardLineWithLayout(card Card, wide int, layout listLayout) string {
 	owner := pad(truncate(orValue(card.Owner, "-"), layout.ownerWidth), layout.ownerWidth)
-	constraintMarker := pad(cardConstraintMarker(card), layout.constraintWidth)
-	prefix := fmt.Sprintf("  %s %s  %s  ", bold(pad(card.ID, layout.idWidth)), paint(priorityColor(card.Priority), pad(orValue(card.Priority, "-"), 2)), dim(constraintMarker))
+	targetMarker := pad(cardTargetMarker(card), layout.targetWidth)
+	prefix := fmt.Sprintf("  %s %s  %s  ", bold(pad(card.ID, layout.idWidth)), paint(priorityColor(card.Priority), pad(orValue(card.Priority, "-"), 2)), dim(targetMarker))
 	title := pad(truncate(card.Title, layout.titleWidth), layout.titleWidth)
 	metadata := dim(owner)
 	relationText := cardRelation(card)
@@ -234,12 +245,12 @@ func compactDependencySummary(card Card) string {
 	return "  " + strings.Join(parts, " ")
 }
 
-func printList(cards []Card, constraints []Constraint, objectives []Objective, revision int, nextID, nextConstraintID, nextObjectiveID string, wide int, all bool) {
-	fmt.Printf("%s  %s\n", bold("ISUCON Backlog"), dim(fmt.Sprintf("rev %d · next %s/%s/%s · %s · %s · %s", revision, orValue(nextID, "?"), orValue(nextConstraintID, "?"), orValue(nextObjectiveID, "?"), countLabel(len(objectives), "objective"), countLabel(len(cards), "intervention"), countLabel(len(constraints), "constraint"))))
+func printList(cards []Card, targets []Target, objectives []Objective, revision int, nextID, nextTargetID, nextObjectiveID string, wide int, all bool) {
+	fmt.Printf("%s  %s\n", bold("ISUCON Backlog"), dim(fmt.Sprintf("rev %d · next %s/%s/%s · %s · %s · %s", revision, orValue(nextID, "?"), orValue(nextTargetID, "?"), orValue(nextObjectiveID, "?"), countLabel(len(objectives), "objective"), countLabel(len(cards), "intervention"), countLabel(len(targets), "target"))))
 	fmt.Println()
-	printObjectiveList(objectives)
-	layout := makeListLayout(cards, constraints, wide, false)
-	printConstraintListWithLayout(constraints, wide, false, layout)
+	layout := makeListLayout(cards, targets, wide, false, objectives...)
+	printObjectiveListWithLayout(objectives, layout)
+	printTargetListWithLayout(targets, wide, false, layout)
 	groups := map[string][]Card{}
 	for _, card := range cards {
 		groups[card.Status] = append(groups[card.Status], card)
@@ -250,9 +261,9 @@ func printList(cards []Card, constraints []Constraint, objectives []Objective, r
 			continue
 		}
 		sort.SliceStable(group, func(i, j int) bool {
-			leftConstrainted, rightConstrainted := len(group[i].ActiveConstraintIDs) > 0, len(group[j].ActiveConstraintIDs) > 0
-			if leftConstrainted != rightConstrainted {
-				return leftConstrainted
+			leftTargeted, rightTargeted := len(group[i].ActiveTargetIDs) > 0, len(group[j].ActiveTargetIDs) > 0
+			if leftTargeted != rightTargeted {
+				return leftTargeted
 			}
 			left, right := orValue(group[i].Priority, "P9"), orValue(group[j].Priority, "P9")
 			if left != right {
@@ -285,7 +296,7 @@ func printCard(card Card) {
 	metadata := []struct{ name, value string }{
 		{"Card version", fmt.Sprintf("%d", card.Version)},
 		{"Objectives", strings.Join(card.ObjectiveIDs, ", ")},
-		{"Constraints", formatConstraintRelations(card.ConstraintIDs, card.ConstraintRoles)},
+		{"Targets", formatTargetRelations(card.TargetIDs, card.TargetRoles)}, {"Primary target", card.PrimaryTargetID},
 		{"Priority", card.Priority}, {"Owner", card.Owner}, {"Area", card.Area}, {"Source RUNs", card.SourceRuns},
 		{"Compare RUNs", card.CompareRun}, {"Observed RUNs", card.ObservedRuns},
 		{"Depends on", formatDependencies(card.Dependencies, false)}, {"Unblocks", formatDependencies(card.Unblocks, true)},
@@ -312,15 +323,15 @@ func printCard(card Card) {
 			fmt.Println("  " + plainLine(line))
 		}
 	}
-	if len(card.ConstraintAssessments) > 0 {
-		fmt.Printf("\n%s\n", paint("1;36", "Constraint assessments"))
-		ids := make([]string, 0, len(card.ConstraintAssessments))
-		for id := range card.ConstraintAssessments {
+	if len(card.TargetAssessments) > 0 {
+		fmt.Printf("\n%s\n", paint("1;36", "Target assessments"))
+		ids := make([]string, 0, len(card.TargetAssessments))
+		for id := range card.TargetAssessments {
 			ids = append(ids, id)
 		}
 		sort.Strings(ids)
 		for _, id := range ids {
-			fmt.Printf("  %s  %s\n", bold(id), card.ConstraintAssessments[id])
+			fmt.Printf("  %s  %s\n", bold(id), card.TargetAssessments[id])
 		}
 	}
 	if len(card.History) > 0 {
@@ -336,17 +347,17 @@ func printCard(card Card) {
 }
 
 func printObjectiveList(objectives []Objective) {
+	printObjectiveListWithLayout(objectives, makeListLayout(nil, nil, defaultListWidth, false, objectives...))
+}
+
+func printObjectiveListWithLayout(objectives []Objective, layout listLayout) {
 	if len(objectives) == 0 {
 		fmt.Println("no objectives")
 		return
 	}
 	fmt.Printf("%s %s\n", paint("1;34", "OBJECTIVES"), dim(fmt.Sprintf("(%d)", len(objectives))))
 	for _, objective := range objectives {
-		required := ""
-		if objective.RequiredForValidResult {
-			required = " required"
-		}
-		fmt.Printf("  %s %-8s %-8s %s%s\n", bold(objective.ID), "["+objective.Status+"]", objective.Mode, objective.Title, dim(required))
+		fmt.Printf("  %s %s  %s\n", bold(pad(objective.ID, layout.idWidth)), strings.Repeat(" ", layout.targetWidth+4), objective.Title)
 	}
 }
 
@@ -357,7 +368,7 @@ func printObjective(objective Objective) {
 		{"Required for valid result", fmt.Sprintf("%t", objective.RequiredForValidResult)},
 		{"Parent objective", objective.ParentObjectiveID},
 		{"Official sources", objective.OfficialSources},
-		{"Constraints", strings.Join(objective.ConstraintIDs, ", ")},
+		{"Targets", strings.Join(objective.TargetIDs, ", ")},
 		{"Interventions", strings.Join(objective.InterventionIDs, ", ")},
 		{"Updated", objective.Updated},
 		{"Updated by", objective.UpdatedBy},
@@ -377,46 +388,46 @@ func printObjective(objective Objective) {
 	}
 }
 
-func printConstraintList(constraints []Constraint, wide int, showStatus bool) {
-	printConstraintListWithLayout(constraints, wide, showStatus, makeListLayout(nil, constraints, wide, showStatus))
+func printTargetList(targets []Target, wide int, showStatus bool) {
+	printTargetListWithLayout(targets, wide, showStatus, makeListLayout(nil, targets, wide, showStatus))
 }
 
-func printConstraintListWithLayout(constraints []Constraint, wide int, showStatus bool, layout listLayout) {
-	if len(constraints) == 0 {
+func printTargetListWithLayout(targets []Target, wide int, showStatus bool, layout listLayout) {
+	if len(targets) == 0 {
 		return
 	}
-	fmt.Printf("\n%s %s\n", paint("1;31", "CONSTRAINTS"), dim(fmt.Sprintf("(%d)", len(constraints))))
-	for _, constraint := range constraints {
-		fmt.Println(constraintLineWithLayout(constraint, showStatus, layout))
+	fmt.Printf("\n%s %s\n", paint("1;31", "TARGETS"), dim(fmt.Sprintf("(%d)", len(targets))))
+	for _, target := range targets {
+		fmt.Println(targetLineWithLayout(target, showStatus, layout))
 	}
 }
 
-func constraintLineWithLayout(constraint Constraint, showStatus bool, layout listLayout) string {
-	prefix := fmt.Sprintf("  %s %s  %s", bold(pad(constraint.ID, layout.idWidth)), paint(priorityColor(constraint.Priority), pad(orValue(constraint.Priority, "-"), 2)), strings.Repeat(" ", layout.constraintWidth+2))
-	title := pad(truncate(constraint.Title, layout.titleWidth), layout.titleWidth)
-	relationText := truncate(constraintRelation(constraint, showStatus), layout.relationWidth)
+func targetLineWithLayout(target Target, showStatus bool, layout listLayout) string {
+	prefix := fmt.Sprintf("  %s %s  %s  ", bold(pad(target.ID, layout.idWidth)), paint(priorityColor(target.Priority), pad(orValue(target.Priority, "-"), 2)), dim(pad(targetObjectiveMarker(target), layout.targetWidth)))
+	title := pad(truncate(target.Title, layout.titleWidth), layout.titleWidth)
+	relationText := truncate(targetRelation(target, showStatus), layout.relationWidth)
 	relation := dim(relationText)
 	if showStatus && relationText != "" {
-		status := "[" + constraint.Status + "]"
-		relation = paint(constraintStatusColor(constraint.Status), status) + dim(strings.TrimPrefix(relationText, status))
+		status := "[" + target.Status + "]"
+		relation = paint(targetStatusColor(target.Status), status) + dim(strings.TrimPrefix(relationText, status))
 	}
 	return prefix + title + dim(" │ ") + relation
 }
 
-func printConstraint(constraint Constraint) {
-	fmt.Printf("%s %s %s\n\n", bold(constraint.ID), paint(constraintStatusColor(constraint.Status), "["+constraint.Status+"]"), bold(constraint.Title))
+func printTarget(target Target) {
+	fmt.Printf("%s %s %s\n\n", bold(target.ID), paint(targetStatusColor(target.Status), "["+target.Status+"]"), bold(target.Title))
 	metadata := []struct{ name, value string }{
-		{"Constraint version", fmt.Sprintf("%d", constraint.Version)},
-		{"Objectives", strings.Join(constraint.ObjectiveIDs, ", ")},
-		{"Priority", constraint.Priority},
-		{"Fingerprint", constraint.Fingerprint},
-		{"Scope", constraint.Scope},
-		{"Source RUNs", constraint.SourceRuns},
-		{"Observed RUNs", constraint.ObservedRuns},
-		{"Merged into", constraint.MergedIntoID},
-		{"Linked interventions", formatConstraintRelations(constraint.CardIDs, constraint.CardRoles)},
-		{"Updated", constraint.Updated},
-		{"Updated by", constraint.UpdatedBy},
+		{"Target version", fmt.Sprintf("%d", target.Version)},
+		{"Objectives", strings.Join(target.ObjectiveIDs, ", ")},
+		{"Priority", target.Priority},
+		{"Fingerprint", target.Fingerprint},
+		{"Scope", target.Scope}, {"Axis", target.Axis}, {"Goal", target.Goal}, {"Evaluation", target.Evaluation}, {"Previous target", target.PreviousTargetID}, {"Primary objective", target.PrimaryObjectiveID}, {"Completion evidence", target.CompletionEvidence},
+		{"Source RUNs", target.SourceRuns},
+		{"Observed RUNs", target.ObservedRuns},
+		{"Merged into", target.MergedIntoID},
+		{"Linked interventions", formatTargetRelations(target.CardIDs, target.CardRoles)},
+		{"Updated", target.Updated},
+		{"Updated by", target.UpdatedBy},
 	}
 	maxName := 0
 	for _, field := range metadata {
@@ -429,17 +440,22 @@ func printConstraint(constraint Constraint) {
 			fmt.Printf("  %s  %s\n", dim(pad(field.name+":", maxName+1)), field.value)
 		}
 	}
-	fmt.Printf("\n%s\n  %s\n", paint("1;36", "Evidence"), plainLine(constraint.Evidence))
-	fmt.Printf("\n%s\n  %s\n", paint("1;36", "Resolution condition"), plainLine(constraint.Resolution))
-	if len(constraint.History) > 0 {
+	fmt.Printf("\n%s\n  %s\n", paint("1;36", "Evidence"), plainLine(target.Evidence))
+	fmt.Printf("\n%s\n  %s\n", paint("1;36", "Legacy resolution condition"), plainLine(target.Resolution))
+	for _, id := range target.ObjectiveIDs {
+		if rationale := target.ObjectiveRationales[id]; rationale != "" {
+			fmt.Printf("\nObjective %s contribution: %s\n", id, plainLine(rationale))
+		}
+	}
+	if len(target.History) > 0 {
 		fmt.Printf("\n%s\n", paint("1;36", sectionHistory))
-		for _, entry := range constraint.History {
+		for _, entry := range target.History {
 			fmt.Printf("  %s\n", plainLine(fmt.Sprintf("- %s [%s] %s", entry.OccurredAt, entry.Actor, entry.Body)))
 		}
 	}
 }
 
-func formatConstraintRelations(ids []string, roles map[string]string) string {
+func formatTargetRelations(ids []string, roles map[string]string) string {
 	values := make([]string, 0, len(ids))
 	for _, id := range ids {
 		value := id

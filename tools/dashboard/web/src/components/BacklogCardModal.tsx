@@ -79,30 +79,45 @@ export function BacklogCardModal({ id, onClose }: Props) {
               </div>
             </div>
 
-            {(detail.objectives.length > 0 || detail.constraints.length > 0) && (
+            {detail.closed && detail.targets.length === 0 && (
+              <p className="mb-4 text-sm text-base-content/70">
+                過去の判定を保持したカードです。現在のTargetへの関連はありません。
+              </p>
+            )}
+            {detail.targets.length > 0 && (
               <div className="mb-4 space-y-3">
-                {detail.objectives.length > 0 && (
-                  <div>
-                    <div className="divider divider-start my-1 text-sm font-semibold">Objectives</div>
-                    {detail.objectives.map((objective) => (
-                      <p key={objective.id} className="text-base text-base-content/80">
-                        {objective.id} · {objective.status} · {objective.mode} · {objective.title}
+                <div className="divider divider-start my-1 text-sm font-semibold">Targets</div>
+                {detail.targets.map((target) => (
+                  <div key={target.id} className="rounded-box border border-base-300 p-3 space-y-2">
+                    <p className="font-semibold">
+                      {target.id} · {target.status} · {target.title}
+                      {target.is_primary && <span className="badge badge-soft ml-2">主対象</span>}
+                    </p>
+                    {target.rationale && <p className="text-base-content/80">{target.rationale}</p>}
+                    <dl className="text-sm space-y-1">
+                      {([
+                        ['対象範囲', target.scope],
+                        ['評価軸', target.axis],
+                        ['今回の目標', target.goal],
+                        ['評価条件', target.evaluation],
+                        ['Evidence・現在の状況', target.evidence],
+                        ['前回のTarget', target.previous_target_id],
+                      ] as const).filter(([, value]) => value).map(([label, value]) => (
+                        <div key={label}>
+                          <dt className="font-semibold">{label}</dt>
+                          <dd className="whitespace-pre-wrap text-base-content/80">{value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                    {detail.objectives.filter((objective) => objective.target_id === target.id).map((objective) => (
+                      <p key={objective.id} className="text-sm text-base-content/80">
+                        Objective: {objective.id} · {objective.status} · {objective.mode} · {objective.title}
+                        {objective.is_primary && '（主Objective）'}
                         {objective.rationale && ` — ${objective.rationale}`}
                       </p>
                     ))}
                   </div>
-                )}
-                {detail.constraints.length > 0 && (
-                  <div>
-                    <div className="divider divider-start my-1 text-sm font-semibold">Constraints</div>
-                    {detail.constraints.map((constraint) => (
-                      <p key={constraint.id} className="text-base text-base-content/80">
-                        {constraint.id} · {constraint.status} · {constraint.role} · {constraint.title}
-                        {constraint.rationale && ` — ${constraint.rationale}`}
-                      </p>
-                    ))}
-                  </div>
-                )}
+                ))}
               </div>
             )}
             <div className="mb-4 flex flex-wrap gap-1.5 text-sm">

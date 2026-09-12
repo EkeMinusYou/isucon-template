@@ -16,6 +16,8 @@
 
 ## Go profileを整えるとき
 
+[Go profile導入例](../../../../docs/special-sources/go-profiling.md)のadapterと開始確認の契約を参照する。
+
 - 計測用listenerはloopbackなど必要な範囲へ限定し、公開traffic用routerへ無条件に登録しない。remote curlがどのホストで動くかとbind先を照合する。
 - 標準pprofとfgprofは別のendpoint・実装として確認する。handler未登録、timeout、HTTPエラー本文の保存を取得成功に数えない。
 - `PROFILE_DELAY`、`SNAPSHOT_PROFILE_DELAY`、取得秒数、timeoutと実際の起動時刻を照合する。負荷終了後に手動タスクを呼んでも負荷中のprofileにはならない。
@@ -30,3 +32,15 @@
 - routes.jsonの汎用プレースホルダーをそのまま完成扱いにしない。公式APIとGoのroute登録から動的IDを正規化し、未分類API・識別列欠損・時刻不正の件数も確認する。
 - nginxのmsec等、実際の出力形式をDuckDBとdashboardのparserまで照合する。圧縮ログ・空ログ・不正入力を確認し、UIにデータがない場合は未取得・空・解析失敗・設定無効を切り分ける。
 - 追加計測はsampling間隔、対象、timeout、出力量・cardinality、enable/disableとcleanupを定める。計測を増やした結果、CPU・I/O・disk容量を圧迫しないか検証する。
+
+## 有効宣言と対象外判断
+
+計測の有効宣言や対象範囲を整備・補修するときに確認する。
+
+有効対象の正本はcollector/digesterの`enabled_by_default`。profileは`group: profiles`の有効な宣言を
+自動収集・開始確認・必須成果物判定で共通利用する。`PROFILES_ENABLED=false`は比較等での明示的な停止用であり、
+未設定を隠すために使わない。宣言と自動実行対象の名前一覧を別々に維持しない。
+
+仕様上成立しない計測は根拠を示して対象外にできる。たとえば安定したセッションを識別できないアプリでの
+user-transitionは、代替の識別方法も確認したうえで理由を記録する。高頻度task-state・lock wait、
+nginx on-CPU、block/mutex、アプリ内部状態などの追加計測は目的・負荷・停止方法を確認して選ぶ。

@@ -50,12 +50,12 @@ func TestMutatesBacklog(t *testing.T) {
 		t.Fatal("dependency mutation classification is incorrect")
 	}
 	for _, subcommand := range []string{"add", "update", "transition", "link", "unlink", "assess"} {
-		if !mutatesBacklog("constraint", []string{subcommand}) {
-			t.Errorf("constraint %s should mutate backlog", subcommand)
+		if !mutatesBacklog("target", []string{subcommand}) {
+			t.Errorf("target %s should mutate backlog", subcommand)
 		}
 	}
-	if mutatesBacklog("constraint", []string{"list"}) || mutatesBacklog("constraint", []string{"show"}) {
-		t.Fatal("constraint read command was classified as a mutation")
+	if mutatesBacklog("target", []string{"list"}) || mutatesBacklog("target", []string{"show"}) {
+		t.Fatal("target read command was classified as a mutation")
 	}
 }
 
@@ -70,12 +70,13 @@ func TestDumpAndRestoreDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	fixtureObjectives(t, store)
 	seedBacklog(t, store, 0, "B-002", Card{ID: "B-001", Status: "READY", Title: "restored card"})
-	constraintID, err := store.addConstraint(NewConstraint{ObjectiveID: "O-003", Title: "restored constraint", Fingerprint: "constraint:v1:restore", Scope: "app CPU", Evidence: "1 core-s / 2 core-s", Resolution: "queue wait is absent"}, mutation{Actor: "skill:test", Operation: "constraint.add"}, "create restorable constraint")
+	targetID, err := store.addTarget(NewTarget{Axis: "response time", Goal: "reduce response time below 5 ms", Evaluation: "compare saved results at equal load", ObjectiveID: "O-001", Title: "restored target", Fingerprint: "target:v1:restore", Scope: "app CPU", Evidence: "1 core-s / 2 core-s", Resolution: "queue wait is absent"}, mutation{Actor: "skill:test", Operation: "target.add"}, "create restorable target")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.setConstraintLink(constraintID, "B-001", true, "", validConstraintAssessmentJSON(), 0, mutation{Actor: "skill:test", Operation: "constraint.link"}, "link restorable card"); err != nil {
+	if err := store.setTargetLink(targetID, "B-001", true, "IMPROVES", "", 0, mutation{Actor: "skill:test", Operation: "target.link"}, "link restorable card"); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Close(); err != nil {
@@ -102,12 +103,12 @@ func TestDumpAndRestoreDatabase(t *testing.T) {
 	if card.Title != "restored card" || card.Status != "READY" {
 		t.Fatalf("restored card = %#v", card)
 	}
-	constraint, err := restored.getConstraint(constraintID)
+	target, err := restored.getTarget(targetID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if constraint.Title != "restored constraint" || len(constraint.CardIDs) != 1 || constraint.CardIDs[0] != "B-001" {
-		t.Fatalf("restored constraint = %#v", constraint)
+	if target.Title != "restored target" || len(target.CardIDs) != 1 || target.CardIDs[0] != "B-001" {
+		t.Fatalf("restored target = %#v", target)
 	}
 }
 
@@ -133,7 +134,7 @@ func TestReadSectionStdin(t *testing.T) {
 	input := `{
   " Observation ": "measured 12ms\n\n",
   "Hypothesis": "the query is repeated",
-  "Change boundary": "replace the repeated query as one adoption and rollback boundary"
+  "Change boundary": "replace the repeated query as one implementation and adoption boundary"
 }`
 
 	got, err := readSectionStdin(strings.NewReader(input))
@@ -143,7 +144,7 @@ func TestReadSectionStdin(t *testing.T) {
 	want := map[string]string{
 		"Observation":     "measured 12ms",
 		"Hypothesis":      "the query is repeated",
-		"Change boundary": "replace the repeated query as one adoption and rollback boundary",
+		"Change boundary": "replace the repeated query as one implementation and adoption boundary",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("sections = %#v, want %#v", got, want)

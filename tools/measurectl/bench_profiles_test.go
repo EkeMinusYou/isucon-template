@@ -28,6 +28,7 @@ func TestBenchProfilesStartBeforeLoadAndFinishBeforeFinalize(t *testing.T) {
 			tmp := t.TempDir()
 			fake := `#!/bin/sh
 set -eu
+[ "$1" != --silent ] || shift
 run="$ISUCON_BENCH_RESULTS_DIR/20260901-120000"
 echo "$1" >> "$ISUCON_TEST_DIR/calls"
 case "$1" in
@@ -66,6 +67,14 @@ profiles-ready)
   ;;
 after-bench)
   test -f "$ISUCON_TEST_DIR/profile-done" || exit 97
+  ;;
+bench-timestamp)
+  if test -f "$ISUCON_TEST_DIR/clock-first"; then
+    echo '2026-09-01T03:01:10.123456789Z'
+  else
+    touch "$ISUCON_TEST_DIR/clock-first"
+    echo '2026-09-01T03:00:00.123456789Z'
+  fi
   ;;
 *) exit 96 ;;
 esac
@@ -107,6 +116,17 @@ esac
 			}
 			if tc.readyExit == 0 && strings.Count(string(calls), "profiles-ready") != 2 {
 				t.Fatalf("readiness was not checked again after the lead-in: %s", calls)
+			}
+			if tc.readyExit == 0 {
+				log, err := os.ReadFile(filepath.Join(tmp, "runs", "20260901-120000", "bench.log"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, marker := range []string{"2026-09-01T03:00:00.123456789Z\tBENCHMARK_START", "2026-09-01T03:01:10.123456789Z\tBENCHMARK_END"} {
+					if !strings.Contains(string(log), marker) {
+						t.Fatalf("server clock marker missing: %s", log)
+					}
+				}
 			}
 			if tc.readyExit != 0 {
 				if _, err := os.Stat(filepath.Join(tmp, "load-ran")); !os.IsNotExist(err) {

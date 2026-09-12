@@ -12,8 +12,32 @@ func testStore(t *testing.T) *Store {
 	if err != nil {
 		t.Fatal(err)
 	}
+	fixtureObjectives(t, store)
 	t.Cleanup(func() { store.Close() })
 	return store
+}
+
+func fixtureTarget(t *testing.T, store *Store) string {
+	t.Helper()
+	id := "A-001"
+	for _, query := range []string{
+		`INSERT OR IGNORE INTO targets(id,status,title,fingerprint,scope,axis,goal,evaluation,evidence,resolution) VALUES ('A-001','ACTIVE','request latency','target:test:fixture','request','response time','under 5 ms','equal load saved results','test sequential calls','under 5 ms')`,
+		`INSERT OR IGNORE INTO objective_targets(objective_id,target_id,is_primary) VALUES ('O-001','A-001',1)`,
+		`UPDATE metadata SET value='A-002' WHERE key='next_target_id' AND value='A-001'`,
+	} {
+		if _, err := store.db.Exec(query); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return id
+}
+
+func linkFixtureTarget(t *testing.T, store *Store, cardID string) {
+	t.Helper()
+	id := fixtureTarget(t, store)
+	if _, err := store.db.Exec(`INSERT OR IGNORE INTO target_interventions(card_id,target_id,role,rationale,is_primary) VALUES (?,?,'IMPROVES','test contribution',1)`, cardID, id); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func seedBacklog(t *testing.T, store *Store, revision int, nextID string, cards ...Card) {
@@ -63,11 +87,7 @@ func seedBacklog(t *testing.T, store *Store, revision int, nextID string, cards 
 		}
 	}
 	for _, card := range cards {
-		if requiresReadyContract(card.Status) {
-			if _, err := store.db.Exec(`INSERT INTO objective_interventions(objective_id, card_id, rationale) VALUES ('O-003', ?, 'test objective relation')`, card.ID); err != nil {
-				t.Fatal(err)
-			}
-		}
+		linkFixtureTarget(t, store, card.ID)
 	}
 	for _, card := range cards {
 		for _, dependency := range card.Dependencies {
@@ -93,10 +113,7 @@ func prepareReadyContract(t *testing.T, store *Store, cardID string) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := store.db.Exec(`INSERT INTO objective_interventions(objective_id, card_id, rationale) VALUES ('O-003', ?, 'test objective relation')
-		ON CONFLICT(objective_id, card_id) DO NOTHING`, cardID); err != nil {
-		t.Fatal(err)
-	}
+	linkFixtureTarget(t, store, cardID)
 }
 
 func TestMutationUsesCardVersionAndTransitionClosesTerminalCard(t *testing.T) {
@@ -126,7 +143,7 @@ func TestMutationUsesCardVersionAndTransitionClosesTerminalCard(t *testing.T) {
 
 func TestCardRunRelationsNormalizeAndRejectInvalidInput(t *testing.T) {
 	store := testStore(t)
-	id, err := store.addCard(NewCard{
+	id, err := store.addCard(NewCard{TargetID: fixtureTarget(t, store),
 		Title: "normalized runs", Actor: "human:test", Reason: "record run evidence",
 		CardPatch: CardPatch{Values: map[string]string{
 			"source-runs":   "runs/20260901-120000; 20260901-120100,20260901-120000",
@@ -161,7 +178,7 @@ func TestCardRunRelationsNormalizeAndRejectInvalidInput(t *testing.T) {
 
 func TestExplicitCardIDAdvancesNextIDAndInitRepairsStalePointer(t *testing.T) {
 	store := testStore(t)
-	if _, err := store.addCard(NewCard{ID: "B-005", Title: "explicit", Actor: "human:test", Reason: "import explicit card"}, mutation{Actor: "human:test", Operation: "add"}); err != nil {
+	if _, err := store.addCard(NewCard{TargetID: fixtureTarget(t, store), ID: "B-005", Title: "explicit", Actor: "human:test", Reason: "import explicit card"}, mutation{Actor: "human:test", Operation: "add"}); err != nil {
 		t.Fatal(err)
 	}
 	next, err := store.metadata("next_id")
@@ -249,7 +266,7 @@ func TestReadyGateRequiresMinimalContract(t *testing.T) {
 		{"hypothesis", `DELETE FROM card_sections WHERE card_id='B-001' AND name='Hypothesis'`, "Hypothesis"},
 		{"change boundary", `DELETE FROM card_sections WHERE card_id='B-001' AND name='Change boundary'`, "Change boundary"},
 		{"verification", `DELETE FROM card_sections WHERE card_id='B-001' AND name='Evaluation'`, "Evaluation"},
-		{"active objective", `DELETE FROM objective_interventions WHERE card_id='B-001'`, "ACTIVE Objective"},
+		{"active objective", `UPDATE objectives SET status='RETIRED' WHERE id='O-001'`, "ACTIVE Target"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -291,7 +308,7 @@ func TestDependencyRegressionCannotInvalidateReadyCard(t *testing.T) {
 	seedBacklog(t, store, 0, "B-003",
 		Card{ID: "B-001", Status: "READY", Title: "dependent", Dependencies: []CardDependency{{DependsOnCardID: "B-002", RequiredStatus: "APPLIED", Mode: "BLOCKING", Reason: "requires deployed prerequisite"}}},
 		Card{ID: "B-002", Status: "APPLIED", Title: "prerequisite"})
-	err := store.transitionCard("B-002", "DOING", mutation{Actor: "human:test", Operation: "transition", ExpectedCardVersion: intPtr(0)}, "roll back prerequisite")
+	err := store.transitionCard("B-002", "DOING", mutation{Actor: "human:test", Operation: "transition", ExpectedCardVersion: intPtr(0)}, "revise prerequisite")
 	if err == nil || !strings.Contains(err.Error(), "would invalidate dependent READY contract") {
 		t.Fatalf("dependency regression error = %v", err)
 	}
@@ -308,8 +325,8 @@ func TestReadyContractProtectsLastActiveObjectiveRelation(t *testing.T) {
 	t.Run("unlink", func(t *testing.T) {
 		store := testStore(t)
 		seedBacklog(t, store, 0, "B-002", Card{ID: "B-001", Status: "READY", Title: "candidate"})
-		err := store.setObjectiveRelation("O-003", "B-001", "intervention", "", false, 0, mutation{Actor: "human:test", Operation: "objective.unlink"}, "remove objective relation")
-		if err == nil || !strings.Contains(err.Error(), "would invalidate READY contract") {
+		err := store.setObjectiveRelation("O-001", fixtureTarget(t, store), "target", "", false, 0, mutation{Actor: "human:test", Operation: "objective.unlink"}, "remove objective relation")
+		if err == nil || !strings.Contains(err.Error(), "exactly one primary Objective") {
 			t.Fatalf("unlink error = %v", err)
 		}
 	})
@@ -318,8 +335,8 @@ func TestReadyContractProtectsLastActiveObjectiveRelation(t *testing.T) {
 		store := testStore(t)
 		seedBacklog(t, store, 0, "B-002", Card{ID: "B-001", Status: "READY", Title: "candidate"})
 		retired := "RETIRED"
-		err := store.updateObjective("O-003", ObjectivePatch{Status: &retired}, 0, mutation{Actor: "human:test", Operation: "objective.update"}, "retire score objective")
-		if err == nil || !strings.Contains(err.Error(), "would invalidate READY contract") {
+		err := store.updateObjective("O-001", ObjectivePatch{Status: &retired}, 0, mutation{Actor: "human:test", Operation: "objective.update"}, "retire score objective")
+		if err == nil || !strings.Contains(err.Error(), "ACTIVE targets are not connected") {
 			t.Fatalf("retire error = %v", err)
 		}
 	})
@@ -333,6 +350,7 @@ func TestValidateRejectsReadyWithoutContract(t *testing.T) {
 	if _, err := store.db.Exec(`UPDATE metadata SET value='B-002' WHERE key='next_id'`); err != nil {
 		t.Fatal(err)
 	}
+	linkFixtureTarget(t, store, "B-001")
 	if err := store.validate(); err == nil || !strings.Contains(err.Error(), "Hypothesis") {
 		t.Fatalf("validate malformed READY error = %v", err)
 	}
@@ -341,9 +359,6 @@ func TestValidateRejectsReadyWithoutContract(t *testing.T) {
 func TestResolveWithThreeSectionsUpdatesAndTransitionsInOneMutation(t *testing.T) {
 	store := testStore(t)
 	seedBacklog(t, store, 7, "B-002", Card{ID: "B-001", Status: "INVESTIGATE", Owner: "skill:isucon-investigate", Title: "candidate"})
-	if _, err := store.db.Exec(`INSERT INTO objective_interventions(objective_id, card_id, rationale) VALUES ('O-003', 'B-001', 'increase throughput')`); err != nil {
-		t.Fatal(err)
-	}
 
 	woke, err := store.resolveCardAndWake("B-001", "READY", CardPatch{
 		Values: map[string]string{"status": "READY", "title": "bounded candidate"},
@@ -461,7 +476,7 @@ func TestStatusTransitionGraphAndAtomicClaim(t *testing.T) {
 
 func TestAddCardCannotStartReady(t *testing.T) {
 	store := testStore(t)
-	_, err := store.addCard(NewCard{
+	_, err := store.addCard(NewCard{TargetID: fixtureTarget(t, store),
 		Title:  "ready card",
 		Actor:  "agent:test",
 		Reason: "test ready owner invariant",
@@ -477,7 +492,7 @@ func TestAddCardCannotStartReady(t *testing.T) {
 
 func TestAddCardRejectsNonQueueStatus(t *testing.T) {
 	store := testStore(t)
-	_, err := store.addCard(NewCard{
+	_, err := store.addCard(NewCard{TargetID: fixtureTarget(t, store),
 		Title:  "invalid initial state",
 		Actor:  "agent:test",
 		Reason: "attempt to skip the workflow",
@@ -514,12 +529,12 @@ func TestListCardsFiltersByOwner(t *testing.T) {
 	}
 }
 
-func validConstraintAssessmentJSON() string {
+func validTargetAssessmentJSON() string {
 	return `{"version":1,"axis":{"unit":"response-s","denominator":"load-window"},"current":{"value":10,"snapshot":"RUN test"},"reduction":{"value":9,"basis":"replay"},"added_cost":{"value":0,"basis":"none"},"threshold":{"value":2,"basis":"next contributor"}}`
 }
 
 func TestPerformanceAssessmentStoresInputsAndDerivesResult(t *testing.T) {
-	assessment, canonical, err := parsePerformanceResidualAssessment(validConstraintAssessmentJSON())
+	assessment, canonical, err := parsePerformanceResidualAssessment(validTargetAssessmentJSON())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -536,18 +551,17 @@ func TestPerformanceAssessmentStoresInputsAndDerivesResult(t *testing.T) {
 	}
 }
 
-func TestConstraintLinkAcceptsOrdinaryPartialReductionAsMitigation(t *testing.T) {
+func TestTargetLinkAcceptsOrdinaryPartialReductionAsImprovement(t *testing.T) {
 	store := testStore(t)
-	cardID, err := store.addCard(NewCard{Title: "partial reduction", Actor: "skill:test", Reason: "add partial candidate"}, mutation{Actor: "skill:test", Operation: "add"})
+	cardID, err := store.addCard(NewCard{TargetID: fixtureTarget(t, store), Title: "partial reduction", Actor: "skill:test", Reason: "add partial candidate"}, mutation{Actor: "skill:test", Operation: "add"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	constraintID, err := store.addConstraint(NewConstraint{ObjectiveID: "O-003", Title: "CPU queue", Fingerprint: "constraint:v1:partial", Scope: "app CPU", Evidence: "90 core-s / 120 core-s", Resolution: "queue is non-limiting"}, mutation{Actor: "skill:test", Operation: "constraint.add"}, "create constraint")
+	targetID, err := store.addTarget(NewTarget{Axis: "response time", Goal: "reduce response time below 5 ms", Evaluation: "compare saved results at equal load", ObjectiveID: "O-001", Title: "CPU queue", Fingerprint: "target:v1:partial", Scope: "app CPU", Evidence: "90 core-s / 120 core-s", Resolution: "queue is non-limiting"}, mutation{Actor: "skill:test", Operation: "target.add"}, "create target")
 	if err != nil {
 		t.Fatal(err)
 	}
-	ordinary := strings.Replace(validConstraintAssessmentJSON(), `"threshold":{"value":2`, `"threshold":{"value":0.5`, 1)
-	err = store.setConstraintLink(constraintID, cardID, true, "", ordinary, 0, mutation{Actor: "skill:test", Operation: "constraint.link"}, "record partial reduction")
+	err = store.setTargetLink(targetID, cardID, true, "IMPROVES", "", 0, mutation{Actor: "skill:test", Operation: "target.link"}, "record partial reduction")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -555,22 +569,22 @@ func TestConstraintLinkAcceptsOrdinaryPartialReductionAsMitigation(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if card.ConstraintRoles[constraintID] != "MITIGATES" {
-		t.Fatalf("constraint role = %q, want MITIGATES", card.ConstraintRoles[constraintID])
+	if card.TargetRoles[targetID] != "IMPROVES" {
+		t.Fatalf("target role = %q, want IMPROVES", card.TargetRoles[targetID])
 	}
 }
 
-func TestNonPerformanceConstraintResolvesWithoutPerformanceAssessment(t *testing.T) {
+func TestNonPerformanceTargetResolvesWithoutPerformanceAssessment(t *testing.T) {
 	store := testStore(t)
-	cardID, err := store.addCard(NewCard{Title: "restore valid result", Actor: "skill:test", Reason: "add validity fix"}, mutation{Actor: "skill:test", Operation: "add"})
+	cardID, err := store.addCard(NewCard{TargetID: fixtureTarget(t, store), Title: "restore valid result", Actor: "skill:test", Reason: "add validity fix"}, mutation{Actor: "skill:test", Operation: "add"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	constraintID, err := store.addConstraint(NewConstraint{ObjectiveID: "O-001", Title: "final consistency fails", Fingerprint: "constraint:v1:final-consistency", Scope: "final consistency check", Evidence: "final check failed in RUN test", Resolution: "final check succeeds"}, mutation{Actor: "skill:test", Operation: "constraint.add"}, "create validity constraint")
+	targetID, err := store.addTarget(NewTarget{Axis: "response time", Goal: "reduce response time below 5 ms", Evaluation: "compare saved results at equal load", ObjectiveID: "O-001", Title: "final consistency fails", Fingerprint: "target:v1:final-consistency", Scope: "final consistency check", Evidence: "final check failed in RUN test", Resolution: "final check succeeds"}, mutation{Actor: "skill:test", Operation: "target.add"}, "create validity target")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.setConstraintLink(constraintID, cardID, true, "RESOLVES", "", 0, mutation{Actor: "skill:test", Operation: "constraint.link"}, "the fix makes final consistency succeed"); err != nil {
+	if err := store.setTargetLink(targetID, cardID, true, "IMPROVES", "", 0, mutation{Actor: "skill:test", Operation: "target.link"}, "the fix makes final consistency succeed"); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.validate(); err != nil {
@@ -578,84 +592,73 @@ func TestNonPerformanceConstraintResolvesWithoutPerformanceAssessment(t *testing
 	}
 }
 
-func TestConstraintLifecycleAndCardLink(t *testing.T) {
+func TestTargetLifecycleAndCardLink(t *testing.T) {
 	store := testStore(t)
-	cardID, err := store.addCard(NewCard{Title: "candidate", Actor: "skill:isucon-analyze", Reason: "add candidate"}, mutation{Actor: "skill:isucon-analyze", Operation: "add"})
+	cardID, err := store.addCard(NewCard{TargetID: fixtureTarget(t, store), Title: "candidate", Actor: "skill:isucon-analyze", Reason: "add candidate"}, mutation{Actor: "skill:isucon-analyze", Operation: "add"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	constraintID, err := store.addConstraint(NewConstraint{ObjectiveID: "O-003", Title: "CPU queue", Priority: "P0", Fingerprint: "constraint:v1:cpu-queue", Scope: "app host CPU queue", Evidence: "90 core-s / 120 core-s", Resolution: "normalized queue wait no longer limits the load window"}, mutation{Actor: "skill:isucon-analyze", Operation: "constraint.add"}, "identified current limiting axis")
+	targetID, err := store.addTarget(NewTarget{Axis: "response time", Goal: "reduce response time below 5 ms", Evaluation: "compare saved results at equal load", ObjectiveID: "O-001", Title: "CPU queue", Priority: "P0", Fingerprint: "target:v1:cpu-queue", Scope: "app host CPU queue", Evidence: "90 core-s / 120 core-s", Resolution: "normalized queue wait no longer limits the load window"}, mutation{Actor: "skill:isucon-analyze", Operation: "target.add"}, "identified current limiting axis")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.setConstraintLink(constraintID, cardID, true, "", validConstraintAssessmentJSON(), 0, mutation{Actor: "skill:isucon-analyze", Operation: "constraint.link"}, "candidate addresses constraint"); err != nil {
+	if err := store.setTargetLink(targetID, cardID, true, "IMPROVES", "", 0, mutation{Actor: "skill:isucon-analyze", Operation: "target.link"}, "candidate addresses target"); err != nil {
 		t.Fatal(err)
 	}
 	card, err := store.getCard(cardID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(card.ActiveConstraintIDs) != 1 || card.ActiveConstraintIDs[0] != constraintID {
-		t.Fatalf("active constraint IDs = %#v", card.ActiveConstraintIDs)
+	if len(card.ActiveTargetIDs) != 2 {
+		t.Fatalf("active target IDs = %#v", card.ActiveTargetIDs)
 	}
-	if err := store.updateCard(cardID, CardPatch{Sections: map[string]string{sectionChangeBoundary: "changed after assessment"}}, mutation{Actor: "skill:test", Operation: "update", ExpectedCardVersion: intPtr(0)}, "attempt stale boundary update"); err == nil || !strings.Contains(err.Error(), "card change boundary") {
-		t.Fatalf("stale card binding error = %v", err)
-	}
-	changedEvidence := "new limiting-axis snapshot"
-	if err := store.updateConstraint(constraintID, ConstraintPatch{Evidence: &changedEvidence}, 1, mutation{Actor: "skill:test", Operation: "constraint.update"}, "attempt stale constraint update"); err == nil || !strings.Contains(err.Error(), "constraint definition changed") {
-		t.Fatalf("stale constraint binding error = %v", err)
-	}
-	ordinary := strings.Replace(validConstraintAssessmentJSON(), `"threshold":{"value":2`, `"threshold":{"value":0.5`, 1)
-	if err := store.setConstraintInterventionAssessment(constraintID, cardID, ordinary, 1, mutation{Actor: "skill:test", Operation: "constraint.assess"}, "downgrade linked assessment"); err == nil || !strings.Contains(err.Error(), "must retain") {
-		t.Fatalf("linked assessment downgrade error = %v", err)
-	}
-	listed, err := store.listCards(ListFilter{All: true, ConstraintID: constraintID})
+	listed, err := store.listCards(ListFilter{All: true, TargetID: targetID})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(listed) != 1 || listed[0].ID != cardID {
-		t.Fatalf("constrainted list = %#v", listed)
+		t.Fatalf("targeted list = %#v", listed)
 	}
-	constraints, err := store.listConstraints(ConstraintFilter{})
+	targets, err := store.listTargets(TargetFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(constraints) != 1 || constraints[0].Status != "ACTIVE" || len(constraints[0].CardIDs) != 1 {
-		t.Fatalf("constraints = %#v", constraints)
+	if len(targets) != 2 {
+		t.Fatalf("targets = %#v", targets)
 	}
 	if err := store.validate(); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestMergedConstraintRequiresLiveSurvivor(t *testing.T) {
+func TestMergedTargetRequiresLiveSurvivor(t *testing.T) {
 	store := testStore(t)
-	survivorID, err := store.addConstraint(NewConstraint{ObjectiveID: "O-003", Title: "survivor", Fingerprint: "constraint:v1:survivor", Scope: "app CPU", Evidence: "80 core-s / 120 core-s", Resolution: "cpu is no longer limiting"}, mutation{Actor: "skill:isucon-investigate", Operation: "constraint.add"}, "create survivor")
+	survivorID, err := store.addTarget(NewTarget{Axis: "response time", Goal: "reduce response time below 5 ms", Evaluation: "compare saved results at equal load", ObjectiveID: "O-001", Title: "survivor", Fingerprint: "target:v1:survivor", Scope: "app CPU", Evidence: "80 core-s / 120 core-s", Resolution: "cpu is no longer limiting"}, mutation{Actor: "skill:isucon-investigate", Operation: "target.add"}, "create survivor")
 	if err != nil {
 		t.Fatal(err)
 	}
-	duplicateID, err := store.addConstraint(NewConstraint{ObjectiveID: "O-003", Title: "duplicate", Fingerprint: "constraint:v1:duplicate", Scope: "app CPU", Evidence: "80 core-s / 120 core-s", Resolution: "cpu is no longer limiting"}, mutation{Actor: "skill:isucon-investigate", Operation: "constraint.add"}, "create duplicate")
+	duplicateID, err := store.addTarget(NewTarget{Axis: "response time", Goal: "reduce response time below 5 ms", Evaluation: "compare saved results at equal load", ObjectiveID: "O-001", Title: "duplicate", Fingerprint: "target:v1:duplicate", Scope: "app CPU", Evidence: "80 core-s / 120 core-s", Resolution: "cpu is no longer limiting"}, mutation{Actor: "skill:isucon-investigate", Operation: "target.add"}, "create duplicate")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.transitionConstraint(duplicateID, "MERGED", "", 0, mutation{Actor: "skill:isucon-investigate", Operation: "constraint.transition"}, "missing survivor"); err == nil || !strings.Contains(err.Error(), "requires --merged-into") {
+	if err := store.transitionTarget(duplicateID, "MERGED", "", 0, mutation{Actor: "skill:isucon-investigate", Operation: "target.transition"}, "missing survivor"); err == nil || !strings.Contains(err.Error(), "requires --merged-into") {
 		t.Fatalf("missing survivor error = %v", err)
 	}
-	if err := store.transitionConstraint(duplicateID, "MERGED", duplicateID, 0, mutation{Actor: "skill:isucon-investigate", Operation: "constraint.transition"}, "self merge"); err == nil || !strings.Contains(err.Error(), "cannot merge into itself") {
+	if err := store.transitionTarget(duplicateID, "MERGED", duplicateID, 0, mutation{Actor: "skill:isucon-investigate", Operation: "target.transition"}, "self merge"); err == nil || !strings.Contains(err.Error(), "cannot merge into itself") {
 		t.Fatalf("self merge error = %v", err)
 	}
-	if err := store.transitionConstraint(duplicateID, "MERGED", survivorID, 0, mutation{Actor: "skill:isucon-investigate", Operation: "constraint.transition"}, "same limiting identity"); err != nil {
+	if err := store.transitionTarget(duplicateID, "MERGED", survivorID, 0, mutation{Actor: "skill:isucon-investigate", Operation: "target.transition"}, "same limiting identity"); err != nil {
 		t.Fatal(err)
 	}
-	merged, err := store.getConstraint(duplicateID)
+	merged, err := store.getTarget(duplicateID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if merged.Status != "MERGED" || merged.MergedIntoID != survivorID {
-		t.Fatalf("merged constraint = %#v", merged)
+		t.Fatalf("merged target = %#v", merged)
 	}
 	newEvidence := "new evidence"
-	if err := store.updateConstraint(duplicateID, ConstraintPatch{Evidence: &newEvidence}, 1, mutation{Actor: "skill:isucon-investigate", Operation: "constraint.update"}, "rewrite terminal constraint"); err == nil || !strings.Contains(err.Error(), "immutable") {
+	if err := store.updateTarget(duplicateID, TargetPatch{Evidence: &newEvidence}, 1, mutation{Actor: "skill:isucon-investigate", Operation: "target.update"}, "rewrite terminal target"); err == nil || !strings.Contains(err.Error(), "immutable") {
 		t.Fatalf("terminal update error = %v", err)
 	}
 	if err := store.validate(); err != nil {
@@ -663,15 +666,21 @@ func TestMergedConstraintRequiresLiveSurvivor(t *testing.T) {
 	}
 }
 
-func TestInvestigatedChangeCanBecomeReadyWithoutConstraint(t *testing.T) {
+func TestInvestigatedChangeCanBecomeReadyWithoutTarget(t *testing.T) {
 	store := testStore(t)
 	seedBacklog(t, store, 0, "B-002", Card{ID: "B-001", Status: "INVESTIGATE", Title: "candidate"})
 	prepareReadyContract(t, store, "B-001")
+	if _, err := store.db.Exec(`DELETE FROM target_interventions WHERE card_id='B-001'`); err != nil {
+		t.Fatal(err)
+	}
 	_, err := store.resolveCardAndWake("B-001", "READY", CardPatch{}, mutation{
 		Actor: "skill:isucon-investigate", Operation: "resolve", ExpectedCardVersion: intPtr(0),
 	}, "bounded change is ready")
 	if err != nil {
-		t.Fatalf("resolve error = %v", err)
+		t.Fatal(err)
+	}
+	if err := store.validate(); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -831,7 +840,7 @@ func TestReadyStatusIsGatedForSkillActors(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = store.addCard(NewCard{
+	_, err = store.addCard(NewCard{TargetID: fixtureTarget(t, store),
 		Title:  "forbidden ready card",
 		Actor:  "skill:isucon-special-sauce",
 		Reason: "attempt direct READY creation",
@@ -846,7 +855,7 @@ func TestReadyStatusIsGatedForSkillActors(t *testing.T) {
 
 func TestAddCardKeepsDecisionTextInSections(t *testing.T) {
 	store := testStore(t)
-	id, err := store.addCard(NewCard{
+	id, err := store.addCard(NewCard{TargetID: fixtureTarget(t, store),
 		Title:  "score hypothesis",
 		Actor:  "agent:test",
 		Reason: "record expected score direction",
@@ -1006,3 +1015,16 @@ func TestNormalizeID(t *testing.T) {
 }
 
 func intPtr(value int) *int { return &value }
+
+func fixtureObjectives(t *testing.T, store *Store) {
+	t.Helper()
+	for _, id := range []string{"O-001", "O-002", "O-003"} {
+		_, err := store.db.Exec(`INSERT OR IGNORE INTO objectives(id,status,mode,title,metric_or_predicate,verification) VALUES (?,'ACTIVE','MINIMIZE','Test contribution hypothesis','Test metric','Compare fixture results')`, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := store.db.Exec(`UPDATE metadata SET value='O-004' WHERE key='next_objective_id' AND value='O-001'`); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -32,18 +32,18 @@ func captureOutput(t *testing.T, render func()) string {
 	return string(body)
 }
 
-func TestConstraintListHidesStatusInMainQueueOnly(t *testing.T) {
-	constraints := []Constraint{{ID: "A-001", Status: "ACTIVE", Priority: "P1", Title: "current bottleneck"}}
-	mainQueue := captureOutput(t, func() { printConstraintList(constraints, 100, false) })
-	explicitList := captureOutput(t, func() { printConstraintList(constraints, 100, true) })
+func TestTargetListHidesStatusInMainQueueOnly(t *testing.T) {
+	targets := []Target{{ID: "A-001", Status: "ACTIVE", Priority: "P1", Title: "current bottleneck"}}
+	mainQueue := captureOutput(t, func() { printTargetList(targets, 100, false) })
+	explicitList := captureOutput(t, func() { printTargetList(targets, 100, true) })
 	if strings.Contains(mainQueue, "[ACTIVE]") {
 		t.Fatalf("main backlog repeats ACTIVE status: %q", mainQueue)
 	}
 	if !strings.Contains(explicitList, "[ACTIVE]") {
-		t.Fatalf("explicit constraint list omits status: %q", explicitList)
+		t.Fatalf("explicit target list omits status: %q", explicitList)
 	}
 	if !strings.Contains(mainQueue, "A-001 P1     current bottleneck") {
-		t.Fatalf("main constraint list does not use the shared title column: %q", mainQueue)
+		t.Fatalf("main target list does not use the shared title column: %q", mainQueue)
 	}
 }
 
@@ -51,18 +51,18 @@ func TestPrintListUsesSingularCountLabels(t *testing.T) {
 	body := captureOutput(t, func() {
 		printList(
 			[]Card{{ID: "B-001", Status: "READY", Title: "title"}},
-			[]Constraint{{ID: "A-001", Status: "ACTIVE", Title: "constraint"}},
+			[]Target{{ID: "A-001", Status: "ACTIVE", Title: "target"}},
 			[]Objective{{ID: "O-001", Status: "ACTIVE", Mode: "MAXIMIZE", Title: "objective"}},
 			1, "B-002", "A-002", "O-002", 100, false,
 		)
 	})
 
-	for _, expected := range []string{"next B-002/A-002/O-002", "1 objective · 1 intervention · 1 constraint", "OBJECTIVES (1)", "O-001 [ACTIVE] MAXIMIZE", "1 intervention · active"} {
+	for _, expected := range []string{"next B-002/A-002/O-002", "1 objective · 1 intervention · 1 target", "OBJECTIVES (1)", "O-001        objective", "1 intervention · active"} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("list output missing %q: %q", expected, body)
 		}
 	}
-	if strings.Contains(body, "1 objectives") || strings.Contains(body, "1 interventions") || strings.Contains(body, "1 constraints") {
+	if strings.Contains(body, "1 objectives") || strings.Contains(body, "1 interventions") || strings.Contains(body, "1 targets") {
 		t.Fatalf("list output uses plural nouns for singular counts: %q", body)
 	}
 }
@@ -155,12 +155,12 @@ func TestCardLinePrioritizesTitleOverLongAssessment(t *testing.T) {
 	}
 }
 
-func TestCardLineShowsActiveConstraintMarker(t *testing.T) {
+func TestCardLineShowsActiveTargetMarker(t *testing.T) {
 	line := cardLine(Card{
-		ID: "B-501", Priority: "P1", Area: "app", Title: "dominant request path", ActiveConstraintIDs: []string{"A-001"},
+		ID: "B-501", Priority: "P1", Area: "app", Title: "dominant request path", ActiveTargetIDs: []string{"A-001"},
 	}, defaultListWidth)
 	if !strings.Contains(line, "B-501 P1  [A-001]  dominant request path") {
-		t.Fatalf("card line = %q, want active constraint marker immediately after priority", line)
+		t.Fatalf("card line = %q, want active target marker immediately after priority", line)
 	}
 }
 
@@ -185,8 +185,8 @@ func TestCardLinePlacesCardOnlyMetadataAfterTitle(t *testing.T) {
 
 func TestCardLineOmitsEmptyRelationColumn(t *testing.T) {
 	card := Card{ID: "B-001", Priority: "P1", Area: "mixed", Owner: "agent:test", Title: "title"}
-	constraint := Constraint{ID: "A-001", Priority: "P1", Title: "constraint", CardIDs: []string{"B-001"}}
-	layout := makeListLayout([]Card{card}, []Constraint{constraint}, 110, false)
+	target := Target{ID: "A-001", Priority: "P1", Title: "target", CardIDs: []string{"B-001"}}
+	layout := makeListLayout([]Card{card}, []Target{target}, 110, false)
 	line := cardLineWithLayout(card, 110, layout)
 
 	if strings.Count(line, "│") != 1 {
@@ -207,34 +207,34 @@ func TestCardLinePlacesRelationAfterMetadata(t *testing.T) {
 	}
 }
 
-func TestCardAndConstraintColumnsAlign(t *testing.T) {
+func TestCardAndTargetColumnsAlign(t *testing.T) {
 	card := Card{ID: "B-001", Priority: "P1", Title: "card title", Area: "app"}
-	constraint := Constraint{ID: "A-001", Priority: "P1", Title: "constraint title", CardIDs: []string{"B-001"}}
-	layout := makeListLayout([]Card{card}, []Constraint{constraint}, 100, false)
+	target := Target{ID: "A-001", Priority: "P1", Title: "target title", CardIDs: []string{"B-001"}}
+	layout := makeListLayout([]Card{card}, []Target{target}, 100, false)
 	cardLine := cardLineWithLayout(card, 100, layout)
-	constraintLine := constraintLineWithLayout(constraint, false, layout)
+	targetLine := targetLineWithLayout(target, false, layout)
 
-	if strings.Index(cardLine, card.Title) != strings.Index(constraintLine, constraint.Title) {
-		t.Fatalf("title columns differ: card=%q constraint=%q", cardLine, constraintLine)
+	if strings.Index(cardLine, card.Title) != strings.Index(targetLine, target.Title) {
+		t.Fatalf("title columns differ: card=%q target=%q", cardLine, targetLine)
 	}
 	cardBoundary := strings.Index(cardLine, "│")
-	constraintBoundary := strings.Index(constraintLine, "│")
-	if width(cardLine[:cardBoundary]) != width(constraintLine[:constraintBoundary]) {
-		t.Fatalf("title boundaries differ: card=%q constraint=%q", cardLine, constraintLine)
+	targetBoundary := strings.Index(targetLine, "│")
+	if width(cardLine[:cardBoundary]) != width(targetLine[:targetBoundary]) {
+		t.Fatalf("title boundaries differ: card=%q target=%q", cardLine, targetLine)
 	}
 }
 
-func TestCardAndConstraintColumnsAlignWithAmbiguousWidthArrow(t *testing.T) {
+func TestCardAndTargetColumnsAlignWithAmbiguousWidthArrow(t *testing.T) {
 	card := Card{ID: "B-605", Priority: "P1", Title: "hot owner同居nginx→appをUnix socket transportへ切り替える", Area: "infra"}
-	constraint := Constraint{ID: "A-006", Priority: "P0", Title: "Hot request serial response floor"}
-	layout := makeListLayout([]Card{card}, []Constraint{constraint}, defaultListWidth, false)
+	target := Target{ID: "A-006", Priority: "P0", Title: "Hot request serial response floor"}
+	layout := makeListLayout([]Card{card}, []Target{target}, defaultListWidth, false)
 	cardLine := cardLineWithLayout(card, defaultListWidth, layout)
-	constraintLine := constraintLineWithLayout(constraint, false, layout)
+	targetLine := targetLineWithLayout(target, false, layout)
 
 	cardBoundary := strings.Index(cardLine, "│")
-	constraintBoundary := strings.Index(constraintLine, "│")
-	if width(cardLine[:cardBoundary]) != width(constraintLine[:constraintBoundary]) {
-		t.Fatalf("title boundaries differ with arrow: card=%q constraint=%q", cardLine, constraintLine)
+	targetBoundary := strings.Index(targetLine, "│")
+	if width(cardLine[:cardBoundary]) != width(targetLine[:targetBoundary]) {
+		t.Fatalf("title boundaries differ with arrow: card=%q target=%q", cardLine, targetLine)
 	}
 	if width("→") != 1 {
 		t.Fatalf("arrow width = %d, want 1 terminal cell", width("→"))
@@ -243,18 +243,18 @@ func TestCardAndConstraintColumnsAlignWithAmbiguousWidthArrow(t *testing.T) {
 
 func TestFourDigitIDsKeepColumnsAligned(t *testing.T) {
 	card := Card{ID: "B-1000", Priority: "P1", Title: "card title", Area: "app"}
-	constraint := Constraint{ID: "A-1000", Priority: "P0", Title: "constraint title"}
-	layout := makeListLayout([]Card{card}, []Constraint{constraint}, 100, false)
+	target := Target{ID: "A-1000", Priority: "P0", Title: "target title"}
+	layout := makeListLayout([]Card{card}, []Target{target}, 100, false)
 	cardLine := cardLineWithLayout(card, 100, layout)
-	constraintLine := constraintLineWithLayout(constraint, false, layout)
-	if strings.Index(cardLine, card.Title) != strings.Index(constraintLine, constraint.Title) {
-		t.Fatalf("four-digit title columns differ: card=%q constraint=%q", cardLine, constraintLine)
+	targetLine := targetLineWithLayout(target, false, layout)
+	if strings.Index(cardLine, card.Title) != strings.Index(targetLine, target.Title) {
+		t.Fatalf("four-digit title columns differ: card=%q target=%q", cardLine, targetLine)
 	}
 	if got := formatID(1000); got != "B-1000" {
 		t.Fatalf("formatID(1000) = %q", got)
 	}
-	if got := formatConstraintID(1000); got != "A-1000" {
-		t.Fatalf("formatConstraintID(1000) = %q", got)
+	if got := formatTargetID(1000); got != "A-1000" {
+		t.Fatalf("formatTargetID(1000) = %q", got)
 	}
 	if got := formatObjectiveID(1000); got != "O-1000" {
 		t.Fatalf("formatObjectiveID(1000) = %q", got)

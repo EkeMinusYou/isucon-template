@@ -413,6 +413,8 @@ export type BacklogDependency = {
 }
 
 export type BacklogObjectiveRelation = {
+  target_id: string
+  is_primary: boolean
   id: string
   status: string
   mode: string
@@ -420,12 +422,18 @@ export type BacklogObjectiveRelation = {
   rationale: string
 }
 
-export type BacklogConstraintRelation = {
+export type BacklogTargetRelation = {
   id: string
   status: string
   title: string
-  role: string
+  is_primary: boolean
   rationale: string
+  scope: string
+  axis: string
+  goal: string
+  evaluation: string
+  evidence: string
+  previous_target_id: string
 }
 
 export type BacklogCardDetail = {
@@ -446,7 +454,7 @@ export type BacklogCardDetail = {
   dependencies: BacklogDependency[]
   unblocks: BacklogDependency[]
   objectives: BacklogObjectiveRelation[]
-  constraints: BacklogConstraintRelation[]
+  targets: BacklogTargetRelation[]
 }
 
 export type ReportInfo = {

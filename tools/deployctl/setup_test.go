@@ -154,8 +154,8 @@ func TestSetupWebappUsesCustomExcludesWithoutDroppingVendor(t *testing.T) {
 	}
 }
 
-func TestConfigCheckExampleUsesGuardedLiveUploads(t *testing.T) {
-	cfg, err := loadConfig("../setup/config-check.example.yaml")
+func TestConfigCheckUsesGuardedLiveUploads(t *testing.T) {
+	cfg, err := loadConfig("../setup/config-check.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}

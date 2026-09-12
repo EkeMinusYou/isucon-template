@@ -6,9 +6,8 @@ CREATE TABLE metadata (
 );
 INSERT INTO metadata VALUES('backlog_revision','0');
 INSERT INTO metadata VALUES('next_id','B-001');
-INSERT INTO metadata VALUES('next_constraint_id','A-001');
-INSERT INTO metadata VALUES('next_objective_id','O-004');
-INSERT INTO metadata VALUES('objective_model_seed_version','1');
+INSERT INTO metadata VALUES('next_target_id','A-001');
+INSERT INTO metadata VALUES('next_objective_id','O-001');
 CREATE TABLE cards (
     id TEXT PRIMARY KEY,
     card_version INTEGER NOT NULL DEFAULT 0,
@@ -19,6 +18,10 @@ CREATE TABLE cards (
     area TEXT NOT NULL DEFAULT '',
     updated TEXT NOT NULL DEFAULT '',
     updated_by TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE legacy_target_exemptions (
+ card_id TEXT PRIMARY KEY REFERENCES cards(id),
+ reason TEXT NOT NULL
 );
 CREATE TABLE card_runs (
     card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
@@ -50,9 +53,6 @@ CREATE TABLE objectives (
     updated TEXT NOT NULL DEFAULT '',
     updated_by TEXT NOT NULL DEFAULT ''
 );
-INSERT INTO objectives VALUES('O-001',0,'ACTIVE','SATISFY','ベンチマークと整合性チェックを通過する','benchmark result is valid and every required correctness check passes',1,'','docs/official/','verify the final benchmark result and correctness log against the official rules','2026-09-04T17:46:45+09:00','system:migration');
-INSERT INTO objectives VALUES('O-002',0,'ACTIVE','SATISFY','再起動後の永続性と再現性条件を満たす','the official restart and reproducibility requirements are satisfied',1,'','docs/official/','restart the required servers and rerun the official verification procedure','2026-09-04T17:46:45+09:00','system:migration');
-INSERT INTO objectives VALUES('O-003',0,'ACTIVE','MAXIMIZE','有効なベンチマークスコアを最大化する','final score of a benchmark run that satisfies all validity requirements',0,'','docs/official/','use the finalized benchmark score and bench log','2026-09-04T17:46:45+09:00','system:migration');
 CREATE TABLE objective_history (
     objective_id TEXT NOT NULL REFERENCES objectives(id) ON DELETE CASCADE,
     position INTEGER NOT NULL,
@@ -61,54 +61,60 @@ CREATE TABLE objective_history (
     body TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (objective_id, position)
 );
-INSERT INTO objective_history VALUES('O-001',0,'2026-09-04T17:46:45+09:00','system:migration','initial objective registered from official specification');
-INSERT INTO objective_history VALUES('O-002',0,'2026-09-04T17:46:45+09:00','system:migration','initial objective registered from official specification');
-INSERT INTO objective_history VALUES('O-003',0,'2026-09-04T17:46:45+09:00','system:migration','initial objective registered from official specification');
-CREATE TABLE constraints (
+CREATE TABLE targets (
     id TEXT PRIMARY KEY,
-    constraint_version INTEGER NOT NULL DEFAULT 0,
-    status TEXT NOT NULL CHECK (status IN ('ACTIVE', 'RESOLVED', 'INVALIDATED', 'MERGED')),
+    target_version INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL CHECK (status IN ('ACTIVE', 'RESOLVED', 'RETIRED', 'MERGED')),
     title TEXT NOT NULL,
 	priority TEXT NOT NULL DEFAULT '',
-	fingerprint TEXT NOT NULL UNIQUE,
+	fingerprint TEXT NOT NULL,
 	scope TEXT NOT NULL DEFAULT '',
     source_runs TEXT NOT NULL DEFAULT '',
     observed_runs TEXT NOT NULL DEFAULT '',
     evidence TEXT NOT NULL DEFAULT '',
     resolution TEXT NOT NULL DEFAULT '',
-	merged_into_constraint_id TEXT NOT NULL DEFAULT '',
+    axis TEXT NOT NULL DEFAULT '',
+    goal TEXT NOT NULL DEFAULT '',
+    evaluation TEXT NOT NULL DEFAULT '',
+    previous_target_id TEXT NOT NULL DEFAULT '',
+    completion_evidence TEXT NOT NULL DEFAULT '',
+	merged_into_target_id TEXT NOT NULL DEFAULT '',
     updated TEXT NOT NULL DEFAULT '',
     updated_by TEXT NOT NULL DEFAULT ''
 );
-CREATE TABLE constraint_interventions (
+CREATE TABLE target_interventions (
     card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
-    constraint_id TEXT NOT NULL REFERENCES constraints(id) ON DELETE CASCADE,
-    role TEXT NOT NULL DEFAULT 'RESOLVES' CHECK (role IN ('RESOLVES', 'MITIGATES')),
+    target_id TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+    role TEXT NOT NULL DEFAULT 'IMPROVES' CHECK (role = 'IMPROVES'),
+    legacy_role TEXT NOT NULL DEFAULT '',
+    is_primary INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0, 1)),
     rationale TEXT NOT NULL DEFAULT '',
-    PRIMARY KEY (card_id, constraint_id)
+    PRIMARY KEY (card_id, target_id)
 );
-CREATE TABLE constraint_intervention_assessments (
+CREATE TABLE target_intervention_assessments (
     card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
-    constraint_id TEXT NOT NULL REFERENCES constraints(id) ON DELETE CASCADE,
+    target_id TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
     assessment_json TEXT NOT NULL,
-    constraint_definition_hash TEXT NOT NULL DEFAULT '',
+    target_definition_hash TEXT NOT NULL DEFAULT '',
     card_change_boundary_hash TEXT NOT NULL DEFAULT '',
     updated TEXT NOT NULL DEFAULT '',
     updated_by TEXT NOT NULL DEFAULT '',
-    PRIMARY KEY (card_id, constraint_id)
+    PRIMARY KEY (card_id, target_id)
 );
-CREATE TABLE constraint_history (
-    constraint_id TEXT NOT NULL REFERENCES constraints(id) ON DELETE CASCADE,
+CREATE TABLE target_history (
+    target_id TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
     position INTEGER NOT NULL,
     occurred_at TEXT NOT NULL DEFAULT '',
     actor TEXT NOT NULL DEFAULT '',
     body TEXT NOT NULL DEFAULT '',
-    PRIMARY KEY (constraint_id, position)
+    PRIMARY KEY (target_id, position)
 );
-CREATE TABLE objective_constraints (
+CREATE TABLE objective_targets (
     objective_id TEXT NOT NULL REFERENCES objectives(id) ON DELETE CASCADE,
-    constraint_id TEXT NOT NULL REFERENCES constraints(id) ON DELETE CASCADE,
-    PRIMARY KEY (objective_id, constraint_id)
+    target_id TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+    is_primary INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0, 1)),
+    rationale TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (objective_id, target_id)
 );
 CREATE TABLE objective_interventions (
     objective_id TEXT NOT NULL REFERENCES objectives(id) ON DELETE CASCADE,
@@ -175,9 +181,9 @@ CREATE INDEX idx_adoption_events_run ON adoption_events(run_id, id);
 CREATE INDEX idx_adoption_event_cards_card ON adoption_event_cards(card_id, adoption_event_id);
 CREATE INDEX idx_sections_card ON card_sections(card_id, position);
 CREATE INDEX idx_dependencies_target ON card_dependencies(depends_on_card_id, card_id);
-CREATE INDEX idx_constraints_status ON constraints(status);
-CREATE INDEX idx_constraint_interventions_constraint ON constraint_interventions(constraint_id, card_id);
-CREATE INDEX idx_constraint_intervention_assessments_constraint ON constraint_intervention_assessments(constraint_id, card_id);
-CREATE INDEX idx_objective_constraints_constraint ON objective_constraints(constraint_id, objective_id);
+CREATE INDEX idx_targets_status ON targets(status);
+CREATE INDEX idx_target_interventions_target ON target_interventions(target_id, card_id);
+CREATE INDEX idx_target_intervention_assessments_target ON target_intervention_assessments(target_id, card_id);
+CREATE INDEX idx_objective_targets_target ON objective_targets(target_id, objective_id);
 CREATE INDEX idx_objective_interventions_card ON objective_interventions(card_id, objective_id);
 COMMIT;

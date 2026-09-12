@@ -18,11 +18,15 @@ vars:
   TARGET_ARCH: amd64
   SCHEMA_PATHS: ''
   SCHEMA_IN_WEBAPP: 'false'
+  # Adapt these reset assets and endpoint to the acquired official implementation.
+  SQL_DIR: webapp/sql
+  SQL_SCHEMA_FILE: schema.sql
+  INITIALIZE_PATH: /initialize
   CONFIG_CHECK_COMMAND: ''
   SETUP_SECRET_ALLOWLIST: ''
   SETUP_WEBAPP_EXCLUDES: tools/setup/webapp-excludes.txt
 
-  SSH_MUX: -o ControlMaster=auto -o ControlPath=/tmp/.isucon-ssh-%C -o ControlPersist=600
+  SSH_MUX: -o UpdateHostKeys=no -o BatchMode=yes -o ConnectTimeout=10 -o ControlMaster=auto -o ControlPath=/tmp/.isucon-ssh-%C -o ControlPersist=600
   SSH: ssh -o RequestTTY=no -o LogLevel=ERROR {{.SSH_MUX}}
   RSYNC: rsync -az --rsync-path="sudo rsync" -e "ssh -o RequestTTY=no -o LogLevel=ERROR {{.SSH_MUX}}"
   GO_BUILD_ENV: CGO_ENABLED=0 GOOS={{.TARGET_OS}} GOARCH={{.TARGET_ARCH}}
@@ -124,6 +128,13 @@ vars:
     -role app={{splitList " " .APP_HOSTS | join ","}}
     -role nginx={{splitList " " .NGINX_HOSTS | join ","}}
     -role mysql={{splitList " " .MYSQL_HOSTS | join ","}}
+    -role app_db={{.MYSQL_HOST}}
+    -role app_init={{splitList " " .APP_HOSTS | first}}
+    -var db_name={{.DB_NAME}}
+    -var sql_dir={{.SQL_DIR}}
+    -var sql_schema_file={{.SQL_SCHEMA_FILE}}
+    -var listen_port={{.LISTEN_PORT}}
+    -var initialize_path={{.INITIALIZE_PATH}}
     -var remote_home={{.REMOTE_HOME}}
     -var isucon_user={{.ISUCON_USER}}
     -var service={{.SERVICE}}
@@ -176,17 +187,19 @@ tasks:
   setup-nginx:
     desc: /etc/nginx を取得
     cmds:
-      - '{{.RSYNC}} {{.SSH_USER}}@{{.CONF_SRC}}:/etc/nginx/ nginx/'
+      - '{{.RSYNC}} --exclude=tls/ {{.SSH_USER}}@{{.CONF_SRC}}:/etc/nginx/ nginx/'
 
   setup-mysql:
     desc: /etc/mysql を取得
     cmds:
-      - '{{.RSYNC}} {{.SSH_USER}}@{{.MYSQL_HOST}}:/etc/mysql/ mysql/'
+      - '{{.RSYNC}} --exclude=debian.cnf {{.SSH_USER}}@{{.MYSQL_HOST}}:/etc/mysql/ mysql/'
 
   setup-systemd:
     desc: アプリとMySQLのsystemd設定を取得
     cmds:
-      - mkdir -p etc/systemd/system/mysql.service.d
+      - mkdir -p etc/systemd/system/mysql.service.d etc/vendor-units
+      - '{{.RSYNC}} {{.SSH_USER}}@{{.CONF_SRC}}:/lib/systemd/system/nginx.service etc/vendor-units/'
+      - '{{.RSYNC}} {{.SSH_USER}}@{{.MYSQL_HOST}}:/lib/systemd/system/mysql.service etc/vendor-units/'
       - '{{.RSYNC}} {{.SSH_USER}}@{{.CONF_SRC}}:/etc/systemd/system/{{.SERVICE}}.service etc/systemd/system/'
       - |
         if {{.SSH}} {{.SSH_USER}}@{{.MYSQL_HOST}} "sudo test -f /etc/systemd/system/mysql.service.d/limits.conf"; then
@@ -303,6 +316,10 @@ tasks:
             command -v ip >/dev/null 2>&1 && ip -brief address || true
             systemctl is-active {{.SERVICE}} nginx mysql 2>/dev/null || true
             systemctl cat {{.SERVICE}} nginx mysql 2>/dev/null || true
+            systemctl list-units --type=service --state=running --no-pager
+            systemctl list-unit-files --type=service --state=enabled --no-pager
+            sudo ss -lntup
+            ps -eo pid,user,comm
           '
 
   setup-check:
@@ -423,27 +440,22 @@ tasks:
         vars: { PLAN: deploy-all }
 
   deploy-all-reset:
-    desc: アプリDBをスキーマから再作成して全体deploy・初期化（setup時に具体化）
+    desc: アプリDBをスキーマから再作成し全体deploy・初期化（setup時に具体化）
     preconditions: *no_active_run
     cmds:
       - task: gen
       - task: build
-      - for: { var: APP_HOSTS }
-        cmd: '{{.SSH}} {{.SSH_USER}}@{{.ITEM}} "sudo systemctl stop {{.SERVICE}}"'
-      - task: deploy-mysql
-      - task: deploy-db-schema
-      - task: deploy-all
-      # Adapt the initialization endpoint and required state reset during isucon-setup.
-      - '{{.SSH}} {{.SSH_USER}}@{{splitList " " .APP_HOSTS | first}} "curl --fail --silent --show-error -X POST http://127.0.0.1:{{.LISTEN_PORT}}/initialize"'
+      - task: deploy-plan
+        vars: { PLAN: deploy-all-reset }
+      - task: check-roles
       - task: check-network
 
   deploy-db-schema:
-    desc: MYSQL_HOSTのアプリDBを破棄してschemaを作成（setup時にSQLパスを設定）
+    desc: MYSQL_HOSTのアプリDBを破棄してschemaを作成（書込み元停止後に実行）
     preconditions: *no_active_run
+    deps: [build-deployctl]
     cmds:
-      # Example asset paths; adapt to the acquired schema and actual database roles.
-      - '{{.RSYNC}} webapp/sql/ {{.SSH_USER}}@{{.MYSQL_HOST}}:{{.REMOTE_HOME}}/webapp/sql/'
-      - '{{.SSH}} {{.SSH_USER}}@{{.MYSQL_HOST}} "sudo mysql -e \"DROP DATABASE IF EXISTS {{.DB_NAME}}; CREATE DATABASE {{.DB_NAME}};\" && sudo mysql {{.DB_NAME}} < {{.REMOTE_HOME}}/webapp/sql/initdb.d/10_schema.sql"'
+      - '{{.DEPLOYCTL_DIR}}/deployctl apply db-schema -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
 
   deploy-app-dry:
     desc: app deployの転送先・role・activationを実行せず表示
@@ -669,7 +681,7 @@ tasks:
       - '{{.MEASURECTL_DIR}}/measurectl artifacts -run-dir {{.RUN}}'
 
   backlog:
-    desc: Objective・Constraint・Interventionを管理
+    desc: Objective・Target・Interventionを管理
     dir: tools/backlog
     cmds: ['go run . -root {{.ROOT_DIR}} -db {{.ROOT_DIR}}/{{.BACKLOG_DB}} {{.CLI_ARGS}}']
 
@@ -780,3 +792,39 @@ tasks:
     cmds:
       - for: { var: ALL_HOSTS }
         cmd: '{{.SSH}} {{.SSH_USER}}@{{.ITEM}} "sudo journalctl --vacuum-size=10M && sudo apt-get clean"'
+
+  deploy-all-reset-dry:
+    desc: roleに基づく破壊的deploy計画を実行せず表示
+    deps: [build-deployctl]
+    cmds:
+      - '{{.DEPLOYCTL_DIR}}/deployctl apply-plan deploy-all-reset -dry-run -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
+
+
+  deploy-app-unit-dry:
+    desc: アプリのsystemd設定のみの転送・反映計画を表示
+    deps: [build-deployctl]
+    cmds:
+      - '{{.DEPLOYCTL_DIR}}/deployctl apply app-unit -dry-run -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
+
+
+  deploy-app-unit:
+    desc: アプリのsystemd設定のみを反映し停止中なら起動
+    preconditions: *no_active_run
+    deps: [build-deployctl]
+    cmds:
+      - '{{.DEPLOYCTL_DIR}}/deployctl apply app-unit -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
+
+
+  bench-timestamp:
+    desc: 計測対象の入口ホストのUTC時刻を返す（ベンチは実行しない）
+    cmds:
+      - '{{.SSH}} {{.SSH_USER}}@{{.ENTRY_HOST}} "date -u +%Y-%m-%dT%H:%M:%S.%NZ"'
+
+
+  config-check:
+    desc: 設定を正規配布先へ転送し構文検査（reloadなし）
+    preconditions: *no_active_run
+    deps: [build-deployctl]
+    cmds:
+      - task: gen
+      - '{{.DEPLOYCTL_DIR}}/deployctl apply config-check -config tools/setup/config-check.yaml {{.DEPLOYCTL_COMMON}}'
