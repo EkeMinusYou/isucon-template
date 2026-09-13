@@ -1,0 +1,1 @@
+Count	Query	Sum(QueryTime)	Avg(QueryTime)	Max(QueryTime)	Min(QueryTime)	P95(QueryTime)	Sum(LockTime)	Avg(LockTime)	Max(LockTime)	Sum(RowsExamined)	Avg(RowsExamined)	Max(RowsExamined)	Sum(RowsSent)	Avg(RowsSent)

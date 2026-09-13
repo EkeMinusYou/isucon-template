@@ -1,0 +1,10 @@
+2026-09-13T03:48:16.639202647Z	BENCHMARK_START
+2026-09-13T03:48:17.350Z	info	isupipe-benchmarker	SSL接続が無効になっています
+2026-09-13T03:48:17.350Z	info	isupipe-benchmarker	静的ファイルチェックを行います
+2026-09-13T03:48:17.350Z	info	isupipe-benchmarker	静的ファイルチェックが完了しました
+2026-09-13T03:48:17.350Z	info	isupipe-benchmarker	webappの初期化を行います
+2026-09-13T03:48:17.350Z	warn	isupipe-benchmarker	POST /api/initialize のリクエストが失敗しました	{"error": "Post \"http://192.0.2.11/api/initialize\": read udp 127.0.0.1:28712->127.0.0.1:53: read: connection refused"}
+{"pass":false,"score":0,"messages":["初期化が失敗しました","initializeのリクエストに失敗しました Post \"http://192.0.2.11/api/initialize\": read udp 127.0.0.1:28712-\u003e127.0.0.1:53: read: connection refused"],"language":"unknown","resolved_count":0}
+2026-09-13T03:48:17.350Z	info	staff-logger	bench/bench.go:193	webapp: http://192.0.2.11
+2026-09-13T03:48:17.350Z	info	staff-logger	bench/bench.go:194	nameserver: 127.0.0.1:53
+2026-09-13T03:48:17.452717923Z	BENCHMARK_END
