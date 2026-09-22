@@ -23,7 +23,7 @@ isucon-analyzeは達成候補の事実・snapshot・未確定点を、既存内�
 
 基本の流れは `isucon-setup → isucon-objective → isucon-target → isucon-analyze → isucon-investigate → isucon-worker`。この順序は毎回全段階を実行する要件ではなく、必要な担当スキルを呼び出す。例: `$isucon-objective 初期Objectiveを整備して`、`$isucon-target O-012のTargetを検査し、不足する対象を探索して`、`$isucon-analyze A-003`。
 
-呼び出し側の親は[Work selection](../../tools/backlog/backlog-workflow.md#work-selection)に従い、全体の概観から今回の詳細探索・着手範囲を選び、根拠とともに後続担当へ渡す。単独呼び出しではそのスキルの親が担当範囲内で選ぶ。前回の結果を継続・重点変更・先に解く問いへ反映し、ACTIVE/READY一覧をそのまま今回の実施一覧にしない。選択範囲内では既存の継続・一括適用手順を使う。
+呼び出し側の親は[Work selection](../../tools/backlog/backlog-workflow.md#work-selection)に従い、ユーザーが範囲を限定していなければ全ACTIVE Targetを扱う。isucon-targetは全件の達成判定と状態整理、isucon-analyzeは全件の達成根拠確認と未解決の問いの探索を担当する。前回の結果と寄与仮説は探索順へ反映し、低優先度を対象除外の理由にしない。実装着手は別に選び、探索と実装の一括依頼ではWork selectionの実装前確認を行い、既存の状態・Owner・継続・一括適用手順を守る。単独呼び出しで別スキルを自動起動しない。
 
 `isucon-rethink`はObjectiveとシステム全体のEvidenceを判断軸に、既存Targetへ探索を限定せず構造の再検討を行う。例: `$isucon-rethink システム全体の前提を見直して改善案を探索して`。TargetリンクなしのINVESTIGATEへ直接起票し、改善仮説の独立検証・詳細化はinvestigateへ任せる。発想と現行との比較評価を分け、優先度は案の内容に応じて判断する。起票件数は求めず、候補ゼロも認める。Objective・Targetの管理や別スキルの自動起動は行わない。
 

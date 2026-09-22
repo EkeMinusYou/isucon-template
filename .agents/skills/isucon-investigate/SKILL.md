@@ -30,7 +30,7 @@ workflowは見出しを検索して必要な節だけ読む。Objective／Target
 親は[Work selection](../../../tools/backlog/backlog-workflow.md#work-selection)で選ばれた今回の調査範囲と根拠を引き継ぎ、単独呼び出しでは保存済みEvidenceとカードから選ぶ。READYへ進める最終的なカード内容に対して、[workflowのPriority](../../../tools/backlog/backlog-workflow.md#priority)に従って必ず優先度を設定する。分割・統合・タイトル変更を経たカードも、`resolve --status READY`に`--priority`を指定し、本文・状態と同時に確定する。
 
 1. 今回の範囲内でworkflowのPriorityに従って対象を選び、下記の規則でクラスタにまとめる。親が着手・委任前にクラスタ内の全カードをversion付きでclaimする。着手後にcard version、status、Ownerを再確認する。
-2. Interventionの改善対象・目標・得点への寄与仮説、リンクがあればTargetの改善目標とObjectiveへの因果、共通の有効性条件、Evidenceのsnapshot、現行で未解消か、仕様上許されるかを独立確認する。[共通の評価基準](../_shared/evidence.md#改善方向と次の投資判断)に沿って局所案と構造案を評価し、主要な追加費用が適用範囲や代替構成の選択を変える場合は、その比較も確認する。正当性の検証だけでこの判断を代用しない。
+2. Interventionの改善対象・目標・得点への寄与仮説、リンクがあればTargetの改善目標とObjectiveへの因果、共通の有効性条件、Evidenceのsnapshot、現行で未解消か、仕様上許されるかを独立確認する。[共通の評価基準](../_shared/evidence.md#改善方向と次の投資判断)に沿って局所案と構造案を評価し、主要な追加費用が適用範囲や代替構成の選択を変える場合は、その比較も確認する。追加費用が改善仮説の反証なのか、構成の修正で解消し得る問題なのかを区別し、後者を「純利益未確定」だけで止めない。対象カードの調査範囲で成立条件と代替構成を確認し、改善方向を説明できれば残る負荷時の不確実性をEvaluationへ落とす。別の改善仮説の探索が必要なら、確認済みEvidenceと次の具体的な問いを親へ返す。正当性の検証だけでこの判断を代用しない。
 3. 同じtarget・mechanism・採否境界のopen Interventionを確認し、重複なら統合する。
 4. 一体で採用・適用するChange boundaryを確定する。ファイル数やlayer数だけで分割しない。
 5. workflowのREADY gateの3セクションを本文へ具体化し、条件を満たすか判定する。`Evaluation`の確定時は[Evaluationの指定方法](../_shared/evaluation.md)を読み、改善対象の機構・悪化し得る関連処理・正常性について、読む成果物と行・指標、採否条件を対応付ける。既存の抽出機能で表現できる部分はJSONで指定し、表現できない条件は具体的な確認手順として残す。

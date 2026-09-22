@@ -21,9 +21,9 @@ Objectiveの作成・更新・退役とレポートを担当する。Targetの�
 
 ## 手順
 
-1. `task backlog -- objective list`でACTIVE Objectiveを確認し、必要なIDを`objective show`で読む。`task backlog -- target list`と関連Intervention、Historyから影響範囲を把握する。退役Objective・終端Targetは重複や過去の判断に関係するIDを移行記録やHistoryから辿ってshowで確認する。過去のIntervention一覧が必要なら`task backlog -- list --all --target A-ID`で絞る。ユーザー指定のObjectiveがあればそれを中心に調べる。
+1. `task backlog -- objective list`でACTIVE Objectiveを確認し、必要なIDを`objective show`で読む。`task backlog -- target list`と関連Intervention、Historyから影響範囲を把握する。退役Objective・終端Targetは重複や過去の判断に関係するIDを移行記録やHistoryから辿ってshowで確認する。過去のIntervention一覧が必要なら`task backlog -- list --all --target A-ID`で絞る。ユーザーが範囲を限定していなければ全ACTIVE Objectiveを再評価し、指定があればその範囲を扱う。
 2. 過去RUNのベンチログとユーザー遷移メトリクスを主な観測根拠として、下記の得点源分析を行う。最新RUNだけでなく、寄与仮説の比較に必要な過去RUNを選ぶ。まず得点の発生とそれを支える経路を洗い出し、独立した寄与仮説・同じ経路の構成要素・未確定の経路を区別する。一つの経路を観測できたことを、それだけが得点源である根拠にしない。既存Objectiveや初期値を探索の固定分類にしない。
-3. 既存Objectiveは[寄与仮説の再評価](../_shared/evidence.md#寄与仮説の再評価)に従い、従来仮説と改善後の観測を照合する。継続・重点変更・先に解く問いの判断と参照カードID・RUNを、対象ObjectiveのHistoryへ残す（検査のみなら更新案に含める）。維持する場合も観測を踏まえた理由を示し、状態変更自体は必須にしない。方針の存続と今回の重点選択を分け、[Work selection](../../../tools/backlog/backlog-workflow.md#work-selection)に沿って次に重視する寄与経路、今回は選ばない経路、その理由をTarget担当へ渡す。観測が不足する関係は、何を確認すれば次の選択が変わるかまで具体化する。
+3. 既存Objectiveは[寄与仮説の再評価](../_shared/evidence.md#寄与仮説の再評価)に従い、従来仮説と改善後の観測を照合する。継続・重点変更・先に解く問いの判断と参照カードID・RUNを、対象ObjectiveのHistoryへ残す（検査のみなら更新案に含める）。維持する場合も観測を踏まえた理由を示し、状態変更自体は必須にしない。方針の存続と探索順を分け、[Work selection](../../../tools/backlog/backlog-workflow.md#work-selection)に沿って全対象の寄与経路、優先順と理由、未確認の問いをTarget担当へ渡す。重点指定によって他のACTIVE Targetを探索対象から外さない。観測が不足する関係は、何を確認すれば判断が変わるかまで具体化する。
 4. 寄与経路の整理からObjectiveの維持・追加・修正・統合・分割・退役を判断する。独立してスコアへ寄与する仮説は別Objectiveとし、同じ寄与経路内のAPIや改善手段を機械的に分割しない。既存の広いObjectiveに異なる寄与経路をまとめて本文へ追記するだけで終えず、タイトル・定義・評価条件を経路に合わせて再構成する。既存Objectiveを狭める場合は、外れる経路を別Objectiveへ移すか、根拠不足・見送りとして残すかを判断し、黙って落とさない。暗黙の最上位目的、共通の有効性条件、明示要求された別賞の目的はworkflowに従って区別する。
 5. 各方針に根拠RUN・観測事実・推定した寄与経路・成立条件・不確実性・評価可能な指標や述語・支持と反証の観測・見直し条件を記録する。得られる利益と追加費用から純寄与を判断し、局所指標の増減だけで得点効果を認定しない。寄与額の確定や個別変更の因果分離をObjective作成の前提にせず、観測に基づく推定を候補選択に使い、後続RUNで更新する。現時点の律速や即時の得点増加も必須条件にしない。
 6. 廃止は履歴を保存した退役で表し、統合・分割では旧方針と新方針の関係と理由をHistoryへ残す。ACTIVE Targetが参照するObjectiveの退役は、isucon-targetで必要なリンク整理が済むまで保留し、対象IDと理由を報告する。Objectiveを改定した場合も既存Targetの適合性を確認し、必要な変更を引き渡す。関連エンティティの状態を連動変更しない。

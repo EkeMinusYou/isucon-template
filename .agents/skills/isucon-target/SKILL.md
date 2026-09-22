@@ -36,7 +36,7 @@ Targetの作成・更新・統合・退役・達成判定とTargetからObjectiv
 
 ## 現状確認と計測からの対象選定
 
-`task backlog -- objective list`、`task backlog -- target list`でACTIVE一覧を確認し、対象IDをshowして関連InterventionとHistoryを読む。指定なしならACTIVE ObjectiveとそのTarget、指定があればその範囲を扱う。ACTIVE Objectiveがなければ不足を報告し、受け皿を作らない。
+`task backlog -- objective list`、`task backlog -- target list`でACTIVE一覧を確認し、対象IDをshowして関連InterventionとHistoryを読む。ユーザーによる範囲指定がなければ全ACTIVE Objectiveと全ACTIVE Target、指定があればその範囲を扱う。ACTIVE Objectiveがなければ不足を報告し、受け皿を作らない。
 
 終端Targetは過去の判断や再発確認に必要なIDを辿る。過去Interventionは必要に応じて `task backlog -- list --all --target A-ID` で絞る。過去の達成は今回の改善余地がないという証拠にはしない。
 
@@ -48,7 +48,7 @@ Targetの作成・更新・統合・退役・達成判定とTargetからObjectiv
 
 照合結果から、現行のScope・Goal・評価条件・Objectiveリンク・Priorityを維持または見直す理由を、参照カードID・RUNとともに対象TargetのHistoryへ残す（検査のみなら更新案に含める）。局所結果だけが改善した場合も、同じ優先度を維持する根拠を再評価する。Goal達成に得点増加を後付けで必須化せず、スコア横ばいだけでTargetを退役させない。
 
-この管理判断とは別に、[Work selection](../../../tools/backlog/backlog-workflow.md#work-selection)に従い今回詳細に扱うWhatと、次の方法探索へ渡すWhatを選ぶ。同じ対象を続ける場合も他の有望な対象との比較から理由を示す。ACTIVE維持や達成判定に必要なEvidenceの不足だけを追加探索の理由にせず、選ばなかった対象は直近の評価を参照して理由・再検討条件を残す。実現方法の選定やコード調査には広げず、選択したWhatと判断を変える問いをanalyzeへ渡す。
+[Work selection](../../../tools/backlog/backlog-workflow.md#work-selection)に従い、対象の全ACTIVE Targetを達成済み・未達・判定材料不足に分ける。現Goalの達成根拠が揃ったTargetは下記の更新規則に従ってRESOLVEDへ移し、維持するTargetはWhatと判断を変える問いをanalyzeへ渡す。優先度は探索順として伝え、低優先度やEvidence不足だけで引き継ぎ対象から外さない。実現方法の選定やコード調査はanalyzeの担当とする。
 
 Objective自体の仮説に問題がある場合は、対象ID・観測・未確認の関係をobjective担当へ返す。原因や実現方法の調査が必要な場合は、具体的な問いを担当へ引き渡す。
 
@@ -69,14 +69,14 @@ Writer protocolに従い直前versionを取得しCLIで更新する。actorは `
 
 目標改定では旧Scope/Axis/Goal/Evaluation/fingerprintと変更理由をHistoryに保存する。関連Interventionの寄与関係と進行中Ownerへの影響を確認し、本文や状態を勝手に変更しない。既存の実装案と独立して新しい結果目標を評価する。
 
-RESOLVEDは現Goalに対する計測結果と担当の検証報告から判断する。Intervention採用、構造変更、候補不足、低優先度だけでは達成にしない。比較不能・指標欠損の場合は具体的不足を残すが、個別得点分離や特別な計測・再起動試験を追加の必須条件にしない。通常成果物で判定できる範囲を使う。正当性は実装・採用担当の検証を参照し、既知の違反を無視しない。
+現Goalに対する計測結果と担当の検証報告から達成を確認できたTargetはRESOLVEDへ移す。検査のみの依頼では遷移案を示す。Intervention採用、構造変更、候補不足、低優先度だけでは達成にしない。比較不能・指標欠損の場合は具体的不足を残すが、個別得点分離や特別な計測・再起動試験を追加の必須条件にしない。通常成果物で判定できる範囲を使う。正当性は実装・採用担当の検証を参照し、既知の違反を無視しない。
 
-終端Targetは再開・遡及改定しない。RETIRED/MERGED/再発時の新規Targetはworkflowに従い、ACTIVE Target/Objectiveを必要とするInterventionを不整合にしない。調整が必要なら対象IDと理由を残して当該状態変更を保留する。
+終端Targetは再開・遡及改定しない。RETIRED/MERGED/再発時の新規Targetはworkflowに従い、ACTIVE Target/Objectiveを必要とするInterventionを不整合にしない。調整が必要なら対象ID・達成根拠・必要なリンク調整と担当を残して当該状態変更を保留する。調整待ちとGoal未達を区別し、追加の性能探索で代用しない。
 
 ## 終了と引き継ぎ
 
-件数や起票の有無だけを終了理由にしない。指定範囲の主要な寄与経路について優先判断、対応Targetと被覆範囲、未被覆部分、今回の区切りと再検討条件を説明できるところまで整理する。区切りは方法探索へ渡せるWhatが定義できた、必要な計測・報告が存在しない、など確認結果に基づく。全改善余地の網羅は要求しない。
+件数や起票の有無だけを終了理由にしない。対象の全ACTIVE Targetについて現Goalの達成判定と状態整理を行い、ACTIVEを維持する各TargetのWhat・探索すべき問い・不足情報を説明できるところまで整理する。主要な寄与経路の既存被覆と未被覆部分も確認する。担当範囲内の保存済みEvidenceでは判定できない場合、確認した資料と具体的に不足する計測・担当報告を示す。方法探索自体や全改善余地の網羅は行わない。
 
-Objective別の範囲、Evidenceと時点、判断理由、更新ID、未探索部分を記録し、他スキルの報告には出典を付ける。analyzeへは今回選んだACTIVE Target IDと選択理由、対象・主指標・Goal・比較/退行条件、Objectiveへの因果、baseline参照を渡す。全ACTIVE一覧をそのまま詳細探索の指示にせず、ユーザーが全件を明示した場合はその指定を優先する。具体的なHowをTargetの前提条件として渡さない。Objective側の不足・修正事項は別に報告する。
+Objective別の範囲、Evidenceと時点、判断理由、更新ID、未確定点を記録し、他スキルの報告には出典を付ける。analyzeへは対象範囲内でACTIVEを維持する全Target IDと探索順、その理由、対象・主指標・Goal・比較/退行条件、Objectiveへの因果、baseline参照を渡す。達成済みで状態遷移の調整待ちの場合はその旨を区別する。具体的なHowをTargetの前提条件として渡さない。Objective側の不足・修正事項は別に報告する。
 
 RUNがあれば `docs/reports/isucon-target/` へ命名規則に従い新規保存し、なければHistoryと完了報告へ残す。最後に `task backlog -- validate` を通す。
