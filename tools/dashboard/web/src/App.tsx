@@ -7,7 +7,6 @@ import {
   type MysqlResponse,
   type FgprofResponse,
   type GoPprofResponse,
-  type ReportInfo,
   type RunInfo,
   type ScoreEntry,
   type SlowQueryResponse,
@@ -22,8 +21,8 @@ import { MysqlStatus } from './components/MysqlStatus'
 import { FgprofTop } from './components/PprofTop'
 import { GoPprofTop } from './components/GoPprofTop'
 import { ResourceTimeSeries } from './components/ResourceTimeSeries'
-import { ReportsPanel } from './components/ReportsPanel'
 import { RunSelector } from './components/RunSelector'
+import { ServerRoles } from './components/ServerRoles'
 import { SectionNav, type SectionDef } from './components/SectionNav'
 import { ScoreTrend } from './components/ScoreTrend'
 import { ChartSkeleton, TableSkeleton } from './components/Skeletons'
@@ -47,6 +46,7 @@ type RunData = {
 
 // ジャンプバーの並び順とラベル。各 Section の id と 1:1 で対応させる
 const SECTIONS: SectionDef[] = [
+  { id: 'server-roles', title: 'サーバーの役割', navLabel: 'サーバー構成' },
   { id: 'score-trend', title: 'スコア推移', navLabel: 'スコア' },
   { id: 'benchmark-timeline', title: 'ベンチマーカー挙動タイムライン', navLabel: 'タイムライン' },
   { id: 'backlog', title: 'バックログボード', navLabel: 'バックログ' },
@@ -59,6 +59,8 @@ const SECTIONS: SectionDef[] = [
   { id: 'pprof', title: 'Go pprof', navLabel: 'pprof' },
   { id: 'fgprof', title: 'fgprof wall-clock', navLabel: 'fgprof' },
 ]
+
+const COLLAPSED_BY_DEFAULT = new Set(['upstream', 'mysql', 'resources', 'pprof', 'fgprof'])
 
 function Section({
   id,
@@ -73,6 +75,9 @@ function Section({
   extra?: React.ReactNode
   children: React.ReactNode
 }) {
+  const [isOpen, setIsOpen] = useState(() => !id || !COLLAPSED_BY_DEFAULT.has(id))
+  const contentId = id ? `${id}-content` : undefined
+
   return (
     <section
       id={id}
@@ -82,11 +87,36 @@ function Section({
     >
       <div className="card-body gap-4 p-6">
         <div className="flex flex-wrap items-center gap-3">
-          <h2 className="card-title text-xl">{title}</h2>
-          {badge && <span className="badge badge-soft badge-neutral badge-sm">{badge}</span>}
+          <h2 className="card-title min-w-0 flex-1 text-xl">
+            <button
+              type="button"
+              className="flex w-full min-w-0 cursor-pointer items-center gap-3 rounded-lg text-left outline-offset-4 focus-visible:outline-2 focus-visible:outline-primary"
+              aria-expanded={isOpen}
+              aria-controls={contentId}
+              onClick={() => setIsOpen((open) => !open)}
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className={`size-5 shrink-0 transition-transform ${isOpen ? 'rotate-90' : ''}`}
+                aria-hidden="true"
+              >
+                <path d="m9 18 6-6-6-6" />
+              </svg>
+              <span>{title}</span>
+              {badge && <span className="badge badge-soft badge-neutral badge-sm">{badge}</span>}
+            </button>
+          </h2>
           {extra}
         </div>
-        {children}
+        <div id={contentId} hidden={!isOpen}>
+          {children}
+        </div>
       </div>
     </section>
   )
@@ -98,12 +128,10 @@ function App() {
   const [scores, setScores] = useState<ScoreEntry[]>([])
   const [runData, setRunData] = useState<RunData | null>(null)
   const [backlog, setBacklog] = useState<BacklogResponse | null>(null)
-  const [reports, setReports] = useState<ReportInfo[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [lastLoaded, setLastLoaded] = useState<Date | null>(null)
   const [showClosedBacklog, setShowClosedBacklog] = useState(false)
-  const [view, setView] = useState<'dashboard' | 'reports'>('dashboard')
   const headerRef = useRef<HTMLDivElement>(null)
   const [headerHeight, setHeaderHeight] = useState(0)
   const [theme, setTheme] = useTheme()
@@ -126,16 +154,14 @@ function App() {
     setLoading(true)
     setError(null)
     try {
-      const [runList, scoreList, backlogData, reportList] = await Promise.all([
+      const [runList, scoreList, backlogData] = await Promise.all([
         api.runs(),
         api.scores(),
         api.backlog(showClosedBacklog),
-        api.reports(),
       ])
       setRuns(runList)
       setScores(scoreList)
       setBacklog(backlogData)
-      setReports(reportList)
 
       const runId = runIdOverride ?? selectedRun ?? runList[0]?.run_id ?? null
       setSelectedRun(runId)
@@ -213,39 +239,19 @@ function App() {
             <button
               className="btn btn-ghost gap-2.5 px-2 text-lg font-bold"
               onClick={() => {
-                setView('dashboard')
                 window.scrollTo({ top: 0, behavior: 'smooth' })
               }}
             >
               <img src="/favicon.svg" alt="" className="size-9 object-contain" />
               ISUCON 計測ダッシュボード
             </button>
-            <div className="divider divider-horizontal mx-0" />
-            {/* 2択なので tabs ではなく join のセグメンテッドコントロール。
-                active を btn-neutral にして、明色テーマでも選択状態が下地に溶けないようにする */}
-            <div className="join">
-              <button
-                aria-pressed={view === 'dashboard'}
-                className={`btn btn-sm join-item ${view === 'dashboard' ? 'btn-neutral' : ''}`}
-                onClick={() => setView('dashboard')}
-              >
-                ダッシュボード
-              </button>
-              <button
-                aria-pressed={view === 'reports'}
-                className={`btn btn-sm join-item ${view === 'reports' ? 'btn-neutral' : ''}`}
-                onClick={() => setView('reports')}
-              >
-                計測レポート
-              </button>
-            </div>
           </div>
 
           <div className="navbar-end gap-3">
             {/* 数値は色付きピルではなく見出し付きの stat で出す。
                 stat 同士の区切り線がそのままグループの仕切りになる */}
             <div className="stats stats-horizontal bg-transparent">
-              {view === 'dashboard' && selectedScore != null && (
+              {selectedScore != null && (
                 <div className="stat gap-0 px-3 py-0">
                   <div className="stat-title text-xs">選択中RUNのスコア</div>
                   <div className="stat-value text-xl tabular-nums">{selectedScore.toLocaleString()}</div>
@@ -262,14 +268,12 @@ function App() {
 
             {/* RUN の選択と再読み込みは一続きの操作なので join でまとめる */}
             <div className="join">
-              {view === 'dashboard' && (
-                <RunSelector
-                  className="join-item"
-                  runs={runs}
-                  selected={selectedRun}
-                  onChange={handleRunChange}
-                />
-              )}
+              <RunSelector
+                className="join-item"
+                runs={runs}
+                selected={selectedRun}
+                onChange={handleRunChange}
+              />
               <button
                 className="btn btn-primary btn-sm join-item"
                 disabled={loading}
@@ -288,7 +292,7 @@ function App() {
             <ThemeToggle value={theme} onChange={setTheme} />
           </div>
         </div>
-        {view === 'dashboard' && <SectionNav sections={SECTIONS} offset={headerHeight} />}
+        <SectionNav sections={SECTIONS} offset={headerHeight} />
       </div>
 
       <div className="mx-auto max-w-[1920px] px-8 pt-6 pb-12">
@@ -305,8 +309,11 @@ function App() {
           </div>
         )}
 
-        {view === 'dashboard' ? (
-          <>
+        <>
+            <Section id="server-roles" title="サーバーの役割" badge="選択中RUNの構成">
+              <ServerRoles run={runs.find((run) => run.run_id === selectedRun)} />
+            </Section>
+
             <Section id="score-trend" title="スコア推移" badge={`${scores.length} RUN`}>
               <ScoreTrend scores={scores} />
             </Section>
@@ -347,7 +354,7 @@ function App() {
             </Section>
 
             <Section id="user-transitions" title="Cookie ユーザー遷移">
-              {runData ? <UserTransitions data={runData.userTransitions} /> : <TableSkeleton />}
+              {runData ? <UserTransitions data={runData.userTransitions} alpRows={runData.alp.rows} /> : <TableSkeleton />}
             </Section>
 
             <Section id="slowquery" title="slow query トップ">
@@ -370,12 +377,7 @@ function App() {
               {runData ? <FgprofTop data={runData.fgprof} /> : <TableSkeleton />}
             </Section>
 
-          </>
-        ) : (
-          <Section title="計測レポート（docs/reports）" badge={`${reports.length} 件`}>
-            <ReportsPanel reports={reports} />
-          </Section>
-        )}
+        </>
       </div>
     </div>
   )

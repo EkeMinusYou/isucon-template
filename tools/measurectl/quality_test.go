@@ -26,13 +26,6 @@ func TestResolveLoadWindowRequiresBothMarkers(t *testing.T) {
 	}
 }
 
-func TestProcMetricsIsPeriodic(t *testing.T) {
-	interval, ok := periodicArtifactInterval("isucon-1-proc-metrics.tsv")
-	if !ok || interval != time.Second {
-		t.Fatalf("interval = %v, ok = %t", interval, ok)
-	}
-}
-
 func TestInspectPeriodicTSVMeasuresWindowCoverage(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "isucon-1-proc-metrics.tsv")
@@ -50,11 +43,11 @@ func TestInspectPeriodicTSVMeasuresWindowCoverage(t *testing.T) {
 	if err := os.WriteFile(path, []byte(body.String()), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	quality := inspectPeriodicTSV(path, LoadWindow{
+	quality := assessArtifactQuality(dir, LoadWindow{
 		StartedAt: start.Format(time.RFC3339Nano),
 		EndedAt:   start.Add(60 * time.Second).Format(time.RFC3339Nano),
 		Status:    "ok",
-	}, time.Second)
+	}, []Artifact{{Name: filepath.Base(path), Status: "ok"}})[0].Quality
 	if quality.Status != "valid" || quality.InWindowSamples != 60 || quality.ExpectedSamples != 60 || quality.WindowCoveragePct != 100 {
 		t.Fatalf("quality = %#v", quality)
 	}

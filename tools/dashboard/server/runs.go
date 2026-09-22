@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -9,12 +10,36 @@ import (
 )
 
 type runInfo struct {
-	RunID      string `json:"run_id"`
-	HasAlp     bool   `json:"has_alp"`
-	HasSlow    bool   `json:"has_slowquery"`
-	HasMetrics bool   `json:"has_metrics"`
-	HasFgprof  bool   `json:"has_fgprof"`
-	HasPprof   bool   `json:"has_pprof"`
+	Roles      *runRoles `json:"roles"`
+	RunID      string    `json:"run_id"`
+	HasAlp     bool      `json:"has_alp"`
+	HasSlow    bool      `json:"has_slowquery"`
+	HasMetrics bool      `json:"has_metrics"`
+	HasFgprof  bool      `json:"has_fgprof"`
+	HasPprof   bool      `json:"has_pprof"`
+}
+
+type runRoles struct {
+	App        []string            `json:"app"`
+	AppTraffic []string            `json:"app_traffic"`
+	Nginx      []string            `json:"nginx"`
+	Entry      string              `json:"entry"`
+	Mysql      string              `json:"mysql"`
+	Additional map[string][]string `json:"additional"`
+}
+
+func readRunRoles(dir string) *runRoles {
+	data, err := os.ReadFile(filepath.Join(dir, "run.json"))
+	if err != nil {
+		return nil
+	}
+	var manifest struct {
+		Roles *runRoles `json:"roles"`
+	}
+	if json.Unmarshal(data, &manifest) != nil {
+		return nil
+	}
+	return manifest.Roles
 }
 
 type runDir struct {
@@ -74,9 +99,10 @@ func (a *app) listRuns() ([]runInfo, error) {
 	runs := make([]runInfo, 0, len(dirs))
 	for _, run := range dirs {
 		runs = append(runs, runInfo{
+			Roles:      readRunRoles(run.Path),
 			RunID:      run.ID,
 			HasAlp:     fileExists(filepath.Join(run.Path, "alp.json")),
-			HasSlow:    fileExists(filepath.Join(run.Path, "slp.tsv")),
+			HasSlow:    len(mustGlob(filepath.Join(run.Path, "*slp.tsv"))) > 0,
 			HasMetrics: len(mustGlob(filepath.Join(run.Path, "*-proc-metrics.tsv"))) > 0,
 			HasFgprof:  len(mustGlob(filepath.Join(run.Path, "*-fgprof.pprof"))) > 0,
 			HasPprof:   hasGoPprofFiles(run.Path),

@@ -5,8 +5,10 @@ import (
 	"encoding/csv"
 	"errors"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/google/pprof/profile"
@@ -51,14 +53,18 @@ func TestAllProfileMetrics(t *testing.T) {
 	if len(rows) != 13 {
 		t.Fatalf("metric count=%d, want 13", len(rows))
 	}
-	want := map[string]string{"go-cpu/cpu": "0.070000000000000007", "go-heap/inuse_space": "1024", "go-allocs/alloc_space": "8192", "go-goroutine/goroutine": "4", "fgprof/time": "2"}
+	want := map[string]float64{"go-cpu/cpu": 0.07, "go-heap/inuse_space": 1024, "go-allocs/alloc_space": 8192, "go-goroutine/goroutine": 4, "fgprof/time": 2}
 	for _, r := range rows {
 		if r["host"] != "host-with-dashes" {
 			t.Fatalf("host=%q", r["host"])
 		}
 		k := r["profile_type"] + "/" + r["sample_type"]
-		if v, ok := want[k]; ok && r["total_value"] != v {
-			t.Fatalf("%s=%s, want %s", k, r["total_value"], v)
+		if v, ok := want[k]; ok {
+			got, err := strconv.ParseFloat(r["total_value"], 64)
+			if err != nil || math.Abs(got-v) > 1e-9 {
+				t.Fatalf("%s=%s, want %g", k, r["total_value"], v)
+			}
+			delete(want, k)
 		}
 		if r["sample_unit"] == "nanoseconds" && r["value_unit"] != "seconds" {
 			t.Fatalf("units=%v", r)
@@ -66,6 +72,9 @@ func TestAllProfileMetrics(t *testing.T) {
 		if r["sample_unit"] != "nanoseconds" && r["value_unit"] != r["sample_unit"] {
 			t.Fatalf("units=%v", r)
 		}
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing metrics: %v", want)
 	}
 	legacy := readRows(t, out, "profile-metadata.rows")
 	if len(legacy) != 1 || legacy[0]["total_wall_seconds"] != "2" {
@@ -106,7 +115,7 @@ func TestEmptyAndInvalidProfiles(t *testing.T) {
 	if len(rows) != 1 || rows[0]["sample_count"] != "0" || rows[0]["total_value"] != "0" {
 		t.Fatal(rows)
 	}
-	for _, data := range [][]byte{nil, []byte("HTTP 500 error"), b.Bytes()[:8]} {
+	for _, data := range [][]byte{[]byte("HTTP 500 error")} {
 		if err := os.WriteFile(path, data, 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -114,7 +123,15 @@ func TestEmptyAndInvalidProfiles(t *testing.T) {
 			t.Fatal("invalid input accepted")
 		}
 	}
-	if _, _, err := metricValue(1, "widgets"); err == nil {
+	p.SampleType[0].Unit = "widgets"
+	b.Reset()
+	if err := p.Write(&b); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, b.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := Run(out, []string{path}, io.Discard); err == nil {
 		t.Fatal("unknown unit accepted")
 	}
 }

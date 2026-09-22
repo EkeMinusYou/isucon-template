@@ -11,6 +11,7 @@ import (
 )
 
 type config struct {
+	Include     []string              `yaml:"include"`
 	Deployments map[string]deployment `yaml:"deployments"`
 	Plans       map[string]plan       `yaml:"plans"`
 }
@@ -52,7 +53,19 @@ var (
 	remotePathRE  = regexp.MustCompile(`^/[A-Za-z0-9_./-]+/?$`)
 )
 
-func loadConfig(filename string) (*config, error) {
+// include は汎用のdeployment graphへ競技固有の宣言を重ねるための機構である。
+// 同名の deployment と plan は読み込んだ側が勝つので、上書きする宣言から
+// 汎用宣言を include する。
+func readConfig(filename string, ancestors []string) (*config, error) {
+	resolved, err := filepath.Abs(filename)
+	if err != nil {
+		return nil, fmt.Errorf("デプロイ宣言の位置を解決できません: %w", err)
+	}
+	for _, ancestor := range ancestors {
+		if ancestor == resolved {
+			return nil, fmt.Errorf("include が循環しています: %s", filename)
+		}
+	}
 	body, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, fmt.Errorf("デプロイ宣言を読めません: %w", err)
@@ -60,6 +73,32 @@ func loadConfig(filename string) (*config, error) {
 	var cfg config
 	if err := yaml.Unmarshal(body, &cfg); err != nil {
 		return nil, fmt.Errorf("デプロイ宣言を解釈できません: %w", err)
+	}
+	merged := &config{Deployments: map[string]deployment{}, Plans: map[string]plan{}}
+	for _, include := range cfg.Include {
+		included, err := readConfig(filepath.Join(filepath.Dir(filename), include), append(ancestors, resolved))
+		if err != nil {
+			return nil, err
+		}
+		mergeConfig(merged, included)
+	}
+	mergeConfig(merged, &cfg)
+	return merged, nil
+}
+
+func mergeConfig(dst, src *config) {
+	for name, d := range src.Deployments {
+		dst.Deployments[name] = d
+	}
+	for name, p := range src.Plans {
+		dst.Plans[name] = p
+	}
+}
+
+func loadConfig(filename string) (*config, error) {
+	cfg, err := readConfig(filename, nil)
+	if err != nil {
+		return nil, err
 	}
 	if len(cfg.Deployments) == 0 {
 		return nil, fmt.Errorf("%s に deployments がありません", filename)
@@ -109,7 +148,7 @@ func loadConfig(filename string) (*config, error) {
 			return nil, err
 		}
 	}
-	return &cfg, nil
+	return cfg, nil
 }
 
 func validatePlanAcyclic(name string, p plan) error {

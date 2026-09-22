@@ -230,7 +230,7 @@ func TestValidateRemotePath(t *testing.T) {
 }
 
 func TestRepositoryConfigContainsEveryDeployTarget(t *testing.T) {
-	cfg, err := loadConfig("deployments.yaml")
+	cfg, err := loadConfig(repositoryConfig(t))
 	if err != nil {
 		t.Fatal(err)
 	}

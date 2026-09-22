@@ -6,9 +6,9 @@ A fresh template starts with no Objectives, Targets, Interventions, or historica
 
 ## Existing ledger migration
 
-When importing an existing ledger, the CLI migrates legacy Constraints to Targets while preserving IDs, versions, Evidence, historical judgments, and the original resolution as the goal. `INVALIDATED` becomes `RETIRED`; legacy tables and assessments remain available for historical inspection. Existing links become `IMPROVES`, with their old roles retained separately. Review active Targets’ axes, evaluation conditions, and Objective links against current Evidence. Migration itself does not prove goal completion.
+When importing an existing ledger, the CLI migrates legacy Constraints to Targets while preserving IDs, versions, Evidence, historical judgments, and the original resolution as the goal. `INVALIDATED` becomes `RETIRED`; legacy tables and assessments remain available for migration/audit inspection. Existing links become `IMPROVES`, with their old roles retained separately. Review active Targets’ axes, evaluation conditions, and Objective links against current Evidence. Terminal Interventions (`VALIDATED`/`REJECTED`) are not inputs to current discovery or duplicate checks. Migration itself does not prove goal completion.
 
-Record contest-specific reorganization and its evidence in that contest’s reports and History. The template carries no such migration record. New Objectives are not automatically seeded, and opening an existing ledger does not overwrite its Objectives.
+Record contest-specific reorganization and its evidence in that contest’s Backlog History and RUN artifacts. The template carries no such migration record. New Objectives are not automatically seeded, and opening an existing ledger does not overwrite its Objectives.
 
 Target links on Interventions are optional. Without them, record the improvement goal, score-contribution hypothesis, Evidence, and evaluation conditions on the card itself. `isucon-analyze` still starts from an existing ACTIVE Target; `isucon-rethink` and material-based exploration may propose unlinked Interventions within their scopes.
 

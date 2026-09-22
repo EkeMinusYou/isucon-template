@@ -1,23 +1,46 @@
 # カード処理の継続・終了
 
-isucon-workerとisucon-investigateは、開始時・各カードの処理後にこの手順に従う。カード単位の完了とスキル全体の終了を区別する。[Work selection](../../../tools/backlog/backlog-workflow.md#work-selection)で選んだ今回の新規着手範囲を引き継ぎ、指定がなければ当該スキルの親が担当範囲内で選ぶ。ユーザーが明示した全件処理や、着手済み作業の完了・必要な修正は優先する。
+isucon-workerとisucon-investigateは、開始時・各カードの処理後・終了直前にこの手順に従う。カード単位の完了とスキル全体の終了を区別する。ユーザーが明示的に限定した場合を除き、workerは[workerの優先順](../isucon-worker/SKILL.md#優先順)に従うOwnerなしDOINGと全READY、investigateは[調査手順](../isucon-investigate/SKILL.md#手順)に従う全INVESTIGATEを対象とする。両者とも新着を含め、Priority・Evidenceは着手順の判断に使う。着手済み作業の完了・必要な修正を優先する。
 
 isucon-workerでは、カードの実装レビュー後の継続判断は同じdeployment batchへの追加判断とする。区切り条件に達したら[実装手順](../isucon-worker/references/implementation.md)の統合検証・適用を先に行い、その後に継続・終了を判断する。適用可能な完成分を残したまま終了しない。ユーザーの停止指示は優先する。
 
 ## 継続の判断
 
-Backlog CLIで最新のカード一覧を一度取得し、今回選んだ範囲・Priority・Owner・依存と各Skillの実行制約を再確認する。その範囲でOwner・依存・他作業との競合の条件を満たす対象があれば、各Skillの通常手順で取得・処理し、処理後に再びこの判断へ戻る。一件の処理完了や残件数の報告だけで終了しない。読み取り失敗を対象0件として扱わない。
+Backlog CLIで最新のカード一覧を一度取得し、各Skillの対象・Priority・Owner・依存と各Skillの実行制約を再確認する。対象の中でOwner・依存・他作業との競合の条件を満たす対象があれば、各Skillの通常手順で取得・処理し、処理後に再びこの判断へ戻る。一件の処理完了や残件数の報告だけで終了しない。読み取り失敗を対象0件として扱わない。
 
-新しいEvidenceが選択の前提を変えた場合は親が範囲と理由を見直す。別の候補があることやAPPLIED枠の空きだけで範囲を広げない。今回選ばないカードは状態・Ownerを変更せず理由と再検討条件を報告し、その詳細調査を当該スキルの終了条件にしない。実装選択から外した仮説も、依頼全体で継続する探索・検証から自動的に外れるわけではない。
+新しいEvidenceは着手順・調査内容・採否判断へ反映し、低い優先度や効果量の未確定を理由に対象から外さない。取得できないカードは状態・Ownerを変更せず、理由と再検討条件を報告する。investigateでObjective／Target管理へ差し戻したカードは、同じ前提のまま再claimしない。
 
 ユーザーによる対象・件数の制限と停止指示を優先する。指定件数の処理完了や停止指示があれば終了する。
 
+## 取得範囲と再利用
+
+一覧は`--format json --fields`で判断に必要な項目だけ取得する。例：`task --silent backlog -- list --format json --fields id,version,status,priority,owner,dependencies,target_ids`。対象状態のfilterは各Skillの範囲に合わせる。
+
+詳細も`show --format json --fields`を使う。取得前に必要な項目を決め、カード本文は`sections`、履歴は`history`を必要時だけ含める。Target・Objectiveの`show`も同じ指定ができる。section名やHistoryのpositionによる絞り込みは返却JSONへ行い、必要なsectionと未読Historyだけ表示する。CLIの指定例と出力形式は[Backlog README](../../../tools/backlog/README.md#automation-without-wrapper-scripts)を参照する。
+
+Backlogを正本として、現在処理中のopenカード本文と最新の引き渡しから読む。過去Historyは、そのカードの引き渡しが参照する判断・根拠や、現在の指示に不足・不一致がある点だけ追加で読む。最新のHistoryが取得・記録更新などの場合は、それを引き渡しとみなさず、直前の記録へさかのぼって引き渡しを確認する。履歴全文の通読から始めない。
+
+参考コマンド（`B-003`とpositionの`13`は対象に置き換える）。
+
+```sh
+# Current card body
+task --silent backlog -- show B-003 --format json --fields id,version,status,owner,sections
+
+# Latest history entry
+task --silent backlog -- show B-003 --format json --fields history | jq '.history[-1]'
+
+# A specific older entry, only when needed
+task --silent backlog -- show B-003 --format json --fields history | jq '.history[] | select(.position == 13)'
+```
+
+最新の記録が引き渡しでなければ、`[-2]`などで直前の記録を確認する。
+
+取得済み内容はID・versionとともに再利用し、同じversionの読了部分を再読しない。変更や不足があれば関係する項目だけ確認する。更新成功時はCLIが返すversionを次の操作へ引き継ぐ。最新一覧の確認と更新時のversion・Owner条件は維持し、競合時は最新状態を読み直して判断する。
+
 ## 対象がない場合の終了
 
-一度確認し、今回選んだ範囲に取得可能な対象がなければ、当該スキルの処理を終了できる。Backlog全体が空である必要はない。
+終了直前に最新一覧を再取得し、各Skillの対象に取得可能なカードがなければ終了する。investigateは新着INVESTIGATEも対象に含めて継続し、workerはOwnerなしDOINGと新着READYも対象に含めて継続する。Backlog全体が空である必要はない。
 
 着手済みの処理や委任中の調査があれば、各Skillの手順に従って完了させてから継続を判断する。取得対象がないことを理由に、適用可能な完成分や委任結果の回収・反映を残したまま終了しない。
 
-終了時は各Skillの検証・報告要件に従い、選択範囲の処理結果と残る候補を区別し、その範囲で取得可能な対象がないこと、または実行制約による終了理由を報告する。
-
-複数スキルを統括する親は、ここで依頼全体の終了を決めず、[Work selection](../../../tools/backlog/backlog-workflow.md#work-selection)の残る仮説の確認へ戻る。小さな改善の適用完了やベンチ待ちと、より大きな得点寄与が見込まれる仮説の探索・独立検証を分け、結果待ちに依存しない作業を続ける。単独のworkerに新規探索をさせたり、依頼されていないスキルの実行権限を広げたりしない。
+終了時は各Skillの検証・報告要件に従い、対象の処理結果と残る候補を区別し、取得可能な対象がないこと、または実行制約による終了理由を報告する。

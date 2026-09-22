@@ -4,20 +4,6 @@ import "testing"
 
 func TestInitialObjectivesAndRelations(t *testing.T) {
 	store := testStore(t)
-	objectives, err := store.listObjectives(ObjectiveFilter{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(objectives) != 3 {
-		t.Fatalf("initial objectives = %d, want 3", len(objectives))
-	}
-	objective, err := store.getObjective("O-001")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if objective.Mode != "MINIMIZE" || objective.ParentObjectiveID != "" {
-		t.Fatalf("latency direction objective = %#v", objective)
-	}
 	cardID, err := store.addCard(NewCard{TargetID: fixtureTarget(t, store), Title: "selection change", Actor: "skill:test", Reason: "add intervention"}, mutation{Actor: "skill:test", Operation: "add"})
 	if err != nil {
 		t.Fatal(err)
@@ -59,10 +45,6 @@ func TestTargetRequiresActiveObjectiveRelation(t *testing.T) {
 
 func TestFourDigitExplicitIDsAdvanceSequences(t *testing.T) {
 	store := testStore(t)
-	cardID, err := store.addCard(NewCard{TargetID: fixtureTarget(t, store), ID: "B-1000", Title: "four digit intervention", Actor: "human:test", Reason: "verify four digit support"}, mutation{Actor: "human:test", Operation: "add"})
-	if err != nil || cardID != "B-1000" {
-		t.Fatalf("four digit intervention = %q, %v", cardID, err)
-	}
 	targetID, err := store.addTarget(NewTarget{Axis: "response time", Goal: "reduce response time below 5 ms", Evaluation: "compare saved results at equal load", ID: "A-1000", ObjectiveID: "O-001", Title: "four digit target", Fingerprint: "target:v1:four-digit", Scope: "loop time", Evidence: "1 response-s / load-window", Resolution: "less than 1 response-s / load-window"}, mutation{Actor: "human:test", Operation: "target.add"}, "verify four digit support")
 	if err != nil || targetID != "A-1000" {
 		t.Fatalf("four digit target = %q, %v", targetID, err)
@@ -71,10 +53,59 @@ func TestFourDigitExplicitIDsAdvanceSequences(t *testing.T) {
 	if err != nil || objectiveID != "O-1000" {
 		t.Fatalf("four digit objective = %q, %v", objectiveID, err)
 	}
-	for key, want := range map[string]string{"next_id": "B-1001", "next_target_id": "A-1001", "next_objective_id": "O-1001"} {
+	for key, want := range map[string]string{"next_target_id": "A-1001", "next_objective_id": "O-1001"} {
 		got, err := store.metadata(key)
 		if err != nil || got != want {
 			t.Fatalf("%s = %q, %v; want %q", key, got, err, want)
 		}
+	}
+}
+
+func TestObjectivePriorityCanBeCreatedUpdatedAndFiltered(t *testing.T) {
+	store := testStore(t)
+	objectiveID, err := store.addObjective(NewObjective{
+		ID:                "O-010",
+		Status:            "ACTIVE",
+		Mode:              "MAXIMIZE",
+		Title:             "priority objective",
+		Priority:          "P0",
+		MetricOrPredicate: "score contribution",
+		Verification:      "compare valid scores",
+	}, mutation{Actor: "human:test", Operation: "objective.add"}, "record objective priority")
+	if err != nil {
+		t.Fatal(err)
+	}
+	objective, err := store.getObjective(objectiveID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if objective.Priority != "P0" {
+		t.Fatalf("created objective priority = %q", objective.Priority)
+	}
+
+	p1 := "P1"
+	if err := store.updateObjective(objectiveID, ObjectivePatch{Priority: &p1}, objective.Version, mutation{Actor: "human:test", Operation: "objective.update"}, "lower objective priority after reassessment"); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := store.getObjective(objectiveID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Priority != "P1" || updated.Version != objective.Version+1 {
+		t.Fatalf("updated objective = %#v", updated)
+	}
+
+	objectives, err := store.listObjectives(ObjectiveFilter{Priority: "p1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, item := range objectives {
+		if item.ID == objectiveID {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("priority-filtered objectives omit %s: %#v", objectiveID, objectives)
 	}
 }

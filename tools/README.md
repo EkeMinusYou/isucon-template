@@ -8,6 +8,8 @@
 
 - 公式資料と実環境を確認してから設定する。過去大会の値をそのまま採用しない。
 - ツール本体を書き換える前に、設定ファイルまたは実行引数で表現できないか確認する。
+- 汎用ファイルへ競技固有の値を書く場合は、直前の行へ`# contest:`から始まるコメントで理由を残す。構造そのものが特定の解法に依存する場合は、値ではなくファイルを分ける。次の競技へ引き継ぐ際は`grep -rn '# contest:' tools/`が要修正箇所の一覧になる。
+- 競技ごとに書き換える値がまとまっている場合は、`# >>> contest values >>>` 〜 `# <<< contest values <<<`で囲う。`Taskfile.yml`のvarsがこれにあたる。手段の使い分けとtemplateへの戻し方は[tools/template/README.md](template/README.md)。
 - collectorを増やす場合は、成果物の宣言・回収・分析側の読み手を同じ変更で揃える。
 - 計測設定の評価ではcollectorあり・なしを比較し、間隔や有効化範囲を決める。この負荷比較は初期setupの完了条件には含めず、依頼された場合に`isucon-setup`の追加検証としてユーザーが実行したベンチ結果を使う。
 - optionalなcollectorやprofilerは、目的と停止・cleanup手順が確認できた場合だけ有効にする。
@@ -30,7 +32,9 @@
 | `analysisctl/` | 原則不要 | `analysis/sources.yaml`を読む汎用core。DuckDB CLIとRUNディレクトリが利用できることを確認する |
 | `backlog/` | Objective追加 | coreは変更しない。公式採点仕様からスコア要素、ペナルティ、必須条件をObjectiveへ追加する。採用時点のRUN値はadoption eventへ固定される |
 | `bench/` | 一部確認 | `run.sh`が自動・手動ベンチ共通のload windowとfinalizeを担う。nginx on-CPU profilerを使う場合はOS、package manager、kernel用`perf`、probe URLを確認する |
+| `bench-output/` | ログ形式確認 | ベンチ出力からscore・合否を読む汎用core。形式は`tools/contest/bench-patterns.json`に分離する。[アプリ固有adapter](#アプリ固有adapter) |
 | `browser/` | 原則不要 | ローカルdashboard確認専用。必要な場合だけ`task browser-install`を実行し、競技サーバーへ配布しない |
+| `contest/` | 毎回入れ替え | この競技だけで成立する設定・ツールの集約先。他のディレクトリはここを参照する側でも競技非依存に保つ。[一覧と置く基準](contest/README.md) |
 | `dashboard/` | 条件付き | 標準成果物なら変更不要。独自collector、独自スコア列、追加ロールを表示する場合だけserver APIとweb UIを拡張する |
 | `deployctl/` | 毎回確認 | [デプロイ](#デプロイ) |
 | `json-metrics-collector/` | 利用時のみ実装 | [アプリ固有adapter](#アプリ固有adapter) |
@@ -39,7 +43,9 @@
 | `nginx-backend-report/` | log列確認 | [access log](#access-log) |
 | `nginx-oncpu-profiler/` | 利用時のみ環境調整 | 既定では無効。`perf`権限、kernel package、worker数、delay、duration、frequency、出力上限を確認する |
 | `setup/` | 取得・構文検査の調整時 | [取得対象の除外、schemaの実体取得、設定構文検査の実装例](setup/README.md) |
+| `template/` | 大会後 | templateへ戻す差分の宣言と抽出。当日は変更しない。[backportの手順](template/README.md) |
 | `proc-metrics/` | service設定 | Linuxの`/proc`、`/sys`、cgroup v2を使う。`-services`へ実際のsystemd unitを渡し、sampling intervalを確認する |
+| `sql-pool-metrics/` | アプリadapter確認 | localhostのSQL pool endpoint、固定ラベル、`database/sql.DBStats`の互換性、sampling intervalを確認する |
 | `topology-screen/` | 利用時に引数調整 | 配置候補を調べる場合だけ、key field・regex、route、hash、分割数、対象bucketを当日のデータモデルへ合わせる |
 | `user-transition-metrics/` | adapter設定 | [アプリ固有adapter](#アプリ固有adapter)・[access log](#access-log) |
 
@@ -49,10 +55,25 @@
 
 ホスト、役割、IP、アプリ名、DB名、service、port、build、ベンチコマンドを実環境へ合わせる。OS・CPU architectureと、service・設定・ログのパスを確認して値を決める。
 
-`MYSQL_HOSTS`はdeploy・role収束・状態検査の対象、`MYSQL_HOST`は詳細計測する1台です。
-両者の既定値は同じです。計測の`mysql` roleは1台のまま、全配置は`mysql_all` roleとしてRUNへ記録します。
-MySQLの共通設定とlimitsは`MYSQL_HOST`から取得します。ホスト別設定がある場合は一律配布せず、
-次節の`{host}`による転送元の分離を使ってください。
+競技固有・解法固有のタスクは`Taskfile.contest.yml`へ置き、`Taskfile.yml`が`flatten: true`で取り込む。
+取り込んだタスクは名前空間なしで呼べ、`Taskfile.yml`のvarsとタスクをそのまま参照できる。
+ただし**同名タスクは上書きではなく衝突エラーになる**ため、汎用側から競技側を呼ぶ場合は、
+汎用側にhookタスク名を書き、実体を`Taskfile.contest.yml`で定義する。既定では
+`deploy`系が`prepare-db-assets`を、`gen`が`gen-contest-routing`をhookとして呼ぶ。
+該当する処理がない競技では、hookをcmdsなしで定義すれば何もせず成功する。
+deployctlの`include`とは規則が異なる（あちらは同名を後勝ちで置換する）ので取り違えない。
+
+ホスト台数は`ALL_HOSTS`・`APP_HOSTS`・`MYSQL_HOSTS`などのリストで決まり、role配布、
+分割数、ホスト別生成物は台数へ追従する。nginxは算術を持たないため、ユーザーIDの剰余などで
+upstreamを選ぶmapを作る場合だけは台数を固定した正規表現になる。この制約は
+`gen-contest-routing`側に閉じ込める。
+
+`MYSQL_HOSTS`はdeploy・role収束・状態検査の対象、`MYSQL_HOST`は既定接続先です。
+MySQL status、slow log、performance_schema digest、lock waitは`mysql_all`の全ホストを対象にし、
+成果物は`<host>-mysql-status.tsv`、`<host>-slp.tsv`、`<host>-mysql-digest.tsv`、
+`<host>-mysql-lock-waits.tsv`として保存します。`MYSQL_HOST`は後方互換の既定接続先と、
+旧RUNのhost解決に残ります。MySQLの共通設定とlimitsは`MYSQL_HOST`から取得します。
+ホスト別設定がある場合は一律配布せず、次節の`{host}`による転送元の分離を使ってください。
 
 ### デプロイ
 
@@ -67,6 +88,12 @@ MySQLの共通設定とlimitsは`MYSQL_HOST`から取得します。ホスト別
 一般的なGo + nginx + MySQL構成では、ホスト、アプリ名、DB名、service名、directoryは`Taskfile.yml`の
 変数から渡せる。複数アプリservice、別DB、container、release symlink方式を使う場合は
 `deployments.yaml`を拡張する。
+
+宣言の構造そのものが特定の解法に依存する場合は、`deployments.yaml`を書き換えず別ファイルへ分ける。
+`include:`へ相対パスを並べると読み込んだ側が勝つので、汎用グラフをincludeする側に解法固有の宣言を置く。
+同名のdeploymentとplanは置き換わり、触れていないものはincludeから引き継ぐ。`DEPLOYCTL_CONFIG`が
+実際に使う宣言を指す。例えば`tools/contest/deployments.yaml`が汎用graphをincludeし、
+解法固有の`db-schema`だけを置き換える。
 
 配布の`local`と`remote`には`{host}`を指定できます。例えば`local: 'etc/hosts/{host}/app.conf'`、
 `remote: '/home/isucon/app.conf'`でホスト別の設定を配布できます。全対象ホストのパスと転送元ファイルを
@@ -99,19 +126,19 @@ SSH切断・復元失敗などで残った場合は、表示された退避先�
 - MySQL slow logの利用可否と、performance schemaのqueryが当日のversionで利用できるか
 - 成果物を追加・削除したときに、fallback headerと分析側のschemaが一致しているか
 
-標準設定ではproc/service/disk、MySQL status、nginx access log、slow query、app/nginx/kernel journal、Go pprof・fgprof、user-transitionを収集する。初期setupでadapterを整え、分析・dashboardまで確認する。journalは`run.json.load_window`と同じ時間窓で回収できることを確認する。
-50msのlock waitと250msのtask stateは既定無効であり、対象環境で負荷を測ったうえで
-`tools/measurectl/collectors.yaml`の各`enabled_by_default`を`true`へ変更して採用する。
+標準設定ではproc/service/disk、appのSQL接続プール、全MySQL hostのstatus・slow query・performance_schema digest、nginx access log、app/nginx/kernel journal、Go pprof・fgprof、user-transitionを収集する。初期setupでadapterを整え、分析・dashboardまで確認する。journalは`run.json.load_window`と同じ時間窓で回収できることを確認する。
+50msのlock waitは各user DBを対象に既定有効で、250msのtask stateは既定無効である。
+lock waitはホスト別の成果物へ保存し、RUNごとにcollector負荷とcapture errorを確認する。
 
 digesterも`enabled_by_default: false`で既定の実行対象から外せます。省略時は従来どおり有効です。
 無効なdigesterの出力は任意成果物となり、未生成でも必須成果物の欠損にはなりません。
 `measurectl digest -only <name>`で明示的に実行できます。sourceのログ回収は独立しており、この設定では停止しません。
 
 `MEASURECTL_ROLES`に追加した任意のrole（例: `-role cache=host-a,host-b`）は、
-`run.json`の`roles.additional`に保存され、RUN比較では追加・変更・削除を検出します。
-意図した差分は`COMPARE_ALLOWED_ROLES=cache`で宣言します。既存の標準roleフィールドと`scores.tsv`形式は維持します。
+`run.json`の`roles.additional`に保存されます。分析の`manifests.additional_roles`から参照できます。
+既存の標準roleフィールドと`scores.tsv`形式は維持します。
 直接`manifest begin`を使う場合は`-role cache=host-a,host-b`を渡してください。
-分析の`manifests.additional_roles`からも追加roleを参照できます。古いRUNの未記録roleは推測で補いません。
+古いRUNの未記録roleは推測で補いません。
 
 標準のfgprof・Go CPU・heap・allocs・goroutineは`group: profiles`かつ`enabled_by_default: true`。
 `bench/run.sh`がこの宣言から収集対象を選び、同じ対象を開始確認・必須成果物判定で使う。
@@ -215,13 +242,32 @@ task q -- "SELECT function, flat_value AS inuse_bytes, cumulative_value FROM ppr
 
 ### アプリ固有adapter
 
-`tools/user-transition-metrics/routes.json`のCookie列・API prefix・正規化routeを当日のAPIへ合わせる。routeは動的IDを
+`tools/contest/bench-patterns.json`のscore・pass・fail正規表現を当日のベンチ出力形式へ合わせる。
+coreはログ形式を持たず、下流が読む`SCORE:`・`BENCHMARK_PASS`・`BENCHMARK_FAIL`は競技によらず固定である。
+scoreには1つのcapture groupを持たせ、該当する行がない項目は空文字にする。宣言が読めない場合は
+ベンチを起動する前に終了コード2で停止する。
+
+`tools/contest/user-transition-routes.json`のCookie列・API prefix・正規化routeを当日のAPIへ合わせる。routeは動的IDを
 そのまま残さず、限定された正規表現を上から具体的な順に並べる。Cookieを持たない競技や、識別子を
-安全にログへ出せない場合は、この集計を無効にする。
+安全にログへ出せない場合は、この集計を無効にする。access logの時系列bucket
+（`tools/analysis/schema/access-log.sql`の`# >>> contest values >>>`区画）と`alp.yml`の
+`matching_groups`にも同じ正規化を入れる。
+
+`tools/contest/analysis-schema/bench-errors-semantic.sql`の`bench_errors`・`bench_warning_events`・
+`bench_error_counts`を当日のベンチ出力の書式へ合わせる。bench.logの読み込み自体は汎用の
+`tools/analysis/schema/bench-errors.sql`が行い、ここは行の解釈だけを持つ。view名と列はdashboardと
+`task q`の契約なので変えない。書き換えるまでは0行を返す。
 
 `tools/json-metrics-collector`は、標準では利用しない。既存のHTTP・DB・profile計測では見えない、
 スコアに直接関係するboundedなアプリ内部状態がある場合だけ導入する。高cardinalityのラベルや
 ユーザーIDを出力しない。利用時はアプリ側にboundedなenable/snapshot/disable endpointを実装し、metric・scope・上限を決めてcollector宣言を追加する。
+
+`tools/sql-pool-metrics`は、アプリのlocalhost debug endpointから`database/sql.DBStats`相当の接続プール状態を
+1秒間隔で収集する汎用collectorである。アプリ側は固定されたpool名・role・shardだけを返し、リクエストやユーザー識別子を返さない。
+`in_use`、`wait_count`、`wait_duration`とその差分レートをMySQL側の`Threads_running`やCPUと同じ時間窓で比較し、
+接続プール待ちとDBサーバー飽和を切り分ける。
+MySQL status collectorはこの比較用に`max_connections`、`Max_used_connections`、
+`Connection_errors_max_connections`も収集する。
 
 ## 検証コマンドの意味
 

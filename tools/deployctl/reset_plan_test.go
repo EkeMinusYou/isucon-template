@@ -6,7 +6,7 @@ import (
 )
 
 func TestResetPlanRolesAndFailureBoundaries(t *testing.T) {
-	cfg, err := loadConfig("deployments.yaml")
+	cfg, err := loadConfig(repositoryConfig(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -18,7 +18,7 @@ func TestResetPlanRolesAndFailureBoundaries(t *testing.T) {
 	runner := deployRunner{
 		sshUser: "ubuntu", parallel: 1,
 		roles: map[string][]string{"all": {"edge", "db", "app-one", "app-two"}, "app": {"app-one", "app-two"}, "app_init": {"app-one"}, "app_db": {"db"}, "mysql": {"db"}, "nginx": {"edge"}},
-		vars:  map[string]string{"remote_home": "/home/isucon", "app_dir": "webapp/go", "service": "app-service", "isucon_user": "isucon", "db_name": "app", "listen_port": "8080", "initialize_path": "/initialize", "sql_dir": "webapp/sql", "sql_schema_file": "schema.sql", "app_hosts": "app-one,app-two", "mysql_hosts": "db", "nginx_hosts": "edge"},
+		vars:  map[string]string{"remote_home": "/home/isucon", "app_dir": "webapp/go", "service": "app-service", "isucon_user": "isucon", "db_name": "app", "listen_port": "8080", "initialize_path": "/initialize", "sql_dir": "webapp/sql", "sql_schema_file": "schema.sql", "app_hosts": "app-one,app-two", "mysql_hosts": "db", "user_db_hosts": "db", "nginx_hosts": "edge"},
 	}
 	for name, want := range map[string]string{"db-schema": "db", "app-initialize": "app-one"} {
 		jobs, err := runner.activationJobs(cfg.Deployments[name].Activations)

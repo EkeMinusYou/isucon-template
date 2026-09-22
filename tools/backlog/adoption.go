@@ -27,7 +27,41 @@ type AdoptionEvent struct {
 	SnapshotRevision int
 }
 
-func (s *Store) adoptCardsMatching(ids []string, changeBoundaryHashes map[string]string, event AdoptionEvent, reason string) ([]Card, error) {
+type AdoptionExpectation struct {
+	Snapshot AppliedSnapshotCard
+	Version  int
+	Owner    string
+}
+
+func adoptionExpectations(run runSnapshotEnvelope, ids []string, owner, versions string) (map[string]AdoptionExpectation, error) {
+	expected := map[string]AdoptionExpectation{}
+	for _, id := range ids {
+		for _, item := range run.BacklogSnapshot.Cards {
+			if item.ID == id {
+				expected[id] = AdoptionExpectation{Snapshot: item, Version: -1, Owner: owner}
+			}
+		}
+	}
+	for _, pair := range strings.Split(versions, ",") {
+		id, raw, ok := strings.Cut(pair, "=")
+		id = normalizeID(id)
+		version, err := strconv.Atoi(strings.TrimSpace(raw))
+		item, exists := expected[id]
+		if !ok || err != nil || version < 0 || !exists || item.Version >= 0 {
+			return nil, fmt.Errorf("--expect-card-versions must specify each selected card once as ID=VERSION; invalid entry %q", pair)
+		}
+		item.Version = version
+		expected[id] = item
+	}
+	for _, id := range ids {
+		if expected[id].Version < 0 {
+			return nil, fmt.Errorf("--expect-card-versions is missing %s", id)
+		}
+	}
+	return expected, nil
+}
+
+func (s *Store) adoptCardsMatching(ids []string, expectations map[string]AdoptionExpectation, event AdoptionEvent, reason string) ([]Card, error) {
 	if err := ensureReason(event.Actor, reason); err != nil {
 		return nil, err
 	}
@@ -83,8 +117,24 @@ func (s *Store) adoptCardsMatching(ids []string, changeBoundaryHashes map[string
 		if card.Status != "APPLIED" {
 			return rollback(fmt.Errorf("card %s has status %s; expected APPLIED", id, card.Status))
 		}
-		if changeBoundaryHashes[id] != cardChangeBoundaryHash(card) {
+		expected, ok := expectations[id]
+		if !ok {
+			return rollback(fmt.Errorf("card %s has no adoption expectation", id))
+		}
+		if expected.Snapshot.ChangeBoundaryHash != cardChangeBoundaryHash(card) {
 			return rollback(fmt.Errorf("card %s change boundary differs from the evidence RUN snapshot", id))
+		}
+		if err := validateApplicationID(card, expected.Snapshot); err != nil {
+			return rollback(err)
+		}
+		if expected.Owner == "" {
+			return rollback(fmt.Errorf("card %s requires a verifier owner before adoption", id))
+		}
+		if err := checkExpectedOwner(card, &expected.Owner); err != nil {
+			return rollback(err)
+		}
+		if card.Version != expected.Version {
+			return rollback(&cardVersionConflictError{CardID: id, Expected: expected.Version, Current: card.Version})
 		}
 		requested = append(requested, card)
 	}
@@ -111,7 +161,7 @@ func (s *Store) adoptCardsMatching(ids []string, changeBoundaryHashes map[string
 			return rollback(err)
 		}
 		updated := event.AdoptedAt
-		if _, err := tx.Exec(`UPDATE cards SET status = 'VALIDATED', updated = ?, updated_by = ? WHERE id = ?`, updated, event.Actor, card.ID); err != nil {
+		if _, err := tx.Exec(`UPDATE cards SET status = 'VALIDATED', owner = '', updated = ?, updated_by = ? WHERE id = ?`, updated, event.Actor, card.ID); err != nil {
 			return rollback(err)
 		}
 		if err := addHistoryTx(tx, card.ID, updated, event.Actor, reason); err != nil {
@@ -122,8 +172,8 @@ func (s *Store) adoptCardsMatching(ids []string, changeBoundaryHashes map[string
 			origin = card.History[0].Actor
 		}
 		if _, err := tx.Exec(`INSERT INTO adoption_event_cards(
-			adoption_event_id, card_id, origin, change_boundary_hash
-		) VALUES (?, ?, ?, ?)`, eventID, card.ID, origin, changeBoundaryHashes[card.ID]); err != nil {
+			adoption_event_id, card_id, origin, change_boundary_hash, application_id
+		) VALUES (?, ?, ?, ?, ?)`, eventID, card.ID, origin, expectations[card.ID].Snapshot.ChangeBoundaryHash, card.ApplicationID); err != nil {
 			return rollback(err)
 		}
 		newlyWoke, err := wakeDependentsTx(tx, card.ID, event.Actor)

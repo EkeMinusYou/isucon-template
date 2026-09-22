@@ -129,6 +129,7 @@ type Remote struct {
 }
 
 type Digester struct {
+	PerHost           bool     `yaml:"per_host"` // run source-based aggregation separately for every source host
 	EnabledByDefault  *bool    `yaml:"enabled_by_default"`
 	Name              string   `yaml:"name"`
 	Label             string   `yaml:"label"`
@@ -200,9 +201,23 @@ func loadDigestConfig(path string) (*DigestConfig, error) {
 			if _, ok := cfg.source(d.Source); !ok {
 				return nil, fmt.Errorf("digester %q が指す source %q が宣言にありません", d.Name, d.Source)
 			}
+			if d.PerHost {
+				src, _ := cfg.source(d.Source)
+				if !strings.Contains(src.Local, "{host}") {
+					return nil, fmt.Errorf("digester %q のper-host source %qに{host}がありません", d.Name, d.Source)
+				}
+				for _, output := range d.Outputs {
+					if !strings.Contains(output.File, "{host}") {
+						return nil, fmt.Errorf("digester %q のper-host output %qに{host}がありません", d.Name, output.File)
+					}
+				}
+			}
 		case d.Remote != nil:
 			if d.Remote.Role == "" || d.Remote.Script == "" {
 				return nil, fmt.Errorf("digester %q の remote に role / script のいずれかが足りません", d.Name)
+			}
+			if d.PerHost {
+				return nil, fmt.Errorf("digester %q はsourceのper_hostとremoteを併用できません", d.Name)
 			}
 			if d.Remote.PerHost {
 				for _, output := range d.Outputs {

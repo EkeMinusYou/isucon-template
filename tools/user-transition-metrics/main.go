@@ -195,7 +195,7 @@ type aggregator struct {
 }
 
 func main() {
-	configPath := flag.String("config", "tools/user-transition-metrics/routes.json", "route normalization config")
+	configPath := flag.String("config", "tools/contest/user-transition-routes.json", "route normalization config")
 	outputPath := flag.String("output", "-", "JSON output path, or - for stdout")
 	maxEvents := flag.Int("max-events", defaultMaxEvents, "maximum classified events retained in memory")
 	maxScenarios := flag.Int("max-scenarios", defaultMaxScenarios, "maximum scenario groups written to the report")

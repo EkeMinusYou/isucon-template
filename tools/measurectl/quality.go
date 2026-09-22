@@ -56,7 +56,9 @@ func periodicArtifactInterval(name string) (time.Duration, bool) {
 	case strings.HasSuffix(name, "-proc-metrics.tsv"),
 		strings.HasSuffix(name, "-service-metrics.tsv"),
 		strings.HasSuffix(name, "-disk-metrics.tsv"),
-		name == "mysql-status.tsv":
+		strings.HasSuffix(name, "-sql-pool-metrics.tsv"),
+		name == "mysql-status.tsv",
+		strings.HasSuffix(name, "-mysql-status.tsv"):
 		return time.Second, true
 	default:
 		return 0, false

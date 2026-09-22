@@ -26,6 +26,7 @@ type AppliedSnapshot struct {
 }
 
 type AppliedSnapshotCard struct {
+	ApplicationID      string `json:"application_id"`
 	ID                 string `json:"id"`
 	Status             string `json:"status"`
 	Version            int    `json:"version"`
@@ -40,14 +41,8 @@ type runSnapshotEnvelope struct {
 	RunID           string          `json:"run_id"`
 	Score           *int64          `json:"score"`
 	Passed          *bool           `json:"passed"`
-	Comparison      runComparison   `json:"comparison"`
 	BacklogSnapshot AppliedSnapshot `json:"backlog_snapshot"`
 	ManifestSHA256  string          `json:"-"`
-}
-
-type runComparison struct {
-	RunID  string `json:"run_id"`
-	Status string `json:"status"`
 }
 
 func (s *Store) appliedSnapshot() (AppliedSnapshot, error) {
@@ -113,6 +108,7 @@ func strconvAtoiNonNegative(value string) (int, error) {
 
 func snapshotCard(card Card) AppliedSnapshotCard {
 	return AppliedSnapshotCard{
+		ApplicationID:      card.ApplicationID,
 		ID:                 card.ID,
 		Status:             card.Status,
 		Version:            card.Version,
@@ -210,39 +206,10 @@ func writeFileAtomic(path string, body []byte, mode os.FileMode) error {
 }
 
 func loadRunAppliedSnapshot(root, runID string, force bool) (runSnapshotEnvelope, error) {
-	return loadRunSnapshot(root, runID, true, force)
+	return loadRunSnapshot(root, runID, force)
 }
 
-func latestRunID(root string) (string, error) {
-	entries, err := os.ReadDir(filepath.Join(root, "runs"))
-	if err != nil {
-		return "", fmt.Errorf("read RUN directory: %w", err)
-	}
-	var ids []string
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		id := entry.Name()
-		if _, err := parseRunIDsStrict(id); err != nil {
-			continue
-		}
-		if _, err := os.Stat(filepath.Join(root, "runs", id, "run.json")); err == nil {
-			ids = append(ids, id)
-		}
-	}
-	if len(ids) == 0 {
-		return "", errors.New("no RUN manifest found; run a benchmark first")
-	}
-	sort.Strings(ids)
-	return ids[len(ids)-1], nil
-}
-
-func loadPassedRunSnapshot(root, runID string, requireCompatibleComparison bool) (runSnapshotEnvelope, error) {
-	return loadRunSnapshot(root, runID, requireCompatibleComparison, false)
-}
-
-func loadRunSnapshot(root, runID string, requireCompatibleComparison, force bool) (runSnapshotEnvelope, error) {
+func loadRunSnapshot(root, runID string, force bool) (runSnapshotEnvelope, error) {
 	runID = strings.TrimSpace(runID)
 	if runID == "" || filepath.Base(runID) != runID || strings.Contains(runID, string(filepath.Separator)) {
 		return runSnapshotEnvelope{}, fmt.Errorf("invalid evidence RUN %q", runID)
@@ -274,9 +241,6 @@ func loadRunSnapshot(root, runID string, requireCompatibleComparison, force bool
 		if run.Score == nil {
 			return runSnapshotEnvelope{}, fmt.Errorf("evidence RUN %s has no recorded score", runID)
 		}
-		if requireCompatibleComparison && run.Comparison.RunID != "" && run.Comparison.Status != "compatible" {
-			return runSnapshotEnvelope{}, fmt.Errorf("evidence RUN %s comparison with %s is %s, expected compatible", runID, run.Comparison.RunID, run.Comparison.Status)
-		}
 	}
 	if run.BacklogSnapshot.Status != "ok" || run.BacklogSnapshot.SchemaVersion != 3 {
 		return runSnapshotEnvelope{}, fmt.Errorf("evidence RUN %s has no usable APPLIED snapshot", runID)
@@ -295,7 +259,7 @@ func validateRunSnapshotCard(run runSnapshotEnvelope, card Card) error {
 		if item.ChangeBoundaryHash != cardChangeBoundaryHash(card) {
 			return fmt.Errorf("card %s change boundary differs from evidence RUN %s snapshot", card.ID, run.RunID)
 		}
-		return nil
+		return validateApplicationID(card, item)
 	}
 	return fmt.Errorf("card %s was not APPLIED in evidence RUN %s", card.ID, run.RunID)
 }
@@ -309,16 +273,6 @@ func snapshotCardIDs(run runSnapshotEnvelope) []string {
 	}
 	sort.Strings(ids)
 	return ids
-}
-
-func snapshotChangeBoundaryHashes(run runSnapshotEnvelope) map[string]string {
-	hashes := map[string]string{}
-	for _, card := range run.BacklogSnapshot.Cards {
-		if card.Status == "APPLIED" {
-			hashes[card.ID] = card.ChangeBoundaryHash
-		}
-	}
-	return hashes
 }
 
 func snapshotDecisionChanged(run runSnapshotEnvelope, card Card) bool {

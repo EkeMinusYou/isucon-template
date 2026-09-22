@@ -13,8 +13,9 @@ import (
 const slowQueryTopN = 30
 
 // slowQueryClass is one query group as reported by slp (SQL-parser-based
-// abstraction), read from runs/<RUN_ID>/slp.tsv.
+// abstraction), read from a host-specific runs/<RUN_ID>/*-slp.tsv artifact.
 type slowQueryClass struct {
+	Host       string `json:"host"`
 	Query      string `json:"query"`
 	QueryCount int64  `json:"query_count"`
 
@@ -89,11 +90,21 @@ func parseSlpInt(s string) int64 {
 	return v
 }
 
-// parseSlpTSV reads runs/<RUN_ID>/slp.tsv (written by Taskfile's
-// collect-slp). A header-only file (no data rows) means slp skipped or
-// found nothing, not zero load; it's reported as unavailable rather than
-// an empty-but-real result.
+// parseSlpTSV reads one slp artifact. A header-only file (no data rows) means
+// slp skipped or found nothing, not zero load; it is reported as unavailable
+// rather than an empty-but-real result.
 func parseSlpTSV(path string) (*slowQueryResponse, error) {
+	classes, err := readSlpClasses(path)
+	if err != nil {
+		return nil, err
+	}
+	if classes == nil {
+		return nil, nil
+	}
+	return summarizeSlowQueries(classes), nil
+}
+
+func readSlpClasses(path string) ([]slowQueryClass, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -135,9 +146,12 @@ func parseSlpTSV(path string) (*slowQueryResponse, error) {
 	if err := scanner.Err(); err != nil {
 		return nil, err
 	}
+	return classes, nil
+}
 
+func summarizeSlowQueries(classes []slowQueryClass) *slowQueryResponse {
 	if len(classes) == 0 {
-		return &slowQueryResponse{Available: false, Classes: []slowQueryClass{}}, nil
+		return &slowQueryResponse{Available: false, Classes: []slowQueryClass{}}
 	}
 
 	var totalQueryTime, totalLockTime, totalRowsExamined, totalRowsSent float64
@@ -155,7 +169,15 @@ func parseSlpTSV(path string) (*slowQueryResponse, error) {
 		}
 	}
 
-	sort.Slice(classes, func(i, j int) bool { return classes[i].QueryTimeSum > classes[j].QueryTimeSum })
+	sort.Slice(classes, func(i, j int) bool {
+		if classes[i].QueryTimeSum != classes[j].QueryTimeSum {
+			return classes[i].QueryTimeSum > classes[j].QueryTimeSum
+		}
+		if classes[i].Host != classes[j].Host {
+			return classes[i].Host < classes[j].Host
+		}
+		return classes[i].Query < classes[j].Query
+	})
 
 	total := len(classes)
 	truncated := total > slowQueryTopN
@@ -174,7 +196,47 @@ func parseSlpTSV(path string) (*slowQueryResponse, error) {
 		Classes:           classes,
 		TotalClasses:      total,
 		Truncated:         truncated,
-	}, nil
+	}
+}
+
+func slpHost(path, fallback string) string {
+	base := filepath.Base(path)
+	if base == "slp.tsv" {
+		if fallback != "" {
+			return fallback
+		}
+		return "mysql"
+	}
+	return strings.TrimSuffix(base, "-slp.tsv")
+}
+
+func slpPaths(dir string) []string {
+	paths := mustGlob(filepath.Join(dir, "*-slp.tsv"))
+	legacy := filepath.Join(dir, "slp.tsv")
+	if fileExists(legacy) {
+		paths = append(paths, legacy)
+	}
+	sort.Strings(paths)
+	return paths
+}
+
+func parseSlpTSVFiles(paths []string, fallbackHost string) (*slowQueryResponse, error) {
+	classes := make([]slowQueryClass, 0)
+	for _, path := range paths {
+		rows, err := readSlpClasses(path)
+		if err != nil {
+			return nil, err
+		}
+		if rows == nil {
+			continue
+		}
+		host := slpHost(path, fallbackHost)
+		for i := range rows {
+			rows[i].Host = host
+		}
+		classes = append(classes, rows...)
+	}
+	return summarizeSlowQueries(classes), nil
 }
 
 func (a *app) handleSlowQuery(w http.ResponseWriter, r *http.Request) {
@@ -184,7 +246,11 @@ func (a *app) handleSlowQuery(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "unknown run_id")
 		return
 	}
-	resp, err := parseSlpTSV(filepath.Join(dir, "slp.tsv"))
+	fallbackHost := ""
+	if roles := readRunRoles(dir); roles != nil {
+		fallbackHost = roles.Mysql
+	}
+	resp, err := parseSlpTSVFiles(slpPaths(dir), fallbackHost)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

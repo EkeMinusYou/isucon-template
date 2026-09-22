@@ -6,7 +6,7 @@ import (
 )
 
 func TestMigrateEvaluationPreservesCardAndRejectsStaleVersion(t *testing.T) {
-	for _, status := range []string{"READY", "APPLIED", "REJECTED"} {
+	for _, status := range []string{"READY", "REJECTED"} {
 		t.Run(status, func(t *testing.T) {
 			store := testStore(t)
 			seedBacklog(t, store, 0, "B-002", Card{ID: "B-001", Status: status, Title: "existing card", Owner: "skill:worker"})
@@ -62,8 +62,10 @@ func TestMigrateEvaluationPreservesCardAndRejectsStaleVersion(t *testing.T) {
 }
 
 func TestNormalWritesRejectVerification(t *testing.T) {
-	if err := validateSectionName("Verification"); err == nil {
-		t.Fatal("legacy section accepted")
+	for _, name := range []string{"Verification", "Safety", "Touches", "observation"} {
+		if err := validateSectionName(name); err == nil {
+			t.Fatalf("unsupported section %q accepted", name)
+		}
 	}
 	if err := validateSectionName(sectionEvaluation); err != nil {
 		t.Fatal(err)

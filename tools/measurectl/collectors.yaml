@@ -19,7 +19,7 @@ prepare:
 
   - name: mysql-log
     label: MySQL slow log and performance_schema digest
-    hosts: mysql
+    hosts: mysql_all
     script: |
       set -eu
       log=/var/log/mysql/mysql-slow.log
@@ -134,21 +134,22 @@ collectors:
 
   - name: mysql
     label: MySQL status
-    hosts: mysql
+    hosts: mysql_all
     binary: tools/mysql-metrics/mysql-metrics
     remote_root: /tmp/isucon-mysql-metrics
     stdout: /dev/null
     args: >-
+      -dsn 'root@unix(/var/run/mysqld/mysqld.sock)/'
       -interval 1s
       -output {remote_dir}/metrics.tsv
     outputs:
-      metrics.tsv: mysql-status.tsv
-    stderr: mysql-status.stderr
+      metrics.tsv: '{host}-mysql-status.tsv'
+    stderr: '{host}-mysql-status.stderr'
 
   - name: mysql-locks
     label: high-frequency MySQL lock waits
-    enabled_by_default: false
-    hosts: mysql
+    enabled_by_default: true
+    hosts: mysql_all
     binary: tools/mysql-metrics/mysql-metrics
     remote_root: /tmp/isucon-mysql-locks
     stdout: /dev/null
@@ -159,8 +160,22 @@ collectors:
       -lock-interval 50ms
       -lock-query-timeout 40ms
     outputs:
-      lock-waits.tsv: mysql-lock-waits.tsv
-    stderr: mysql-lock-waits.stderr
+      lock-waits.tsv: '{host}-mysql-lock-waits.tsv'
+    stderr: '{host}-mysql-lock-waits.stderr'
+
+  - name: sql-pool
+    label: application SQL connection pool metrics
+    hosts: app
+    binary: tools/sql-pool-metrics/sql-pool-metrics
+    remote_root: /tmp/isucon-sql-pool-metrics
+    stdout: /dev/null
+    args: >-
+      -endpoint {var:sql_pool_metrics_url}
+      -interval 1s
+      -output {remote_dir}/metrics.tsv
+    outputs:
+      metrics.tsv: '{host}-sql-pool-metrics.tsv'
+    stderr: '{host}-sql-pool-metrics.stderr'
 
   - name: nginx-oncpu
     label: nginx worker on-CPU profile

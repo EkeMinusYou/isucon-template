@@ -11,7 +11,7 @@ import (
 )
 
 func TestMySQLRoleConvergenceKeepsEveryAssignedHost(t *testing.T) {
-	cfg, err := loadConfig("deployments.yaml")
+	cfg, err := loadConfig(repositoryConfig(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -24,8 +24,12 @@ func TestMySQLRoleConvergenceKeepsEveryAssignedHost(t *testing.T) {
 		for _, phase := range []string{"roles-off", "roles-on"} {
 			t.Run(host+"/"+phase, func(t *testing.T) {
 				log := filepath.Join(tmp, host+"-"+phase)
-				script := cfg.Deployments[phase].Activations[0].Script
-				script = strings.NewReplacer("{host}", host, "{var:mysql_hosts}", "isucon-1,isucon-2", "{var:app_hosts}", "isucon-3", "{var:nginx_hosts}", "isucon-3", "{var:service}", "app").Replace(script)
+				runner := deployRunner{roles: map[string][]string{"all": {host}}, vars: map[string]string{"mysql_hosts": "isucon-1,isucon-2", "app_hosts": "isucon-3", "nginx_hosts": "isucon-3", "service": "app"}}
+				jobs, err := runner.activationJobs(cfg.Deployments[phase].Activations)
+				if err != nil || len(jobs) != 1 {
+					t.Fatalf("activation jobs: %v, %v", jobs, err)
+				}
+				script := jobs[0].script
 				cmd := exec.Command("sh", "-c", script)
 				cmd.Env = append(os.Environ(), "PATH="+tmp+string(os.PathListSeparator)+os.Getenv("PATH"), "ISUCON_TEST_CALLS="+log)
 				if output, err := cmd.CombinedOutput(); err != nil {
@@ -55,6 +59,9 @@ func readSetupTaskfile(t *testing.T) map[string]interface{} {
 	if err := yaml.Unmarshal(body, &cfg); err != nil {
 		t.Fatal(err)
 	}
+	// The fixture runs from a temporary directory without the contest file.
+	// These tests exercise generic vars and tasks, which never call into it.
+	delete(cfg, "includes")
 	// Task resolves global variables in declaration order. Preserve that order
 	// when rendering an isolated fixture with replacement tasks.
 	var document yaml.Node

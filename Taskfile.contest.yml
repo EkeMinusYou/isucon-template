@@ -1,0 +1,16 @@
+# Contest-specific tasks for this competition's solution.
+#
+# Taskfile.yml includes this file with flatten:true, so these tasks are called
+# without a namespace and read the generic file's vars. Task names must not
+# collide with the generic file: Go Task rejects duplicates instead of
+# overriding them. The generic side reaches this file only through hook tasks
+# it declares (currently prepare-db-assets and gen-contest-routing); a contest
+# that has nothing to do defines the hook here with no commands.
+version: '3'
+
+tasks:
+  prepare-db-assets:
+    desc: deployへ載せる前にDB資材を生成・検証する（deploy系のhook、既定は何もしない）
+
+  gen-contest-routing:
+    desc: 解法固有のupstreamとホスト別生成物を追加する（genのhook、既定は何もしない）

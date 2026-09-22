@@ -18,6 +18,7 @@
 
 以下は初回setupの必須対象である。未実装・未設定を理由にoptionalへ落とさない。
 
+- スコアの記録方法（生成元、取得・入力手順、RUNへの紐付け、保存形式）と、成功・失敗判定、公式出力にある内訳・ペナルティの保存・分析・表示。必要に応じたDuckDBの取り込みschema・意味ビューの対応。
 - Go CPU・heap・allocs・goroutineのpprof、fgprof、採取開始確認endpoint。
 - nginxアクセスログの必要列、ローテート、全NGINX_HOSTSの回収、alp・upstream集計。
 - user-transitionの識別方法・ログ列・アプリ固有API分類・集計。

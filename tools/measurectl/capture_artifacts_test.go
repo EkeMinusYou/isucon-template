@@ -42,7 +42,14 @@ func TestStandardCaptureSelectionAndFrozenContract(t *testing.T) {
 	}
 	collectors := writeConfig("collectors.yaml", cfg)
 	digesters := writeConfig("digesters.yaml", dcfg)
-	m := Manifest{ProfilesEnabled: true, Roles: Roles{App: []string{"host"}, Nginx: []string{"host"}}}
+	m := Manifest{ProfilesEnabled: true, Roles: Roles{
+		Additional: map[string][]string{"all": {"host"}, "mysql_all": {"host"}, "nginx_profile": {"host"}},
+		App:        []string{"host"},
+		AppTraffic: []string{"host"},
+		Nginx:      []string{"host"},
+		Entry:      "host",
+		MySQL:      "host",
+	}}
 	m.RequiredArtifacts, err = captureRequirements(m, collectors, digesters)
 	if err != nil {
 		t.Fatal(err)
@@ -190,13 +197,14 @@ func TestProfileCoverageAndCorruption(t *testing.T) {
 			if (q.Status == "valid") != tc.valid {
 				t.Fatalf("quality=%+v", q)
 			}
-			if err := os.WriteFile(path, []byte("HTTP error"), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			if q := inspectProfile(path, window); q.Status == "valid" {
-				t.Fatal("HTTP error accepted as profile")
-			}
 		})
+	}
+	path := filepath.Join(t.TempDir(), "host-go-cpu.pprof")
+	if err := os.WriteFile(path, []byte("HTTP error"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if q := inspectProfile(path, window); q.Status == "valid" {
+		t.Fatal("HTTP error accepted as profile")
 	}
 }
 
@@ -227,7 +235,7 @@ func TestEmptyAccessLogsAreCompressedAndManifestListsRawFiles(t *testing.T) {
 		t.Fatalf("artifacts=%v size=%d", artifacts, size)
 	}
 	window := LoadWindow{Status: "ok", StartedAt: "2026-09-06T04:00:00Z", EndedAt: "2026-09-06T04:01:00Z"}
-	for i, artifact := range artifacts {
+	for _, artifact := range artifacts {
 		if !strings.HasSuffix(artifact.Name, ".zst") {
 			t.Fatalf("uncompressed empty log: %s", artifact.Name)
 		}
@@ -235,7 +243,10 @@ func TestEmptyAccessLogsAreCompressedAndManifestListsRawFiles(t *testing.T) {
 		if q.Status != "valid" {
 			t.Fatalf("quality=%+v", q)
 		}
-		want := int64(1 - i)
+		want, ok := map[string]int64{"access-host-1.log.zst": 1, "access-host-2.log.zst": 0}[filepath.Base(artifact.Name)]
+		if !ok {
+			t.Fatalf("unexpected artifact %s", artifact.Name)
+		}
 		if q.Rows != want || q.InWindowSamples != want {
 			t.Fatalf("quality=%+v", q)
 		}

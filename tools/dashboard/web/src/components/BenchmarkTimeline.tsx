@@ -90,17 +90,39 @@ export function BenchmarkTimeline({ timeline }: { timeline: TimelineResponse }) 
     })
   }, [timeline.buckets, hosts])
 
+  const errorCounts = timeline.bench_error_counts ?? []
+  const errorChart = (
+    <ChartCard title="ベンチの累積エラー件数" unit="件">
+      <p className="text-sm text-base-content/60 mb-3">負荷走行開始からの経過秒と、報告時点の累積件数です。個々のエラーの発生時刻は表しません。</p>
+      {errorCounts.length === 0 ? <p>時刻付きのエラー件数報告がありません。</p> : (
+        <ResponsiveContainer width="100%" height={190}>
+          <LineChart data={errorCounts} margin={{ top: 4, right: 12, bottom: 4, left: 0 }}>
+            <CartesianGrid stroke="var(--chart-grid)" vertical={false} />
+            <XAxis {...xAxisProps()} type="number" domain={[0, 'dataMax']} />
+            <YAxis {...yAxisProps()} domain={[0, 'auto']} allowDecimals={false} />
+            <Tooltip cursor={lineCursor} contentStyle={tooltipStyle} labelFormatter={(label) => `${Number(label).toFixed(1)}s`} />
+            <Line type="stepAfter" dataKey="error_count" name="累積エラー件数" stroke="var(--status-critical)" strokeWidth={2} dot isAnimationActive={false} />
+          </LineChart>
+        </ResponsiveContainer>
+      )}
+    </ChartCard>
+  )
+
   if (!timeline.available || timeline.buckets.length === 0) {
     return (
-      <EmptyState
-        title="表示できるアクセス記録がありません"
-        detail="このRUNのログが未取得・空、または有効な時刻を読み取れませんでした"
-      />
+      <div className="space-y-4">
+        {errorChart}
+        <EmptyState
+          title="表示できるアクセス記録がありません"
+          detail="このRUNのログが未取得・空、または有効な時刻を読み取れませんでした"
+        />
+      </div>
     )
   }
 
   return (
     <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+      {errorChart}
       <Panel title="リクエスト数（ステータス別）" unit="req/s">
         <AreaChart data={data} margin={{ top: 4, right: 12, bottom: 4, left: 0 }} syncId={SYNC_ID}>
           <CartesianGrid stroke="var(--chart-grid)" vertical={false} />
@@ -135,7 +157,7 @@ export function BenchmarkTimeline({ timeline }: { timeline: TimelineResponse }) 
         </AreaChart>
       </Panel>
 
-      <Panel title="シナリオ警告/エラー（bench.log）" unit="件/s">
+      {data.some((row) => Number(row.scenario_warnings) > 0) && <Panel title="時刻付き警告/エラー（bench.log）" unit="件/s">
         <BarChart data={data} margin={{ top: 4, right: 12, bottom: 4, left: 0 }} syncId={SYNC_ID}>
           <CartesianGrid stroke="var(--chart-grid)" vertical={false} />
           <XAxis {...xAxisProps()} />
@@ -143,7 +165,7 @@ export function BenchmarkTimeline({ timeline }: { timeline: TimelineResponse }) 
           <Tooltip cursor={barCursor} contentStyle={tooltipStyle} labelFormatter={(label) => `${label}s`} />
           <Bar dataKey="scenario_warnings" name="警告/エラー" fill="var(--status-critical)" isAnimationActive={false} />
         </BarChart>
-      </Panel>
+      </Panel>}
 
       <div className="xl:col-span-2">
         <ChartCard title="ホストCPU使用率" unit="%">

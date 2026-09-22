@@ -57,7 +57,7 @@ func TestAppliedSnapshotUsesEmptyArray(t *testing.T) {
 }
 
 func TestValidateRunSnapshotCardRequiresSameChangeBoundary(t *testing.T) {
-	card := Card{ID: "B-001", Status: "APPLIED", Sections: []Section{
+	card := Card{ID: "B-001", Status: "APPLIED", ApplicationID: "B-001@1", Sections: []Section{
 		{Name: sectionObservation, Body: "baseline observation"},
 		{Name: sectionHypothesis, Body: "remove repeated work"},
 		{Name: sectionChangeBoundary, Body: "replace query"},
@@ -111,27 +111,6 @@ func TestCardHashesIgnoreJSONAndLineEndingFormatting(t *testing.T) {
 	}
 }
 
-func TestTargetAssessmentHashTracksOnlyChangeBoundary(t *testing.T) {
-	card := Card{Sections: []Section{
-		{Name: sectionHypothesis, Body: "remove repeated work"},
-		{Name: sectionChangeBoundary, Body: "query only"},
-		{Name: sectionEvaluation, Body: "compare query count"},
-	}}
-	want := cardAssessmentChangeBoundaryHash(card)
-	card.Sections[2].Body = "compare latency and query count"
-	if got := cardAssessmentChangeBoundaryHash(card); got != want {
-		t.Fatalf("verification altered residual-assessment hash: got %s want %s", got, want)
-	}
-	card.Sections[0].Body = "remove a different source of repeated work"
-	if got := cardAssessmentChangeBoundaryHash(card); got != want {
-		t.Fatalf("hypothesis change altered residual-assessment hash: got %s want %s", got, want)
-	}
-	card.Sections[1].Body = "query and cache"
-	if got := cardAssessmentChangeBoundaryHash(card); got == want {
-		t.Fatal("change-boundary change did not alter residual-assessment hash")
-	}
-}
-
 func TestLoadRunAppliedSnapshotRejectsOutdatedAndStartedRuns(t *testing.T) {
 	root := t.TempDir()
 	for _, test := range []struct {
@@ -158,7 +137,7 @@ func TestLoadRunAppliedSnapshotRejectsOutdatedAndStartedRuns(t *testing.T) {
 	}
 }
 
-func TestLoadRunAppliedSnapshotRequiresPassedKnownScoreAndCompatibleComparison(t *testing.T) {
+func TestLoadRunAppliedSnapshotRequiresPassedAndKnownScore(t *testing.T) {
 	root := t.TempDir()
 	runID := "20260901-120010"
 	dir := filepath.Join(root, "runs", runID)
@@ -170,10 +149,9 @@ func TestLoadRunAppliedSnapshotRequiresPassedKnownScoreAndCompatibleComparison(t
 	}
 	base := `{"schema_version":4,"phase":"finalized","run_id":"20260901-120010","backlog_snapshot":{"schema_version":3,"status":"ok","cards":[]}`
 	for name, suffix := range map[string]string{
-		"failed":               `,"score":100,"passed":false}`,
-		"unknown pass":         `,"score":100,"passed":null}`,
-		"unknown score":        `,"score":null,"passed":true}`,
-		"incompatible control": `,"score":100,"passed":true,"comparison":{"run_id":"20260901-110000","status":"incompatible"}}`,
+		"failed":        `,"score":100,"passed":false}`,
+		"unknown pass":  `,"score":100,"passed":null}`,
+		"unknown score": `,"score":null,"passed":true}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err := write(base + suffix); err != nil {
@@ -187,7 +165,7 @@ func TestLoadRunAppliedSnapshotRequiresPassedKnownScoreAndCompatibleComparison(t
 			}
 		})
 	}
-	if err := write(base + `,"score":0,"passed":true,"comparison":{"status":"none"}}`); err != nil {
+	if err := write(base + `,"score":0,"passed":true}`); err != nil {
 		t.Fatal(err)
 	}
 	if run, err := loadRunAppliedSnapshot(root, runID, false); err != nil || run.Score == nil || *run.Score != 0 {
@@ -216,7 +194,7 @@ func TestPassSnapshotCardIDsUsesRunMembership(t *testing.T) {
 		RunID:           "20260901-120000",
 		BacklogSnapshot: AppliedSnapshot{Status: "ok", Cards: []AppliedSnapshotCard{snapshotCard(card)}},
 	}
-	ids, err := passSnapshotCardIDs(store, run, "all")
+	ids, err := passSnapshotCardIDs(store, run, "B-001")
 	if err != nil {
 		t.Fatal(err)
 	}

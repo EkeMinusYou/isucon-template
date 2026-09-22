@@ -12,27 +12,24 @@ import (
 )
 
 type lifecycleOptions struct {
-	profilesEnabled     bool
-	autoCommit          bool
-	action              string
-	runID               string
-	resultsDir          string
-	rawDir              string
-	runStateFile        string
-	snapshotPath        string
-	scoresPath          string
-	score               string
-	collectorConfig     string
-	digesterConfig      string
-	collectorFlags      string
-	digesterFlags       string
-	compareRun          string
-	compareAllowedCards string
-	compareAllowedRoles string
-	sshUser             string
-	sshOpts             string
-	roles               map[string][]string
-	vars                map[string]string
+	profilesEnabled bool
+	autoCommit      bool
+	action          string
+	runID           string
+	resultsDir      string
+	rawDir          string
+	runStateFile    string
+	snapshotPath    string
+	scoresPath      string
+	score           string
+	collectorConfig string
+	digesterConfig  string
+	collectorFlags  string
+	digesterFlags   string
+	sshUser         string
+	sshOpts         string
+	roles           map[string][]string
+	vars            map[string]string
 }
 
 type lifecycleRunner struct {
@@ -62,9 +59,6 @@ func runLifecycle(args []string) error {
 	fs.StringVar(&opts.digesterConfig, "digesters", defaultMeasureConfigPath("digesters.yaml"), "digester declaration")
 	fs.StringVar(&opts.collectorFlags, "collector-flags", "", "additional collect flags")
 	fs.StringVar(&opts.digesterFlags, "digester-flags", "", "additional digest flags")
-	fs.StringVar(&opts.compareRun, "compare-run", "", "declared control RUN ID")
-	fs.StringVar(&opts.compareAllowedCards, "compare-allow-cards", "", "card IDs allowed to differ from control")
-	fs.StringVar(&opts.compareAllowedRoles, "compare-allow-roles", "", "role fields allowed to differ from control")
 	fs.StringVar(&opts.sshUser, "ssh-user", "ubuntu", "SSH user")
 	fs.StringVar(&opts.sshOpts, "ssh-opts", "", "additional SSH options")
 	roles := keyValues{}
@@ -217,7 +211,6 @@ func (o lifecycleOptions) manifestBeginArgs(runDir string) ([]string, error) {
 		"-dir", runDir, "-applied-snapshot", o.snapshotPath, "-collector-clean",
 		"-capture-contract", "-profiles-enabled=" + strconv.FormatBool(o.profilesEnabled),
 		"-collectors", o.collectorConfig, "-digesters", o.digesterConfig,
-		"-compare-allow-cards", o.compareAllowedCards, "-compare-allow-roles", o.compareAllowedRoles,
 		"-app", strings.Join(o.roles["app"], ","), "-app-traffic", strings.Join(o.roles["app_traffic"], ","),
 		"-nginx", strings.Join(o.roles["nginx"], ","), "-entry", entry, "-mysql", mysql,
 	}
@@ -238,9 +231,6 @@ func (o lifecycleOptions) manifestBeginArgs(runDir string) ([]string, error) {
 	}
 	if disabled {
 		args = append(args, "-collectors-disabled")
-	}
-	if o.compareRun != "" {
-		args = append(args, "-compare-run-dir", filepath.Join(o.resultsDir, o.compareRun))
 	}
 	var additionalNames []string
 	for name := range o.roles {

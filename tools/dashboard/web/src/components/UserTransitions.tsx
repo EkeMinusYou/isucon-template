@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { UserScenario, UserTransitionEdge, UserTransitionsResponse } from '../api'
+import type { AlpRow, UserScenario, UserTransitionEdge, UserTransitionsResponse } from '../api'
 import { EmptyState } from './EmptyState'
 import { TransitionNodeGraph } from './TransitionNodeGraph'
 
@@ -11,7 +11,7 @@ function percent(part: number, total: number) {
   return total > 0 ? (part / total) * 100 : 0
 }
 
-export function UserTransitions({ data }: { data: UserTransitionsResponse }) {
+export function UserTransitions({ data, alpRows }: { data: UserTransitionsResponse; alpRows: AlpRow[] }) {
   const edges = data.edges ?? EMPTY_EDGES
   const scenarios = data.scenarios ?? EMPTY_SCENARIOS
   const [selectedScenarioID, setSelectedScenarioID] = useState<string | null>(null)
@@ -165,6 +165,7 @@ export function UserTransitions({ data }: { data: UserTransitionsResponse }) {
           <TransitionNodeGraph
             key={effectiveScenarioID}
             edges={viewEdges}
+            alpRows={alpRows}
             timelineNodes={selectedScenario?.nodes}
             title={selectedScenario ? `シナリオ ${scenarioRank} のAPI遷移` : '全CookieセッションのAPI遷移'}
           />

@@ -12,8 +12,9 @@ var allowedObjectiveStatuses = map[string]bool{"ACTIVE": true, "RETIRED": true}
 var allowedObjectiveModes = map[string]bool{"SATISFY": true, "MAXIMIZE": true, "MINIMIZE": true}
 
 type ObjectiveFilter struct {
-	All    bool
-	Status string
+	All      bool
+	Status   string
+	Priority string
 }
 
 type NewObjective struct {
@@ -21,6 +22,7 @@ type NewObjective struct {
 	Status                 string
 	Mode                   string
 	Title                  string
+	Priority               string
 	MetricOrPredicate      string
 	RequiredForValidResult bool
 	ParentObjectiveID      string
@@ -32,6 +34,7 @@ type ObjectivePatch struct {
 	Status                 *string
 	Mode                   *string
 	Title                  *string
+	Priority               *string
 	MetricOrPredicate      *string
 	RequiredForValidResult *bool
 	ParentObjectiveID      *string
@@ -125,7 +128,7 @@ func (s *Store) addObjective(input NewObjective, options mutation, reason string
 			return "", err
 		}
 	}
-	_, err = tx.Exec(`INSERT INTO objectives(id, objective_version, status, mode, title, metric_or_predicate, required_for_valid_result, parent_objective_id, official_sources, verification, updated, updated_by) VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, id, input.Status, input.Mode, strings.TrimSpace(input.Title), strings.TrimSpace(input.MetricOrPredicate), boolInt(input.RequiredForValidResult), input.ParentObjectiveID, strings.TrimSpace(input.OfficialSources), strings.TrimSpace(input.Verification), now(), options.Actor)
+	_, err = tx.Exec(`INSERT INTO objectives(id, objective_version, status, mode, title, priority, metric_or_predicate, required_for_valid_result, parent_objective_id, official_sources, verification, updated, updated_by) VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, id, input.Status, input.Mode, strings.TrimSpace(input.Title), strings.TrimSpace(input.Priority), strings.TrimSpace(input.MetricOrPredicate), boolInt(input.RequiredForValidResult), input.ParentObjectiveID, strings.TrimSpace(input.OfficialSources), strings.TrimSpace(input.Verification), now(), options.Actor)
 	if err != nil {
 		tx.Rollback()
 		return "", err
@@ -162,7 +165,7 @@ func getObjectiveFrom(q queryer, id string) (Objective, error) {
 	id = normalizeObjectiveID(id)
 	var objective Objective
 	var required int
-	err := q.QueryRow(`SELECT id, objective_version, status, mode, title, metric_or_predicate, required_for_valid_result, parent_objective_id, official_sources, verification, updated, updated_by FROM objectives WHERE id = ?`, id).Scan(&objective.ID, &objective.Version, &objective.Status, &objective.Mode, &objective.Title, &objective.MetricOrPredicate, &required, &objective.ParentObjectiveID, &objective.OfficialSources, &objective.Verification, &objective.Updated, &objective.UpdatedBy)
+	err := q.QueryRow(`SELECT id, objective_version, status, mode, title, priority, metric_or_predicate, required_for_valid_result, parent_objective_id, official_sources, verification, updated, updated_by FROM objectives WHERE id = ?`, id).Scan(&objective.ID, &objective.Version, &objective.Status, &objective.Mode, &objective.Title, &objective.Priority, &objective.MetricOrPredicate, &required, &objective.ParentObjectiveID, &objective.OfficialSources, &objective.Verification, &objective.Updated, &objective.UpdatedBy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Objective{}, fmt.Errorf("objective %s not found", id)
 	}
@@ -240,6 +243,9 @@ func (s *Store) listObjectives(filter ObjectiveFilter) ([]Objective, error) {
 		if filter.Status != "" && objective.Status != strings.ToUpper(strings.TrimSpace(filter.Status)) {
 			continue
 		}
+		if filter.Priority != "" && !strings.EqualFold(filter.Priority, objective.Priority) {
+			continue
+		}
 		result = append(result, objective)
 	}
 	return result, nil
@@ -276,7 +282,7 @@ func (s *Store) updateObjective(id string, patch ObjectivePatch, expected int, o
 	if err != nil {
 		return err
 	}
-	target := NewObjective{ID: id, Status: currentObjective.Status, Mode: currentObjective.Mode, Title: currentObjective.Title, MetricOrPredicate: currentObjective.MetricOrPredicate, RequiredForValidResult: currentObjective.RequiredForValidResult, ParentObjectiveID: currentObjective.ParentObjectiveID, OfficialSources: currentObjective.OfficialSources, Verification: currentObjective.Verification}
+	target := NewObjective{ID: id, Status: currentObjective.Status, Mode: currentObjective.Mode, Title: currentObjective.Title, Priority: currentObjective.Priority, MetricOrPredicate: currentObjective.MetricOrPredicate, RequiredForValidResult: currentObjective.RequiredForValidResult, ParentObjectiveID: currentObjective.ParentObjectiveID, OfficialSources: currentObjective.OfficialSources, Verification: currentObjective.Verification}
 	if patch.Status != nil {
 		target.Status = strings.ToUpper(strings.TrimSpace(*patch.Status))
 	}
@@ -285,6 +291,9 @@ func (s *Store) updateObjective(id string, patch ObjectivePatch, expected int, o
 	}
 	if patch.Title != nil {
 		target.Title = *patch.Title
+	}
+	if patch.Priority != nil {
+		target.Priority = strings.TrimSpace(*patch.Priority)
 	}
 	if patch.MetricOrPredicate != nil {
 		target.MetricOrPredicate = *patch.MetricOrPredicate
@@ -321,7 +330,7 @@ func (s *Store) updateObjective(id string, patch ObjectivePatch, expected int, o
 		tx.Rollback()
 		return err
 	}
-	if _, err := tx.Exec(`UPDATE objectives SET status=?, mode=?, title=?, metric_or_predicate=?, required_for_valid_result=?, parent_objective_id=?, official_sources=?, verification=?, updated=?, updated_by=? WHERE id=?`, target.Status, target.Mode, strings.TrimSpace(target.Title), strings.TrimSpace(target.MetricOrPredicate), boolInt(target.RequiredForValidResult), target.ParentObjectiveID, strings.TrimSpace(target.OfficialSources), strings.TrimSpace(target.Verification), now(), options.Actor, id); err != nil {
+	if _, err := tx.Exec(`UPDATE objectives SET status=?, mode=?, title=?, priority=?, metric_or_predicate=?, required_for_valid_result=?, parent_objective_id=?, official_sources=?, verification=?, updated=?, updated_by=? WHERE id=?`, target.Status, target.Mode, strings.TrimSpace(target.Title), strings.TrimSpace(target.Priority), strings.TrimSpace(target.MetricOrPredicate), boolInt(target.RequiredForValidResult), target.ParentObjectiveID, strings.TrimSpace(target.OfficialSources), strings.TrimSpace(target.Verification), now(), options.Actor, id); err != nil {
 		tx.Rollback()
 		return err
 	}
@@ -449,7 +458,7 @@ func (s *Store) setObjectiveRelation(objectiveID, targetID, targetType, rational
 }
 
 func validateObjectiveRelations(q queryer) error {
-	rows, err := q.Query(`SELECT id, objective_version, status, mode, title, metric_or_predicate, required_for_valid_result, parent_objective_id, official_sources, verification FROM objectives ORDER BY id`)
+	rows, err := q.Query(`SELECT id, objective_version, status, mode, title, priority, metric_or_predicate, required_for_valid_result, parent_objective_id, official_sources, verification FROM objectives ORDER BY id`)
 	if err != nil {
 		return err
 	}
@@ -457,7 +466,7 @@ func validateObjectiveRelations(q queryer) error {
 	for rows.Next() {
 		var input NewObjective
 		var version, required int
-		if err := rows.Scan(&input.ID, &version, &input.Status, &input.Mode, &input.Title, &input.MetricOrPredicate, &required, &input.ParentObjectiveID, &input.OfficialSources, &input.Verification); err != nil {
+		if err := rows.Scan(&input.ID, &version, &input.Status, &input.Mode, &input.Title, &input.Priority, &input.MetricOrPredicate, &required, &input.ParentObjectiveID, &input.OfficialSources, &input.Verification); err != nil {
 			rows.Close()
 			return err
 		}

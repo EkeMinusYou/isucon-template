@@ -3,17 +3,24 @@
 # Update the variables in the first section at the start of each contest.
 version: '3'
 
+# Contest-specific tasks live in Taskfile.contest.yml and are flattened into
+# this namespace, so the generic graph below never names a contest asset.
+# Task names must not collide across the two files; the generic side calls into
+# the contest side through hook tasks only.
+includes:
+  contest:
+    taskfile: ./Taskfile.contest.yml
+    flatten: true
+
 vars:
-  SSH_USER: ubuntu
-  ISUCON_USER: isucon
+  # >>> contest values >>>
+  # 競技ごとに書き換える区画。template-diffはここをbackport候補として扱わない。
+  # 区画の外は、次の競技でもそのまま使う既定値である。
+  # setup-checkの前に、公式資料と実環境で全項目を確認する。
   APP_NAME: app
-  APP_DIR: webapp/go
   SERVICE: app
   DB_NAME: app
-  REMOTE_HOME: /home/isucon
   LISTEN_PORT: '8080'
-
-  # Confirm these contest-specific gates before running setup-check.
   TARGET_OS: linux
   TARGET_ARCH: amd64
   SCHEMA_PATHS: ''
@@ -24,6 +31,12 @@ vars:
   INITIALIZE_PATH: /initialize
   CONFIG_CHECK_COMMAND: ''
   SETUP_SECRET_ALLOWLIST: ''
+  # <<< contest values <<<
+
+  SSH_USER: ubuntu
+  ISUCON_USER: isucon
+  APP_DIR: webapp/go
+  REMOTE_HOME: /home/isucon
   SETUP_WEBAPP_EXCLUDES: tools/setup/webapp-excludes.txt
 
   SSH_MUX: -o UpdateHostKeys=no -o BatchMode=yes -o ConnectTimeout=10 -o ControlMaster=auto -o ControlPath=/tmp/.isucon-ssh-%C -o ControlPersist=600
@@ -31,6 +44,7 @@ vars:
   RSYNC: rsync -az --rsync-path="sudo rsync" -e "ssh -o RequestTTY=no -o LogLevel=ERROR {{.SSH_MUX}}"
   GO_BUILD_ENV: CGO_ENABLED=0 GOOS={{.TARGET_OS}} GOARCH={{.TARGET_ARCH}}
 
+  # >>> contest values >>>
   # Contest topology. Keep host roles and private addresses here only.
   ALL_HOSTS: isucon-1 isucon-2 isucon-3
   BENCH_HOST: isucon-bench
@@ -47,6 +61,7 @@ vars:
   # Deployment and service enable/disable targets; preserve the single-host default.
   MYSQL_HOSTS: '{{.MYSQL_HOST}}'
   CONF_SRC: isucon-1
+  # <<< contest values <<<
 
   ENTRY_HOST: '{{splitList " " .NGINX_HOSTS | first}}'
   ENTRY_IP: '{{index .IP (splitList " " .NGINX_HOSTS | first)}}'
@@ -54,8 +69,10 @@ vars:
   APP_IPS: '{{$ips := list}}{{range (splitList " " .APP_TRAFFIC_HOSTS)}}{{$ips = append $ips (index $.IP .)}}{{end}}{{join " " $ips}}'
   ALL_HOST_IPS: '{{range (splitList " " .ALL_HOSTS)}}{{.}}={{index $.IP .}} {{end}}'
 
+  # >>> contest values >>>
   BENCH_TARGET: http://{{.ENTRY_IP}}
   BENCH_COMMAND: ./bench_linux_amd64 run --target {{.BENCH_TARGET}}
+  # <<< contest values <<<
 
   RESULT_DIR: runs
   RAW_DIR: raw
@@ -83,6 +100,7 @@ vars:
   PROFILE_READY_TIMEOUT_SECONDS: '15'
   NGINX_BACKEND_REPORT_DIR: tools/nginx-backend-report
   JSON_METRICS_COLLECTOR_DIR: tools/json-metrics-collector
+  SQL_POOL_METRICS_DIR: tools/sql-pool-metrics
   USER_TRANSITION_METRICS_DIR: tools/user-transition-metrics
   MEASURECTL_DIR: tools/measurectl
   DEPLOYCTL_DIR: tools/deployctl
@@ -91,9 +109,6 @@ vars:
 
   MEASURECTL_FLAGS: ''
   MEASURECTL_DIGEST_FLAGS: ''
-  COMPARE_RUN: ''
-  COMPARE_ALLOWED_CARDS: ''
-  COMPARE_ALLOWED_ROLES: ''
   MEASURECTL_SSH: '-ssh-user {{.SSH_USER}} -ssh-opts "{{.SSH_MUX}}"'
   MEASURECTL_ROLES: >-
     -role all={{splitList " " .ALL_HOSTS | join ","}}
@@ -108,6 +123,7 @@ vars:
     -var services={{.SERVICE}},nginx,mysql
     -var app_service={{.SERVICE}}
     -var pprof_base_url={{.PPROF_BASE_URL}}
+    -var sql_pool_metrics_url=http://127.0.0.1:6060/debug/sql-pools
     -var profile_status_url={{.PROFILE_STATUS_URL}}
     -var profile_ready_timeout_seconds={{.PROFILE_READY_TIMEOUT_SECONDS}}
     -var fgprof_url={{.FGPROF_URL}}
@@ -257,6 +273,13 @@ tasks:
     generates: [json-metrics-collector]
     cmds: ['{{.GO_BUILD_ENV}} go build -trimpath -ldflags "-s -w" -o json-metrics-collector .']
 
+  build-sql-pool-metrics:
+    internal: true
+    dir: '{{.SQL_POOL_METRICS_DIR}}'
+    sources: ['*.go', go.mod]
+    generates: [sql-pool-metrics]
+    cmds: ['{{.GO_BUILD_ENV}} go build -trimpath -ldflags "-s -w" -o sql-pool-metrics .']
+
   build-nginx-backend-report:
     internal: true
     dir: '{{.NGINX_BACKEND_REPORT_DIR}}'
@@ -267,7 +290,7 @@ tasks:
   build-user-transition-metrics:
     desc: Cookie由来のユーザー遷移集計ツールをローカルでビルド
     dir: '{{.USER_TRANSITION_METRICS_DIR}}'
-    sources: ['*.go', go.mod, routes.json]
+    sources: ['*.go', go.mod]
     generates: [user-transition-metrics]
     cmds: ['go build -trimpath -ldflags "-s -w" -o user-transition-metrics .']
 
@@ -277,6 +300,13 @@ tasks:
     sources: ['*.go', go.mod, go.sum, collectors.yaml, digesters.yaml]
     generates: [measurectl]
     cmds: ['go build -trimpath -ldflags "-s -w" -o measurectl .']
+
+  build-bench-output:
+    desc: ベンチ結果の出力変換ツールをローカル向けにビルド
+    dir: tools/bench-output
+    sources: ['*.go', go.mod]
+    generates: [bench-output]
+    cmds: ['go build -trimpath -ldflags "-s -w" -o bench-output .']
 
   build-deployctl:
     internal: true
@@ -288,7 +318,7 @@ tasks:
   build-analysisctl:
     internal: true
     dir: '{{.ANALYSISCTL_DIR}}'
-    sources: ['*.go', internal/pprofimport/*.go, go.mod, go.sum, ../analysis/sources.yaml, ../analysis/schema/*.sql]
+    sources: ['*.go', internal/pprofimport/*.go, go.mod, go.sum, ../analysis/sources.yaml, ../analysis/schema/*.sql, ../contest/analysis-schema/*.sql]
     generates: [analysisctl]
     cmds: ['go build -trimpath -ldflags "-s -w" -o analysisctl .']
 
@@ -300,6 +330,12 @@ tasks:
     vars:
       TOOL_MODULES:
         sh: find tools -name go.mod -exec dirname {} \; | sort
+
+  template-diff:
+    desc: templateへ反映すべき差分をtools/template/paths.txtの範囲で表示する（DETAIL=1で差分本文）
+    silent: true
+    cmds:
+      - DETAIL='{{.DETAIL}}' bash tools/template/diff.sh '{{.TEMPLATE_DIR | default "../isucon-template"}}'
 
   inspect-hosts:
     desc: 全ホストの構成を読み取り専用SSHで表示
@@ -405,6 +441,43 @@ tasks:
       - task: deploy-app-dry
       - task: deploy-all-dry
 
+  setup-smoke:
+    desc: ベンチを実行せず短いprofile・全ホストcollector・認証APIを確認（RUNは作成しない）
+    preconditions:
+      - sh: test ! -f '{{.RUN_STATE_FILE}}'
+        msg: active benchmark exists
+    deps: [build-measurectl, build-proc-metrics, build-mysql-metrics, build-sql-pool-metrics, build-user-transition-metrics, build-nginx-backend-report]
+    vars:
+      SMOKE_PROFILE_VARS: '-var profile_seconds=5 -var snapshot_profile_delay=1s -var profile_timeout_seconds=20 -var fgprof_url=http://127.0.0.1:6060/debug/fgprof?seconds=5'
+      SMOKE_ID: 'setup-smoke-{{.RUN_ID}}'
+      SMOKE_DIR: '{{.ROOT_DIR}}/.task/{{.SMOKE_ID}}'
+    cmds:
+      - |
+        set -eu
+        mkdir -p '{{.SMOKE_DIR}}'
+        {{.MEASURECTL_DIR}}/measurectl collect check-clean {{.MEASURECTL_REMOTE}}
+        {{.MEASURECTL_DIR}}/measurectl collect prepare {{.MEASURECTL_REMOTE}}
+        trap '{{.MEASURECTL_DIR}}/measurectl collect stop -run-id "{{.SMOKE_ID}}" -run-dir "{{.SMOKE_DIR}}" {{.MEASURECTL_REMOTE}}' EXIT
+        {{.MEASURECTL_DIR}}/measurectl collect start -run-id '{{.SMOKE_ID}}' {{.MEASURECTL_REMOTE}}
+        {{.MEASURECTL_DIR}}/measurectl collect oneshot -group profiles -run-id '{{.SMOKE_ID}}' -run-dir '{{.SMOKE_DIR}}' {{.MEASURECTL_REMOTE}} {{.SMOKE_PROFILE_VARS}} &
+        profiles_pid=$!
+        {{.MEASURECTL_DIR}}/measurectl collect ready -group profiles -run-id '{{.SMOKE_ID}}' {{.MEASURECTL_REMOTE}}
+        {{.SSH}} {{.SSH_USER}}@{{.ENTRY_HOST}} python3 - < tools/setup/smoke.py
+        wait "$profiles_pid"
+        {{.MEASURECTL_DIR}}/measurectl digest -only alp,alp-by-ingress,upstream-breakdown,upstream-breakdown-by-ingress,user-transitions,pt-query-digest,slp,mysql-digest -run-dir '{{.SMOKE_DIR}}' -raw-dir '{{.SMOKE_DIR}}/raw' {{.MEASURECTL_REMOTE}}
+        echo 'Smoke artifacts: {{.SMOKE_DIR}} (not a benchmark RUN)'
+
+  setup-smoke-stop:
+    desc: 指定したsetup疎通確認のcollectorだけを停止・回収
+    requires:
+      vars: [SMOKE_ID]
+    preconditions:
+      - sh: case '{{.SMOKE_ID}}' in setup-smoke-*) exit 0;; *) exit 1;; esac
+        msg: SMOKE_ID must identify a setup smoke session
+    deps: [build-measurectl]
+    cmds:
+      - '{{.MEASURECTL_DIR}}/measurectl collect stop -run-id "{{.SMOKE_ID}}" -run-dir "{{.ROOT_DIR}}/.task/{{.SMOKE_ID}}" {{.MEASURECTL_REMOTE}}'
+
   gen:
     desc: 役割定義からnginx upstreamを生成
     silent: true
@@ -420,6 +493,9 @@ tasks:
           echo "  keepalive 64;"
           echo "}"
         } > nginx/conf.d/upstream.conf
+      # Contest hook; appends solution-specific upstreams and generated per-host files.
+      # A contest that routes everything through this upstream defines it as a no-op.
+      - task: gen-contest-routing
 
   deploy:
     desc: GoアプリをビルドしてAPP_HOSTSへ配布・再起動
@@ -434,6 +510,8 @@ tasks:
     desc: sysctl・MySQL・アプリ・nginxを初期化なしで反映
     preconditions: *no_active_run
     cmds:
+      # Contest hook; a contest without prepared assets defines it as a no-op.
+      - task: prepare-db-assets
       - task: gen
       - task: build
       - task: deploy-plan
@@ -443,6 +521,8 @@ tasks:
     desc: アプリDBをスキーマから再作成し全体deploy・初期化（setup時に具体化）
     preconditions: *no_active_run
     cmds:
+      # Contest hook; a contest without prepared assets defines it as a no-op.
+      - task: prepare-db-assets
       - task: gen
       - task: build
       - task: deploy-plan
@@ -459,14 +539,18 @@ tasks:
 
   deploy-app-dry:
     desc: app deployの転送先・role・activationを実行せず表示
-    deps: [build-deployctl]
+    deps: [gen, build-deployctl]
     cmds:
+      # Contest hook; keep the dry-run input complete in clean worktrees.
+      - task: prepare-db-assets
       - '{{.DEPLOYCTL_DIR}}/deployctl apply app -dry-run -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
 
   deploy-all-dry:
     desc: deploy-allの転送先・role・activation graphを実行せず表示
     deps: [build-deployctl]
     cmds:
+      # Contest hook; keep the dry-run input complete in clean worktrees.
+      - task: prepare-db-assets
       - task: gen
       - task: build
       - '{{.DEPLOYCTL_DIR}}/deployctl apply-plan deploy-all -dry-run -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
@@ -474,8 +558,10 @@ tasks:
   deploy-app:
     desc: アプリをAPP_HOSTSへ配布・再起動
     preconditions: *no_active_run
-    deps: [build-deployctl]
+    deps: [gen, build, build-deployctl]
     cmds:
+      # Contest hook; the app initialize script consumes these generated files.
+      - task: prepare-db-assets
       - '{{.DEPLOYCTL_DIR}}/deployctl apply app -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
 
   deploy-nginx:
@@ -541,7 +627,7 @@ tasks:
       - for: { var: NGINX_HOSTS }
         cmd: '{{.SSH}} {{.SSH_USER}}@{{.ITEM}} "for ip in {{.APP_IPS}}; do timeout 2 bash -c \"</dev/tcp/\$ip/{{.LISTEN_PORT}}\"; done" && echo "[{{.ITEM}}] app OK"'
       - for: { var: APP_HOSTS }
-        cmd: '{{.SSH}} {{.SSH_USER}}@{{.ITEM}} "timeout 2 bash -c \"</dev/tcp/{{.MYSQL_IP}}/3306\"" && echo "[{{.ITEM}}] mysql OK"'
+        cmd: '{{.SSH}} {{.SSH_USER}}@{{.ITEM}} "timeout 2 bash -c \"</dev/tcp/{{if eq .ITEM .MYSQL_HOST}}127.0.0.1{{else}}{{.MYSQL_IP}}{{end}}/3306\"" && echo "[{{.ITEM}}] mysql OK"'
 
   check-roles:
     desc: service状態がTaskfileの役割定義と一致することを確認
@@ -551,6 +637,7 @@ tasks:
 
   bench:
     desc: 計測開始→BENCH_HOSTでベンチ→回収
+    deps: [build-bench-output]
     env: &bench_runner_env
       ISUCON_BENCH_RUN_STATE_FILE: '{{.RUN_STATE_FILE}}'
       ISUCON_BENCH_RESULTS_DIR: '{{.RESULT_DIR}}'
@@ -558,7 +645,7 @@ tasks:
       ISUCON_BENCH_PROFILES_ENABLED: '{{.PROFILES_ENABLED}}'
     cmds:
       - >-
-        sh tools/bench/run.sh auto -- {{.SSH}} {{.SSH_USER}}@{{.BENCH_HOST}}
+        sh tools/bench/run.sh auto -- tools/bench-output/bench-output {{.SSH}} {{.SSH_USER}}@{{.BENCH_HOST}}
         "sudo -u {{.ISUCON_USER}} -i bash -lc 'cd {{.REMOTE_HOME}} && {{.BENCH_COMMAND}}'"
 
   bench-no-collectors:
@@ -584,7 +671,7 @@ tasks:
   before-bench:
     desc: RUNを採番し、ログローテートとcollector起動を行う
     silent: true
-    deps: [build-measurectl, build-proc-metrics, build-mysql-metrics]
+    deps: [build-measurectl, build-proc-metrics, build-mysql-metrics, build-sql-pool-metrics]
     cmds:
       - |
         bash <<'BASH'
@@ -596,8 +683,7 @@ tasks:
         {{.MEASURECTL_DIR}}/measurectl run begin -run-id '{{.RUN_ID}}' \
           -profiles-enabled={{.PROFILES_ENABLED}} \
           -results '{{.RESULT_DIR}}' -raw-dir '{{.RAW_DIR}}' -run-state-file '{{.RUN_STATE_FILE}}' \
-          -applied-snapshot "$snapshot" -compare-run '{{.COMPARE_RUN}}' \
-          -compare-allow-cards '{{.COMPARE_ALLOWED_CARDS}}' -compare-allow-roles '{{.COMPARE_ALLOWED_ROLES}}' \
+          -applied-snapshot "$snapshot" \
           -collector-flags '{{.MEASURECTL_FLAGS}} {{default "" .MEASURECTL_COLLECT_FLAGS}}' {{.MEASURECTL_REMOTE}}
         BASH
 
@@ -614,6 +700,7 @@ tasks:
         -collector-flags '{{.MEASURECTL_FLAGS}} {{default "" .MEASURECTL_COLLECT_FLAGS}}'
         -digester-flags '{{.MEASURECTL_DIGEST_FLAGS}}' {{.MEASURECTL_REMOTE}}
       - '{{.MEASURECTL_DIR}}/measurectl artifacts -run-dir {{.RESULT_DIR}}/{{.FINISH_RUN_ID}}'
+      - task: q-sync
 
   profiles-collect:
     desc: 進行中RUNへ標準Go profileとfgprofを収集
@@ -686,33 +773,41 @@ tasks:
     cmds: ['go run . -root {{.ROOT_DIR}} -db {{.ROOT_DIR}}/{{.BACKLOG_DB}} {{.CLI_ARGS}}']
 
   pass:
-    desc: 最新RUNのAPPLIED Interventionを安全条件付きでVALIDATEDへ昇格（例外はFORCE=true）
+    desc: 指定RUN・Owner・versionのAPPLIEDを採用（RUN=... OWNER=... VERSIONS=B-001=4 -- B-001）
     silent: true
     dir: tools/backlog
     vars:
-      TARGETS: '{{.CLI_ARGS | default "all"}}'
+      TARGETS: '{{.CLI_ARGS}}'
       FORCE: '{{.FORCE | default "false"}}'
+      REASON: '{{.REASON | default "benchmark result adopted"}}'
+    env:
+      BACKLOG_PASS_RUN: '{{.RUN}}'
+      BACKLOG_PASS_OWNER: '{{.OWNER | default ""}}'
+      BACKLOG_PASS_VERSIONS: '{{.VERSIONS | default ""}}'
+      BACKLOG_PASS_TARGETS: '{{.TARGETS}}'
+      BACKLOG_PASS_REASON: '{{.REASON}}'
     cmds:
       - >-
         go run . -root '{{.ROOT_DIR}}' -db '{{.ROOT_DIR}}/{{.BACKLOG_DB}}'
-        pass '{{.TARGETS}}' --actor task:pass --reason 'benchmark result adopted'
+        pass "$BACKLOG_PASS_TARGETS" --actor task:pass --reason "$BACKLOG_PASS_REASON"
+        --evidence-run "$BACKLOG_PASS_RUN" --owner "$BACKLOG_PASS_OWNER"
+        --expect-card-versions "$BACKLOG_PASS_VERSIONS"
         --force='{{.FORCE}}' --outcomes '{{.ROOT_DIR}}/{{.RESULT_DIR}}/outcomes.tsv'
 
   q:
-    desc: RUN横断DuckDBクエリ
-    deps: [q-sync]
+    desc: 同期済み分析DBへの読み取り専用RUN横断DuckDBクエリ
     env:
       ISUCON_QUERY: '{{join " " .CLI_ARGS_LIST}}'
     cmds:
       - |
         if [ -n "$ISUCON_QUERY" ]; then
-          duckdb '{{.ANALYSIS_DB}}' -c "$ISUCON_QUERY"
+          duckdb -readonly '{{.ANALYSIS_DB}}' -c "$ISUCON_QUERY"
         else
-          duckdb '{{.ANALYSIS_DB}}'
+          duckdb -readonly '{{.ANALYSIS_DB}}'
         fi
 
   q-sync:
-    internal: true
+    desc: finalized RUNを分析DBへ同期
     deps: [build-analysisctl]
     preconditions:
       - sh: find '{{.RESULT_DIR}}' -mindepth 1 -maxdepth 1 -type d -name '[0-9]*' | grep -q .
@@ -746,7 +841,7 @@ tasks:
   dashboard-server:
     internal: true
     dir: tools/dashboard/server
-    cmds: ['go run . -root {{.ROOT_DIR}} -db {{.ROOT_DIR}}/{{.BACKLOG_DB}} -addr 127.0.0.1:8091']
+    cmds: ['go run . -root {{.ROOT_DIR}} -db {{.ROOT_DIR}}/{{.BACKLOG_DB}} -analysis-db {{.ROOT_DIR}}/{{.ANALYSIS_DB}} -addr 127.0.0.1:8091']
 
   dashboard-web:
     internal: true
@@ -793,6 +888,39 @@ tasks:
       - for: { var: ALL_HOSTS }
         cmd: '{{.SSH}} {{.SSH_USER}}@{{.ITEM}} "sudo journalctl --vacuum-size=10M && sudo apt-get clean"'
 
+  rotate-mysql-logs:
+    desc: 全ホストの既存logrotate設定でMySQLログをローテート・圧縮
+    preconditions: *no_active_run
+    cmds:
+      - for: { var: ALL_HOSTS }
+        cmd: |
+          {{.SSH}} {{.SSH_USER}}@{{.ITEM}} 'sudo bash -se' <<'REMOTE'
+          rotation_config=$(mktemp /tmp/isucon-logrotate.XXXXXX)
+          trap 'rm -f "$rotation_config"' EXIT
+          printf '%s\n' 'su root adm' 'include /etc/logrotate.d/mysql-server' > "$rotation_config"
+          logrotate --force --verbose "$rotation_config"
+          REMOTE
+
+  archive-rotated-mysql-log:
+    desc: HOSTのローテート済みスローログをローカル回収しSHA-256一致後に原本を削除
+    requires:
+      vars: [HOST]
+    preconditions: *no_active_run
+    cmds:
+      - |
+        set -eu
+        set -o pipefail
+        mkdir -p '{{.RAW_DIR}}'
+        archive_path='{{.RAW_DIR}}/{{.HOST}}-mysql-slow-'$(date +%Y%m%d-%H%M%S)'.log.gz'
+        test ! -e "$archive_path"
+        expected=$({{.SSH}} {{.SSH_USER}}@{{.HOST}} 'sudo sha256sum /var/log/mysql/mysql-slow.log.1' | cut -d ' ' -f 1)
+        {{.SSH}} {{.SSH_USER}}@{{.HOST}} 'sudo gzip -1 -c /var/log/mysql/mysql-slow.log.1' > "$archive_path.partial"
+        actual=$(gzip -dc "$archive_path.partial" | shasum -a 256 | cut -d ' ' -f 1)
+        test "$actual" = "$expected"
+        mv "$archive_path.partial" "$archive_path"
+        {{.SSH}} {{.SSH_USER}}@{{.HOST}} "echo '$expected  /var/log/mysql/mysql-slow.log.1' | sudo sha256sum -c - && sudo rm /var/log/mysql/mysql-slow.log.1"
+        echo "Archived: $archive_path SHA-256: $expected"
+
   deploy-all-reset-dry:
     desc: roleに基づく破壊的deploy計画を実行せず表示
     deps: [build-deployctl]
@@ -802,7 +930,7 @@ tasks:
 
   deploy-app-unit-dry:
     desc: アプリのsystemd設定のみの転送・反映計画を表示
-    deps: [build-deployctl]
+    deps: [gen, build-deployctl]
     cmds:
       - '{{.DEPLOYCTL_DIR}}/deployctl apply app-unit -dry-run -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
 
@@ -810,7 +938,7 @@ tasks:
   deploy-app-unit:
     desc: アプリのsystemd設定のみを反映し停止中なら起動
     preconditions: *no_active_run
-    deps: [build-deployctl]
+    deps: [gen, build-deployctl]
     cmds:
       - '{{.DEPLOYCTL_DIR}}/deployctl apply app-unit -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
 

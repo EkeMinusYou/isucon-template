@@ -3,8 +3,11 @@ version: 1
 base_schema: schema/00-base.sql
 semantic_schemas:
   - schema/semantic.sql
-  - schema/comparison.sql
   - schema/bottleneck.sql
+  # Views over the contest's own benchmark log live under ../contest/analysis-schema/
+  # because they depend on that benchmarker's output format. Add score breakdowns
+  # for the contest there as well; the view names stay the readers' contract.
+  - ../contest/analysis-schema/bench-errors-semantic.sql
 
 reports:
   bottleneck_evidence: queries/bottleneck-evidence.sql
@@ -26,37 +29,57 @@ profiles:
     - pprof_edges
 
 sources:
+  # Time-series collectors are physically filtered during import. Raw files
+  # under runs/<RUN_ID>/ remain complete so the window can be recomputed.
   - table: metrics
     schema: schema/proc.sql
     match: "*-proc-metrics.tsv"
     view: metrics_proc
+    windowed: true
+    window_column: ts
   - table: metrics
     schema: schema/service.sql
     match: "*-service-metrics.tsv"
     view: metrics_service
+    windowed: true
+    window_column: ts
   - table: metrics
     schema: schema/disk.sql
     match: "*-disk-metrics.tsv"
     view: metrics_disk
+    windowed: true
+    window_column: ts
   - table: metrics
     schema: schema/mysql.sql
-    match: mysql-status.tsv
+    match: '*mysql-status.tsv'
     view: metrics_mysql
+    windowed: true
+    window_column: ts
+  - table: metrics
+    schema: schema/sql-pool.sql
+    match: '*-sql-pool-metrics.tsv'
+    view: metrics_sql_pool
+    windowed: true
+    window_column: ts
   - table: task_states
     schema: schema/task.sql
     match: "*-task-states.tsv"
     view: task_states
+    windowed: true
+    window_column: timestamp
   - table: mysql_lock_waits
     schema: schema/mysql-lock.sql
-    match: mysql-lock-waits.tsv
+    match: '*mysql-lock-waits.tsv'
     view: mysql_lock_waits
+    windowed: true
+    window_column: timestamp
   - table: queries
     schema: schema/slp.sql
-    match: slp.tsv
+    match: '*slp.tsv'
     view: queries_slp
   - table: queries
     schema: schema/digest.sql
-    match: mysql-digest.tsv
+    match: '*mysql-digest.tsv'
     view: queries_digest
   - table: upstreams
     schema: schema/upstreams.sql
@@ -74,6 +97,12 @@ sources:
     schema: schema/endpoints-ingress.sql
     match: alp-by-ingress.tsv
     view: endpoints_by_ingress
+  # Already a bucket aggregate rather than a sample stream, so it keeps the
+  # whole lifecycle and load_windows narrows it at query time.
+  - table: http_traffic
+    schema: schema/access-log.sql
+    match: "raw/access-*.log*"
+    view: http_traffic_buckets
   - table: user_transition_edges
     schema: schema/user-transitions.sql
     match: user-transitions.json
@@ -106,3 +135,10 @@ sources:
     schema: schema/bench-summary.sql
     match: bench.log
     view: bench_scenarios_raw
+  # Add per-operation score breakdowns for the contest's own bench.log here,
+  # with their schema under ../contest/analysis-schema/. Saved reports cite the
+  # table names, so keep them stable within a contest.
+  - table: bench_error_logs
+    schema: schema/bench-errors.sql
+    match: bench.log
+    view: bench_error_logs_raw

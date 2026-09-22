@@ -22,8 +22,15 @@ type guardedUploadExecutor struct {
 func (f *guardedUploadExecutor) Run(name string, args []string, stdin string) ([]byte, error) {
 	if name == "rsync" {
 		f.uploaded = true
-		source := args[len(args)-2]
-		cmd := exec.Command("rsync", "-a", "--delete", source, filepath.Join(f.root, "live")+"/")
+		localArgs := append([]string(nil), args...)
+		for i, arg := range localArgs {
+			if strings.HasPrefix(arg, "--rsync-path=") {
+				// Local transfers need no remote privilege escalation.
+				localArgs[i] = "--rsync-path=rsync"
+			}
+		}
+		localArgs[len(localArgs)-1] = filepath.Join(f.root, "live") + "/"
+		cmd := exec.Command("rsync", localArgs...)
 		output, err := cmd.CombinedOutput()
 		if err == nil && f.transferFailure {
 			err = errors.New("interrupted transfer")

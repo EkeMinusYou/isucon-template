@@ -7,16 +7,36 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
+
+const (
+	gitCommandRetryCount = 3
+	gitCommandRetryDelay = 100 * time.Millisecond
+)
+
+func runGitWithRetry(run func() ([]byte, error), command string) ([]byte, error) {
+	var out []byte
+	var err error
+	for attempt := 0; attempt <= gitCommandRetryCount; attempt++ {
+		out, err = run()
+		if err == nil {
+			return out, nil
+		}
+		if attempt < gitCommandRetryCount {
+			time.Sleep(gitCommandRetryDelay)
+		}
+	}
+	return out, fmt.Errorf("git %s: %w: %s", command, err, out)
+}
 
 func commitRunArtifacts(runDir, scores string) error {
 	git := func(args ...string) ([]byte, error) {
+		command := args[0]
 		args = append([]string{"--literal-pathspecs", "-c", "core.hooksPath=/dev/null"}, args...)
-		out, err := exec.Command("git", args...).CombinedOutput()
-		if err != nil {
-			return out, fmt.Errorf("git %s: %w: %s", args[3], err, out)
-		}
-		return out, nil
+		return runGitWithRetry(func() ([]byte, error) {
+			return exec.Command("git", args...).CombinedOutput()
+		}, command)
 	}
 	rootOut, err := git("rev-parse", "--show-toplevel")
 	if err != nil {

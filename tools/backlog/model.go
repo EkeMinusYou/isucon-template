@@ -93,18 +93,20 @@ type Card struct {
 	PrimaryTargetID string `json:"primary_target_id"`
 	ID              string `json:"id"`
 	Version         int    `json:"version"`
+	ApplicationID   string `json:"application_id"`
 	Status          string `json:"status"`
 	Title           string `json:"title"`
 	Closed          bool   `json:"closed"`
 
-	Priority     string `json:"priority"`
-	Owner        string `json:"owner"`
-	Area         string `json:"area"`
-	SourceRuns   string `json:"source_runs"`
-	CompareRun   string `json:"compare_run"`
-	ObservedRuns string `json:"observed_runs"`
-	Updated      string `json:"updated"`
-	UpdatedBy    string `json:"updated_by"`
+	ImplementationEstimateMinutes *int   `json:"implementation_estimate_minutes"`
+	Priority                      string `json:"priority"`
+	Owner                         string `json:"owner"`
+	Area                          string `json:"area"`
+	SourceRuns                    string `json:"source_runs"`
+	CompareRun                    string `json:"compare_run"`
+	ObservedRuns                  string `json:"observed_runs"`
+	Updated                       string `json:"updated"`
+	UpdatedBy                     string `json:"updated_by"`
 
 	TargetAssessments map[string]string `json:"target_assessments,omitempty"`
 	TargetRoles       map[string]string `json:"target_roles"`
@@ -154,6 +156,7 @@ type Objective struct {
 	Status                 string `json:"status"`
 	Mode                   string `json:"mode"`
 	Title                  string `json:"title"`
+	Priority               string `json:"priority"`
 	MetricOrPredicate      string `json:"metric_or_predicate"`
 	RequiredForValidResult bool   `json:"required_for_valid_result"`
 	ParentObjectiveID      string `json:"parent_objective_id"`

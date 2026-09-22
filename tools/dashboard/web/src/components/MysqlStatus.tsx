@@ -37,10 +37,10 @@ const METRICS: MetricDef<MysqlPoint>[] = [
 ]
 
 export function MysqlStatus({ data }: { data: MysqlResponse }) {
-  if (!data.available || data.series.length === 0) {
+  if (!data.available || data.hosts.length === 0) {
     return (
       <EmptyState
-        title="mysql-status.tsv がまだありません"
+        title="ホスト別mysql-status.tsv がまだありません"
         detail="このRUNは計測パイプライン更新前のRUNの可能性があります"
       />
     )
@@ -48,14 +48,19 @@ export function MysqlStatus({ data }: { data: MysqlResponse }) {
 
   return (
     <>
-      {groupByCategory(METRICS).map(([category, defs]) => (
-        <div key={category} className="mb-5">
-          <CategoryDivider label={category} />
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {defs.map((m) => (
-              <TinyLineChart key={String(m.key)} series={data.series} metric={m} />
-            ))}
-          </div>
+      {data.hosts.map(({ host, series }) => (
+        <div key={host} className="mb-8">
+          <h3 className="mb-3 text-base font-semibold text-base-content/70">DB: {host}</h3>
+          {groupByCategory(METRICS).map(([category, defs]) => (
+            <div key={category} className="mb-5">
+              <CategoryDivider label={category} />
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {defs.map((m) => (
+                  <TinyLineChart key={String(m.key)} series={series} metric={m} />
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
       ))}
     </>

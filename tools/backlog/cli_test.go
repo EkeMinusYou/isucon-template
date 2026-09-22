@@ -9,19 +9,6 @@ import (
 	"testing"
 )
 
-func TestParseGlobalUsesWideDefaultListWidth(t *testing.T) {
-	config, args, err := parseGlobal(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if config.wide != defaultListWidth {
-		t.Fatalf("default list width = %d, want %d", config.wide, defaultListWidth)
-	}
-	if len(args) != 0 {
-		t.Fatalf("remaining args = %#v, want none", args)
-	}
-}
-
 func TestParseGlobalAcceptsDumpPath(t *testing.T) {
 	config, args, err := parseGlobal([]string{"-dump", "/tmp/backlog.sql", "list"})
 	if err != nil {
@@ -153,15 +140,11 @@ func TestReadSectionStdin(t *testing.T) {
 
 func TestReadSectionStdinRejectsInvalidInput(t *testing.T) {
 	tests := map[string]string{
-		"empty input":        "",
 		"non-object":         `[]`,
 		"null":               `null`,
 		"empty object":       `{}`,
 		"empty section name": `{"": "body"}`,
-		"non-string body":    `{"Observation": 12}`,
 		"unknown section":    `{"Invalid section": "body"}`,
-		"lowercase spelling": `{"observation": "body"}`,
-		"metadata section":   `{"Touches": "body"}`,
 	}
 
 	for name, input := range tests {

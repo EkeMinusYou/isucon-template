@@ -51,6 +51,7 @@ export function SlowQueryModal({ query, onClose }: Props) {
           <>
             <div className="mb-1 flex items-start gap-3 pr-8">
               <h3 className="text-2xl font-bold">スロークエリ詳細</h3>
+              <span className="badge badge-soft badge-neutral badge-lg shrink-0 font-mono">{query.host}</span>
               <span className="badge badge-soft badge-primary badge-lg shrink-0 font-mono">
                 {query.query_count.toLocaleString()} calls
               </span>

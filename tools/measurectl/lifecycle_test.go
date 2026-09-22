@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"slices"
 )
 
 func testLifecycleOptions(t *testing.T) lifecycleOptions {
@@ -20,6 +22,7 @@ func testLifecycleOptions(t *testing.T) lifecycleOptions {
 		roles: map[string][]string{
 			"all": {"isucon-1"}, "app": {"isucon-1"}, "app_traffic": {"isucon-1"},
 			"nginx": {"isucon-1"}, "entry": {"isucon-1"}, "mysql": {"isucon-1"},
+			"mysql_all": {"isucon-1"}, "nginx_profile": {"isucon-1"},
 		},
 		vars: map[string]string{"services": "app,nginx,mysql"},
 	}
@@ -55,9 +58,6 @@ func TestAdditionalRolesSurviveManifestCreation(t *testing.T) {
 		if !reflect.DeepEqual(manifest.Roles.Additional[role], opts.roles[role]) {
 			t.Fatalf("role %s lost: %#v", role, manifest.Roles)
 		}
-		if roleValues(manifest.Roles)[role] != "isucon-1,isucon-2" {
-			t.Fatalf("comparison omits role %s", role)
-		}
 	}
 }
 
@@ -76,7 +76,7 @@ func TestLifecycleBeginOwnsStateAndCollectorOrder(t *testing.T) {
 		},
 		manifestBegin: func(args []string) error {
 			calls = append(calls, "manifest")
-			if !containsArgPair(args, "-app", "isucon-1") || !containsArgPair(args, "-collector-clean", "-capture-contract") {
+			if !containsArgPair(args, "-app", "isucon-1") || !slices.Contains(args, "-collector-clean") || !slices.Contains(args, "-capture-contract") {
 				t.Fatalf("manifest args = %#v", args)
 			}
 			return nil

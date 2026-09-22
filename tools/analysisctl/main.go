@@ -14,16 +14,19 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/EkeMinusYou/isucon-template/tools/analysisctl/internal/pprofimport"
 	"gopkg.in/yaml.v3"
 )
 
 type sourceConfig struct {
-	Table  string `yaml:"table"`
-	Schema string `yaml:"schema"`
-	Match  string `yaml:"match"`
-	View   string `yaml:"view"`
+	Table        string `yaml:"table"`
+	Schema       string `yaml:"schema"`
+	Match        string `yaml:"match"`
+	View         string `yaml:"view"`
+	Windowed     bool   `yaml:"windowed"`
+	WindowColumn string `yaml:"window_column"`
 }
 
 type profileConfig struct {
@@ -70,7 +73,7 @@ var (
 	hostPattern  = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 )
 
-const importSchemaVersion = "6"
+const importSchemaVersion = "10"
 
 func main() {
 	if err := runCLI(os.Args[1:], os.Stdout, os.Stderr); err != nil {
@@ -330,10 +333,12 @@ func (r runner) discoverRuns() ([]string, error) {
 		data, err := os.ReadFile(filepath.Join(dir, "run.json"))
 		if err == nil {
 			var manifest runManifest
-			if json.Unmarshal(data, &manifest) == nil && manifest.Phase == "started" {
+			if json.Unmarshal(data, &manifest) != nil || manifest.Phase != "finalized" {
 				continue
 			}
-		} else if !errors.Is(err, os.ErrNotExist) {
+		} else if errors.Is(err, os.ErrNotExist) {
+			continue
+		} else {
 			return nil, fmt.Errorf("read %s/run.json: %w", entry.Name(), err)
 		}
 		runs = append(runs, entry.Name())
@@ -351,8 +356,17 @@ func (r runner) activeSources(dirs []string) ([]sourceConfig, error) {
 			if err != nil {
 				return nil, fmt.Errorf("invalid source match %q: %w", source.Match, err)
 			}
-			if len(matches) > 0 {
-				found = true
+			for _, match := range matches {
+				info, err := os.Stat(match)
+				if err != nil {
+					return nil, fmt.Errorf("stat source artifact %s: %w", match, err)
+				}
+				if !info.IsDir() && info.Size() > 0 {
+					found = true
+					break
+				}
+			}
+			if found {
 				break
 			}
 		}
@@ -368,6 +382,7 @@ func (r runner) syncSelection(runGlob string, dirs, runIDs []string) error {
 	if err != nil {
 		return err
 	}
+	windows := resolveAnalysisWindows(dirs, runIDs)
 	tempDir, err := os.MkdirTemp("", "isucon-analysis-")
 	if err != nil {
 		return err
@@ -388,7 +403,7 @@ func (r runner) syncSelection(runGlob string, dirs, runIDs []string) error {
 	if err != nil {
 		return err
 	}
-	sql := r.buildImportSQL(active, runIDs)
+	sql := r.buildImportSQL(active, runIDs, windows)
 	schemaPath := filepath.Join(tempDir, "schema.sql")
 	sqlPath := filepath.Join(tempDir, "import.sql")
 	if err := os.WriteFile(schemaPath, schema, 0o600); err != nil {
@@ -442,17 +457,72 @@ func (r runner) buildSchema(active []sourceConfig) ([]byte, error) {
 	return out.Bytes(), nil
 }
 
-func (r runner) buildImportSQL(active []sourceConfig, runIDs []string) string {
+func (r runner) buildImportSQL(active []sourceConfig, runIDs []string, windows map[string]analysisWindow) string {
 	var out strings.Builder
 	fmt.Fprintf(&out, "attach %s as db;\n", sqlString(r.db))
 	out.WriteString("begin transaction;\n")
+	out.WriteString("create or replace table db.import_runs (run_id varchar primary key);\n")
+	for _, runID := range runIDs {
+		fmt.Fprintf(&out, "insert into db.import_runs values (%s);\n", sqlString(runID))
+	}
 	out.WriteString("create or replace table db.runs as select * from runs;\n")
+	out.WriteString(`create table if not exists db.analysis_windows (
+    run_id varchar primary key,
+    started_at timestamptz,
+    ended_at timestamptz,
+    source varchar not null,
+    status varchar not null,
+    reason varchar not null,
+    request_count bigint not null,
+    active_seconds bigint not null,
+    start_threshold bigint not null,
+    start_consecutive bigint not null,
+    end_threshold bigint not null,
+    end_consecutive bigint not null
+);
+`)
+	for _, runID := range runIDs {
+		window, ok := windows[runID]
+		if !ok {
+			window = analysisWindow{
+				Source:           "unavailable",
+				Status:           "unavailable",
+				Reason:           "analysis window was not resolved",
+				StartThreshold:   trafficStartRequests,
+				StartConsecutive: trafficStartConsecutives,
+				EndThreshold:     trafficEndRequests,
+				EndConsecutive:   trafficEndConsecutives,
+			}
+		}
+		fmt.Fprintf(&out, "insert or replace into db.analysis_windows values (%s, %s, %s, %s, %s, %s, %d, %d, %d, %d, %d, %d);\n",
+			sqlString(runID),
+			sqlTimestamp(window.StartedAt),
+			sqlTimestamp(window.EndedAt),
+			sqlString(window.Source),
+			sqlString(window.Status),
+			sqlString(window.Reason),
+			window.RequestCount,
+			window.ActiveSeconds,
+			window.StartThreshold,
+			window.StartConsecutive,
+			window.EndThreshold,
+			window.EndConsecutive,
+		)
+	}
 	out.WriteString("create table if not exists db.analysis_metadata (key varchar primary key, value varchar not null);\n")
 	fmt.Fprintf(&out, "insert or replace into db.analysis_metadata values ('import_schema_version', %s);\n", sqlString(importSchemaVersion))
 	out.WriteString("create table if not exists db.ingested (run_id varchar primary key);\n")
 	for _, source := range active {
 		fmt.Fprintf(&out, "create table if not exists db.%s as select * from %s limit 0;\n", source.Table, source.View)
-		fmt.Fprintf(&out, "insert into db.%s select * from %s;\n", source.Table, source.View)
+		if source.Windowed {
+			column := source.WindowColumn
+			if column == "" {
+				column = "ts"
+			}
+			fmt.Fprintf(&out, "insert into db.%s select s.* from %s s join db.analysis_windows w on w.run_id = s.run_id where w.status = 'ok' and s.%s >= w.started_at and s.%s < w.ended_at;\n", source.Table, source.View, column, column)
+		} else {
+			fmt.Fprintf(&out, "insert into db.%s select s.* from %s s join db.import_runs i using (run_id);\n", source.Table, source.View)
+		}
 	}
 	for _, table := range r.config.Profiles.Tables {
 		fmt.Fprintf(&out, "create table if not exists db.%s as select * from %s_raw limit 0;\n", table, table)
@@ -657,4 +727,11 @@ func (r runner) duckdbOutput(env []string, args ...string) (string, error) {
 
 func sqlString(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
+}
+
+func sqlTimestamp(value time.Time) string {
+	if value.IsZero() {
+		return "NULL"
+	}
+	return "TIMESTAMPTZ " + sqlString(value.UTC().Format(time.RFC3339Nano))
 }

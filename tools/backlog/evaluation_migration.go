@@ -41,6 +41,9 @@ func (s *Store) migrateEvaluation(id, body string, options mutation, reason stri
 	if options.ExpectedCardVersion == nil || strings.TrimSpace(body) == "" {
 		return errors.New("card version and non-empty Evaluation are required")
 	}
+	if err := validateEvaluationBody(body); err != nil {
+		return err
+	}
 	tx, revision, err := s.beginMutation(options)
 	if err != nil {
 		return err

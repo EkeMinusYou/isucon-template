@@ -5,7 +5,7 @@ import (
 	"encoding/csv"
 	"os"
 	"path/filepath"
-	"strings"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -23,38 +23,6 @@ func TestParseServiceNames(t *testing.T) {
 	}
 }
 
-func TestParseServiceCPUStat(t *testing.T) {
-	input := `usage_usec 3000000
-user_usec 2100000
-system_usec 900000
-nr_periods 10
-`
-
-	got, err := parseServiceCPUStat(strings.NewReader(input))
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := serviceCPUCounters{usageUsec: 3000000, userUsec: 2100000, systemUsec: 900000}
-	if got != want {
-		t.Fatalf("parseServiceCPUStat() = %#v, want %#v", got, want)
-	}
-}
-
-func TestParseServiceIOStat(t *testing.T) {
-	input := `259:0 rbytes=100 wbytes=200 rios=1 wios=2
-8:0 rbytes=300 wbytes=400
-`
-
-	got, err := parseServiceIOStat(strings.NewReader(input))
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := serviceIOCounters{readBytes: 400, writeBytes: 600}
-	if got != want {
-		t.Fatalf("parseServiceIOStat() = %#v, want %#v", got, want)
-	}
-}
-
 func TestReadServiceCgroup(t *testing.T) {
 	root := t.TempDir()
 	servicePath := filepath.Join(root, "system.slice", "nginx.service")
@@ -65,7 +33,7 @@ func TestReadServiceCgroup(t *testing.T) {
 		"cpu.stat":       "usage_usec 3000000\nuser_usec 2100000\nsystem_usec 900000\n",
 		"memory.current": "4096\n",
 		"memory.peak":    "8192\n",
-		"io.stat":        "259:0 rbytes=100 wbytes=200\n",
+		"io.stat":        "259:0 rbytes=100 wbytes=200 rios=1 wios=2\n8:0 rbytes=300 wbytes=400\n",
 		"pids.current":   "3\n",
 	}
 	for name, contents := range files {
@@ -83,29 +51,11 @@ func TestReadServiceCgroup(t *testing.T) {
 	if got.memoryCurrent != 4096 || got.memoryPeak != 8192 || got.tasksCurrent != 3 {
 		t.Fatalf("service snapshot = %#v", got)
 	}
-	if got.io.readBytes != 100 || got.io.writeBytes != 200 {
+	if got.cpu != (serviceCPUCounters{usageUsec: 3000000, userUsec: 2100000, systemUsec: 900000}) {
+		t.Fatalf("service CPU = %#v", got.cpu)
+	}
+	if got.io.readBytes != 400 || got.io.writeBytes != 600 {
 		t.Fatalf("service I/O = %#v", got.io)
-	}
-}
-
-func TestServiceCounterRates(t *testing.T) {
-	previous := serviceSnapshot{
-		available: true,
-		cpu:       serviceCPUCounters{usageUsec: 1000000, userUsec: 700000, systemUsec: 300000},
-		io:        serviceIOCounters{readBytes: 100, writeBytes: 200},
-	}
-	current := serviceSnapshot{
-		available: true,
-		cpu:       serviceCPUCounters{usageUsec: 3000000, userUsec: 1700000, systemUsec: 1300000},
-		io:        serviceIOCounters{readBytes: 500, writeBytes: 800},
-	}
-
-	got := serviceCounterRates(current, &previous, 2)
-	if got.cpuPct != 100 || got.cpuUserPct != 50 || got.cpuSystemPct != 50 {
-		t.Fatalf("service CPU rates = %#v", got)
-	}
-	if got.ioReadBytes != 200 || got.ioWriteBytes != 300 {
-		t.Fatalf("service I/O rates = %#v", got)
 	}
 }
 
@@ -117,12 +67,24 @@ func TestServiceHeaderAndRowsWidth(t *testing.T) {
 		t.Fatal(err)
 	}
 	writer.Flush()
+	previousService := serviceSnapshot{
+		available: true,
+		cpu:       serviceCPUCounters{usageUsec: 1000000, userUsec: 700000, systemUsec: 300000},
+		io:        serviceIOCounters{readBytes: 100, writeBytes: 200},
+	}
+	currentService := serviceSnapshot{
+		available: true,
+		cpu:       serviceCPUCounters{usageUsec: 3000000, userUsec: 1700000, systemUsec: 1300000},
+		io:        serviceIOCounters{readBytes: 500, writeBytes: 800},
+	}
+
 	currentAt := time.Unix(10, 0)
+	previous := snapshot{at: time.Unix(8, 0)}
 	current := snapshot{at: currentAt, memTotal: 1024}
 	services := map[string]serviceSnapshot{
-		"nginx.service": {available: true, memoryCurrent: 128, memoryPeak: 256, tasksCurrent: 2},
+		"nginx.service": currentService,
 	}
-	if err := writeServiceRows(writer, 0, time.Unix(0, 0), current, services, nil, nil, []string{"nginx.service"}); err != nil {
+	if err := writeServiceRows(writer, 0, time.Unix(0, 0), current, services, map[string]serviceSnapshot{"nginx.service": previousService}, &previous, []string{"nginx.service"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -138,5 +100,15 @@ func TestServiceHeaderAndRowsWidth(t *testing.T) {
 	}
 	if len(readHeader) != len(readRow) {
 		t.Fatalf("header width=%d, row width=%d", len(readHeader), len(readRow))
+	}
+	values := map[string]string{}
+	for i, name := range readHeader {
+		values[name] = readRow[i]
+	}
+	for name, want := range map[string]float64{"cpu_pct": 100, "cpu_user_pct": 50, "cpu_system_pct": 50, "io_read_bytes_per_sec": 200, "io_write_bytes_per_sec": 300} {
+		got, err := strconv.ParseFloat(values[name], 64)
+		if err != nil || got != want {
+			t.Fatalf("%s = %q, want %g", name, values[name], want)
+		}
 	}
 }

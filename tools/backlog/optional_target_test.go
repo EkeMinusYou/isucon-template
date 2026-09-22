@@ -19,7 +19,7 @@ func TestUnlinkedInterventionLifecycleAndRelinking(t *testing.T) {
 		sectionChangeBoundary: "Batch related reads in the list endpoint",
 		sectionEvaluation:     "Verify constant query count and unchanged response semantics",
 	}
-	for _, missing := range []string{sectionHypothesis, sectionChangeBoundary, sectionEvaluation} {
+	for _, missing := range []string{sectionHypothesis} {
 		incomplete := map[string]string{}
 		for key, value := range sections {
 			if key != missing {

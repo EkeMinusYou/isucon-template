@@ -40,27 +40,6 @@ func TestHandleUserTransitions(t *testing.T) {
 	}
 }
 
-func TestHandleUserTransitionsUnavailable(t *testing.T) {
-	runsDir := filepath.Join(t.TempDir(), "runs")
-	runID := "20260903-120001"
-	if err := os.MkdirAll(filepath.Join(runsDir, runID), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	a := &app{runsDir: runsDir}
-	req := httptest.NewRequest("GET", "/api/runs/"+runID+"/user-transitions", nil)
-	req.SetPathValue("run_id", runID)
-	recorder := httptest.NewRecorder()
-	a.handleUserTransitions(recorder, req)
-
-	var got userTransitionsResponse
-	if err := json.NewDecoder(recorder.Body).Decode(&got); err != nil {
-		t.Fatal(err)
-	}
-	if got.Available || got.Edges == nil {
-		t.Fatalf("unexpected unavailable response: %#v", got)
-	}
-}
-
 func TestParseUserTransitionsRejectsOldSchema(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "user-transitions.json")
 	body := `{"schema_version":2,"summary":{"input_files":1},"edges":[],"scenarios":[]}`

@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // hostPoint mirrors a useful subset of a `<host>-proc-metrics.tsv` row.
@@ -152,10 +153,27 @@ func (c *colIndexer) int64(name string) int64 {
 	return v
 }
 
+func (c *colIndexer) timestamp(name string) (time.Time, bool) {
+	idx := columnIndex(c.header, name)
+	if idx < 0 || idx >= len(c.row) {
+		return time.Time{}, false
+	}
+	t, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(c.row[idx]))
+	return t, err == nil
+}
+
+func rowInAnalysisWindow(c *colIndexer, window *analysisWindow) bool {
+	if window == nil {
+		return true
+	}
+	t, ok := c.timestamp("timestamp")
+	return ok && window.contains(t)
+}
+
 // parseHostSeries reads a `<host>-proc-metrics.tsv` file into a time series
 // of host-wide resource points (CPU, memory, load, disk I/O, network I/O,
 // PSI pressure).
-func parseHostSeries(path string) ([]hostPoint, error) {
+func parseHostSeries(path string, window *analysisWindow) ([]hostPoint, error) {
 	header, rows, err := readTSV(path)
 	if err != nil {
 		return nil, err
@@ -163,10 +181,16 @@ func parseHostSeries(path string) ([]hostPoint, error) {
 	if columnIndex(header, "elapsed_ms") < 0 {
 		return nil, nil
 	}
+	if window != nil && columnIndex(header, "timestamp") < 0 {
+		return nil, nil
+	}
 
 	series := make([]hostPoint, 0, len(rows))
 	for _, row := range rows {
 		c := &colIndexer{header: header, row: row}
+		if !rowInAnalysisWindow(c, window) {
+			continue
+		}
 		memTotal := c.float("mem_total_bytes")
 		memUsed := c.float("mem_used_bytes")
 		memUsedPct := 0.0
@@ -218,13 +242,16 @@ func parseHostSeries(path string) ([]hostPoint, error) {
 
 // parseServiceSeries reads a `<host>-service-metrics.tsv` file into
 // per-service time series, grouped by systemd service name.
-func parseServiceSeries(path string) (map[string][]servicePoint, error) {
+func parseServiceSeries(path string, window *analysisWindow) (map[string][]servicePoint, error) {
 	header, rows, err := readTSV(path)
 	if err != nil {
 		return nil, err
 	}
 	serviceIdx := columnIndex(header, "service")
 	if columnIndex(header, "elapsed_ms") < 0 || serviceIdx < 0 {
+		return nil, nil
+	}
+	if window != nil && columnIndex(header, "timestamp") < 0 {
 		return nil, nil
 	}
 
@@ -234,6 +261,9 @@ func parseServiceSeries(path string) (map[string][]servicePoint, error) {
 			continue
 		}
 		c := &colIndexer{header: header, row: row}
+		if !rowInAnalysisWindow(c, window) {
+			continue
+		}
 		service := row[serviceIdx]
 		byService[service] = append(byService[service], servicePoint{
 			ElapsedMs:          c.int64("elapsed_ms"),
@@ -260,13 +290,18 @@ func (a *app) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "unknown run_id")
 		return
 	}
+	window, err := a.readAnalysisWindow(r.Context(), runID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 
 	resp := metricsResponse{RunID: runID, Hosts: []hostMetrics{}, Services: []serviceMetrics{}}
 
 	procFiles := mustGlob(filepath.Join(dir, "*-proc-metrics.tsv"))
 	for _, f := range procFiles {
 		host := strings.TrimSuffix(filepath.Base(f), "-proc-metrics.tsv")
-		series, err := parseHostSeries(f)
+		series, err := parseHostSeries(f, window)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -278,7 +313,7 @@ func (a *app) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	serviceFiles := mustGlob(filepath.Join(dir, "*-service-metrics.tsv"))
 	for _, f := range serviceFiles {
 		host := strings.TrimSuffix(filepath.Base(f), "-service-metrics.tsv")
-		byService, err := parseServiceSeries(f)
+		byService, err := parseServiceSeries(f, window)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return

@@ -141,6 +141,11 @@ task bench-manual
 task bench
 ```
 
+ベンチの結果ログはローカルのGoツール`tools/bench-output`を通し、元の出力と終了コードを保ちながら
+当日の出力を計測基盤共通の`SCORE:`・`BENCHMARK_PASS`／`BENCHMARK_FAIL`へ変換します。
+`task bench`が変換ツールを自動ビルドします。当日の出力形式は`tools/contest/bench-patterns.json`の
+正規表現で宣言し、該当行がない場合はスコアや成功を補いません。
+
 profile自動収集とuser-transitionは標準で有効です。[Go profile導入例](docs/special-sources/go-profiling.md)に沿って
 setupで全APP_HOSTSへendpointを導入し、識別列・API分類を整えます。通常の`bench` / `bench-manual`で
 CPU・fgprof・heap・allocs・goroutineを自動収集します。CPU・fgprofの開始を確認してから負荷を開始し、
@@ -170,10 +175,11 @@ profileやアクセスログの時間窓へ混ぜません。取得失敗時は�
 
 `after-bench`は回収・manifest確定後、そのRUNディレクトリ全体（`.gitignore`対象は除外）と
 `runs/scores.tsv`を自動でローカルGitコミットします。失敗RUNも対象です。別RUN、
-`raw/`、アプリ・設定変更は含めず、無関係なステージ済み変更も維持します。自動コミットではGit hooksを実行しません。
+`raw/`、アプリ・設定変更は含めず、無関係なステージ済み変更も維持します。Gitコマンドは失敗時に3回まで再試行します（初回を含め最大4回）。自動コミットではGit hooksを実行しません。
 対象ファイルが既にステージ済みの場合は、そのステージ内容を保護するためコミットを中止してエラーにします。
 Gitコミットに失敗しても回収済み成果物は残ります（`git add`後の失敗では対象成果物がステージに残ります）。
 RUNは確定済みなので`after-bench`を再実行せず、対象ファイルを確認して手動コミットしてください。pushは行いません。
+`after-bench`はartifact検査後に分析DBも同期します。分析DBは再生成可能なローカル状態であり、Git commitの対象外です。
 
 collector負荷は、同じ構成で通常RUNと次のRUNを取り、スコアとホストメトリクスを比較します。
 
@@ -188,26 +194,29 @@ no-collectorsタスクではprofileも無効にしますが、nginx等のログ�
 access logやdigesterの必須成果物の欠損は引き続き検査失敗です。異なるcollectorモードのRUNは
 通常の採用比較では互換とせず、計測負荷の比較として扱います。古いRUNの省略値は`false`として読みます。
 
-250msのtask-state走査と50msのMySQL lock wait取得は、計測負荷を確認するまで既定では無効です。
-利用する場合は`tools/measurectl/collectors.yaml`の`task-state`と`mysql-locks`について
-`enabled_by_default: true`へ変更します。設定変更後は通常の`task bench` / `task bench-manual`で収集されます。
+250msのtask-state走査は既定では無効です。50msのMySQL lock wait取得は、各DBのlock waitを
+同じRUNで比較できるよう`mysql_all`を対象に既定有効としています。利用を変更する場合は
+`tools/measurectl/collectors.yaml`の`task-state`と`mysql-locks`の`enabled_by_default`を切り替えます。
+設定変更後は通常の`task bench` / `task bench-manual`で収集されます。
 
-collector負荷の比較が終わるまでは`false`を維持し、採用・非採用の判断と実測RUNを設定変更のEvidenceとして残します。
+lock collectorの負荷とcapture errorはRUNごとに確認し、過大な場合はsampling intervalとquery timeoutを
+見直します。各DBの成果物は`<host>-mysql-lock-waits.tsv`として保存されます。
 
 主な成果物:
 
 - `runs/<RUN_ID>/run.json` — source、役割、APPLIED snapshot、score、成果物状態、計測窓
 - `alp.txt` / `alp.json` / `alp-by-ingress.tsv`
-- `pt-query-digest.log` / `slp.tsv` / `mysql-digest.tsv`
+- `<host>-pt-query-digest.log` / `<host>-slp.tsv` / `<host>-mysql-digest.tsv`
 - `<host>-proc-metrics.tsv` / service / disk / task-state（task-stateは高頻度collector明示時）
-- `mysql-status.tsv` / `mysql-lock-waits.tsv`（lock waitは高頻度collector明示時）
+- `<host>-mysql-status.tsv` / `<host>-mysql-lock-waits.tsv`
+- `<host>-sql-pool-metrics.tsv` — アプリのSQL接続プール（adapter導入時）
 - `<host>-fgprof.pprof`（profile有効時）
 - `<host>-go-cpu.pprof` / heap / allocs / goroutine（profile有効時）
 - `raw/access-<host>.log.zst` — ホスト別nginxログ。空ログも圧縮して保存
 - `<host>-app-journal.log` / `<host>-nginx-error.log`
 - `<host>-kernel.log` / `<host>-oom.log`
 - `upstream-breakdown*.tsv`
-- `user-transitions.json` — setupで識別列と`routes.json`を当日のAPIへ合わせる標準集計
+- `user-transitions.json` — setupで識別列と`tools/contest/user-transition-routes.json`を当日のAPIへ合わせる標準集計
 
 nginxのJSON access logは、少なくとも`msec`、`method`、`uri`、`status`、`response_time`、`body_bytes`、
 `upstream_time`、`upstream_addr`、`upstream_status`、`cache_status`を出してください。標準のユーザー遷移用に、個人情報や認証Cookieの生値を恒久保存せず、
@@ -235,7 +244,7 @@ heap・allocs・goroutineは`SNAPSHOT_PROFILE_DELAY`後に同時取得します�
 task go-profile-top RUN=runs/<RUN_ID> PROFILE=isucon-1-go-cpu.pprof
 ```
 
-`scores.tsv`の空欄はスコア不明、`0`は実際の0点です。ベンチ後の採用は`task pass`で行います。
+`scores.tsv`の空欄はスコア不明、`0`は実際の0点です。ベンチ後の採用は`isucon-verifier`が`task pass RUN=<RUN_ID> OWNER=<verifier-session> VERSIONS=B-001=<version> -- B-001`で行います。RUN・対象カード・評価担当・確認済みversionを明示します。
 採用条件とFORCEの例外は[Backlog workflow](tools/backlog/backlog-workflow.md#adoption)、
 採用記録と`outcomes.tsv`の関係は[Backlog README](tools/backlog/README.md#adoption-records)を参照してください。
 
@@ -248,10 +257,21 @@ task q -- "select run_id, score from runs order by score desc"
 task dashboard
 ```
 
+`task q`と`task dashboard`は分析DBを読み取るだけで、暗黙の同期は行いません。新しいRUNを
+`after-bench`以外の方法で追加した場合や、分析schemaを変更した場合は、先に`task q-sync`を実行します。
+
+dashboardの累積エラー件数は`bench_error_counts`から読み取り、負荷走行開始からの経過秒に対して報告時点の件数を表示します。個々のエラー発生時刻ではありません。
+dashboardの時刻付き警告は分析DBの意味ビュー`bench_warning_events`から読み取ります。
+起動後に追加したRUNは、`task q-sync`を実行してから`task q -- "SELECT * FROM bench_errors"`で確認します。
+エラー内容の一覧はdashboardには表示せず、上記クエリで確認できます。
+これら3つの意味ビューの本体は当日のベンチ出力の書式に依存するため、
+`tools/contest/analysis-schema/bench-errors-semantic.sql`に置いています。
+templateの状態ではプレースホルダーで0行を返すので、setupで当日の書式に合わせて書き換えます。
+
 dashboardでは収集済みのfgprofに加え、GoのCPU・heap・allocs・goroutine profileを
 種別・ホスト別に切り替え、関数ランキングとコールグラフで確認できます。コールグラフ表示にはGraphvizが必要です。
 
-分析は最新RUNだけを眺めず、役割・source・APPLIED snapshot・計測窓が比較可能なRUNを選びます。
+分析では、RUNごとの役割・source・APPLIED snapshot・計測窓を確認します。
 CPU実仕事、I/O、lock/queue wait、DB query time、HTTP response timeを分け、変更境界が削減できる量を見積もります。
 
 必要に応じて、保存済みaccess logの配置候補を`task topology-screen`で比較できます。
@@ -265,10 +285,11 @@ nginxのon-CPU profile、任意JSON endpointのsnapshot、ダッシュボード�
 - `isucon-setup` — 初期取得と正規deploy/bench経路の準備
 - `isucon-objective` — 得点への寄与仮説となるObjectiveの作成・再評価
 - `isucon-target` — 既存Objectiveに紐付く改善対象・目標の管理
-- `isucon-analyze` — ACTIVE Targetから実現方法を探索しInterventionを起票
+- `isucon-analyze` — 指定なしなら全ACTIVE Targetの実現方法を詳細探索しInterventionを起票
 - `isucon-rethink` — 既存Targetに限定せずシステム構造を再検討
 - `isucon-investigate` — INVESTIGATEの独立検証とREADY安全ゲート
-- `isucon-worker` — READYの実装、正規deploy、ベンチ後の採否・修正
+- `isucon-worker` — READYの実装・正規deploy、DOINGへ戻された限定修正・不採用の是正
+- `isucon-verifier` — 指定RUNのベンチ後検証・採否判断。採用はVALIDATED、是正はOwnerなしDOINGでworkerへ引き渡す
 
 ```shell
 task backlog -- objective list
@@ -287,4 +308,4 @@ task backlog -- validate
 
 これらは自動適用する完成設定ではありません。公式仕様、現行構成、計測値、正当性・評価条件を確認して採用します。
 
-分析レポートの保存先・命名規則は[レポートの手引き](docs/reports/README.md)を参照してください。
+計測結果と判断根拠は`runs/`の成果物とBacklogカードのHistory・各記録へ保存します。作業用の集計ファイルは一時ディレクトリに置きます。

@@ -23,6 +23,10 @@ func captureArtifactContract(m Manifest, collectors, digesters string) ([]Artifa
 	if err != nil {
 		return nil, err
 	}
+	specs, err = expandPerHostArtifactSpecs(specs, m)
+	if err != nil {
+		return nil, err
+	}
 	cfg, err := loadConfig(collectors)
 	if err != nil {
 		return nil, err
@@ -114,10 +118,63 @@ func captureRequirements(m Manifest, collectors, digesters string) ([]string, er
 
 func appendCaptureSpecs(specs []ArtifactSpec, m Manifest) []ArtifactSpec {
 	result := append([]ArtifactSpec{}, specs...)
+	exact := map[string]bool{}
+	for _, spec := range result {
+		if !spec.Optional && !strings.ContainsAny(spec.Pattern, "*?[") {
+			exact[spec.Pattern] = true
+		}
+	}
 	for _, name := range m.RequiredArtifacts {
+		if exact[name] {
+			continue
+		}
 		result = append(result, ArtifactSpec{Pattern: name, Producer: "RUN capture contract"})
+		exact[name] = true
 	}
 	return result
+}
+
+func expandPerHostArtifactSpecs(specs []ArtifactSpec, m Manifest) ([]ArtifactSpec, error) {
+	result := make([]ArtifactSpec, 0, len(specs))
+	for _, spec := range specs {
+		if spec.HostRole == "" {
+			result = append(result, spec)
+			continue
+		}
+		hosts := manifestRoleHosts(m, spec.HostRole)
+		if len(hosts) == 0 {
+			return nil, fmt.Errorf("artifact %q (%s) が指すrole %qのホストがmanifestにありません", spec.Pattern, spec.Producer, spec.HostRole)
+		}
+		for _, host := range hosts {
+			expanded := spec
+			expanded.Pattern = strings.Replace(spec.Pattern, "*", host, 1)
+			expanded.HostRole = ""
+			result = append(result, expanded)
+		}
+	}
+	return result, nil
+}
+
+func manifestRoleHosts(m Manifest, role string) []string {
+	switch role {
+	case "app":
+		return m.Roles.App
+	case "app_traffic":
+		return m.Roles.AppTraffic
+	case "nginx":
+		return m.Roles.Nginx
+	case "entry":
+		if m.Roles.Entry != "" {
+			return []string{m.Roles.Entry}
+		}
+	case "mysql":
+		if m.Roles.MySQL != "" {
+			return []string{m.Roles.MySQL}
+		}
+	default:
+		return m.Roles.Additional[role]
+	}
+	return nil
 }
 
 func assessCaptureQuality(dir string, m Manifest, artifacts []Artifact) []Artifact {

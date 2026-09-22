@@ -8,13 +8,11 @@ import (
 func TestSharedTargetResolutionIsIndependentOfInterventionValidation(t *testing.T) {
 	s := testStore(t)
 	seedBacklog(t, s, 0, "B-003",
-		Card{ID: "B-001", Status: "APPLIED", Title: "batch reads"},
-		Card{ID: "B-002", Status: "APPLIED", Title: "reuse computation"})
+		Card{ID: "B-001", Status: "APPLIED", Owner: "verifier:test", Title: "batch reads"},
+		Card{ID: "B-002", Status: "APPLIED", Owner: "verifier:test", Title: "reuse computation"})
 	id := fixtureTarget(t, s)
 	for _, cardID := range []string{"B-001", "B-002"} {
-		if err := s.transitionCard(cardID, "VALIDATED", mutation{Actor: "human:test", Operation: "transition", ExpectedCardVersion: intPtr(0)}, "saved results support adoption"); err != nil {
-			t.Fatal(err)
-		}
+		adoptFixtureCard(t, s, cardID, "saved results support adoption")
 		target, err := s.getTarget(id)
 		if err != nil {
 			t.Fatal(err)

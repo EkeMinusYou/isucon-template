@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/csv"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -62,15 +63,6 @@ func TestParsePressure(t *testing.T) {
 	}
 }
 
-func TestCounterRate(t *testing.T) {
-	if got := counterRate(150, 100, 2); got != 25 {
-		t.Fatalf("counterRate() = %v, want 25", got)
-	}
-	if got := counterRate(100, 150, 2); got != 0 {
-		t.Fatalf("counterRate() after reset = %v, want 0", got)
-	}
-}
-
 func TestHeaderAndRowWidth(t *testing.T) {
 	var output bytes.Buffer
 	writer := csv.NewWriter(&output)
@@ -79,7 +71,7 @@ func TestHeaderAndRowWidth(t *testing.T) {
 		t.Fatal(err)
 	}
 	writer.Flush()
-	if err := writeRow(writer, 0, time.Unix(0, 0), snapshot{at: time.Unix(0, 0)}, nil); err != nil {
+	if err := writeRow(writer, 0, time.Unix(0, 0), snapshot{at: time.Unix(2, 0), contextSwitches: 150, interrupts: 100}, &snapshot{at: time.Unix(0, 0), contextSwitches: 100, interrupts: 150}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -95,6 +87,16 @@ func TestHeaderAndRowWidth(t *testing.T) {
 	}
 	if len(readHeader) != len(readRow) {
 		t.Fatalf("header width=%d, row width=%d", len(readHeader), len(readRow))
+	}
+	values := map[string]string{}
+	for i, name := range readHeader {
+		values[name] = readRow[i]
+	}
+	for name, want := range map[string]float64{"context_switches_per_sec": 25, "interrupts_per_sec": 0} {
+		got, err := strconv.ParseFloat(values[name], 64)
+		if err != nil || got != want {
+			t.Fatalf("%s = %q, want %g", name, values[name], want)
+		}
 	}
 }
 
@@ -116,32 +118,6 @@ func TestParseDiskstats(t *testing.T) {
 	}
 }
 
-func TestDiskDeviceMetrics(t *testing.T) {
-	previous := diskCounters{
-		readsCompleted: 10, readBytes: 1000, readTimeMillis: 40,
-		writesCompleted: 20, writeBytes: 2000, writeTimeMillis: 100,
-		ioTimeMillis: 200, weightedIOTimeMillis: 300,
-	}
-	current := diskCounters{
-		readsCompleted: 14, readBytes: 3048, readTimeMillis: 60,
-		writesCompleted: 22, writeBytes: 6096, writeTimeMillis: 120,
-		ioTimeMillis: 1200, weightedIOTimeMillis: 2300,
-	}
-	got := diskDeviceMetrics(current, &previous, 2)
-	if got.readIOPS != 2 || got.writeIOPS != 1 {
-		t.Fatalf("unexpected IOPS: %+v", got)
-	}
-	if got.readAwaitMillis != 5 || got.writeAwaitMillis != 10 {
-		t.Fatalf("unexpected await: %+v", got)
-	}
-	if got.avgReadRequestBytes != 512 || got.avgWriteRequestBytes != 2048 {
-		t.Fatalf("unexpected request size: %+v", got)
-	}
-	if got.ioUtilPct != 50 || got.avgQueueSize != 1 {
-		t.Fatalf("unexpected utilization/queue: %+v", got)
-	}
-}
-
 func TestDiskHeaderAndRowsWidth(t *testing.T) {
 	var output bytes.Buffer
 	writer := csv.NewWriter(&output)
@@ -149,8 +125,18 @@ func TestDiskHeaderAndRowsWidth(t *testing.T) {
 	if err := writer.Write(diskHeader()); err != nil {
 		t.Fatal(err)
 	}
-	current := snapshot{at: time.Unix(1, 0), disks: map[string]diskCounters{"sda": {ioInProgress: 2}}}
-	previous := snapshot{at: time.Unix(0, 0), disks: map[string]diskCounters{"sda": {}}}
+	previousDisk := diskCounters{
+		readsCompleted: 10, readBytes: 1000, readTimeMillis: 40,
+		writesCompleted: 20, writeBytes: 2000, writeTimeMillis: 100,
+		ioTimeMillis: 200, weightedIOTimeMillis: 300,
+	}
+	currentDisk := diskCounters{
+		readsCompleted: 14, readBytes: 3048, readTimeMillis: 60,
+		writesCompleted: 22, writeBytes: 6096, writeTimeMillis: 120,
+		ioTimeMillis: 1200, weightedIOTimeMillis: 2300,
+	}
+	current := snapshot{at: time.Unix(2, 0), disks: map[string]diskCounters{"sda": currentDisk}}
+	previous := snapshot{at: time.Unix(0, 0), disks: map[string]diskCounters{"sda": previousDisk}}
 	if err := writeDiskRows(writer, 1, time.Unix(0, 0), current, &previous); err != nil {
 		t.Fatal(err)
 	}
@@ -166,5 +152,15 @@ func TestDiskHeaderAndRowsWidth(t *testing.T) {
 	}
 	if len(readHeader) != len(readRow) {
 		t.Fatalf("header width=%d, row width=%d", len(readHeader), len(readRow))
+	}
+	values := map[string]string{}
+	for i, name := range readHeader {
+		values[name] = readRow[i]
+	}
+	for name, want := range map[string]float64{"read_iops": 2, "write_iops": 1, "read_await_ms": 5, "write_await_ms": 10, "avg_read_request_bytes": 512, "avg_write_request_bytes": 2048, "io_util_pct": 50, "avg_queue_size": 1} {
+		got, err := strconv.ParseFloat(values[name], 64)
+		if err != nil || got != want {
+			t.Fatalf("%s = %q, want %g", name, values[name], want)
+		}
 	}
 }

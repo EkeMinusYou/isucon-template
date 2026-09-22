@@ -21,14 +21,14 @@ ScopeとAxisはAPI・シナリオ・共有処理・資源などの対象と、�
 
 - `AGENTS.md`と対象に関係する`docs/official/`。
 - [Backlog workflow](../../../tools/backlog/backlog-workflow.md)のAuthority・Objective・Common validity conditions・Target・Relations・Evidence policy・Priority・Writer protocol。
-- [Backlog CLI](../../../tools/backlog/README.md)、[Evidence](../_shared/evidence.md)、[レポート命名規則](../../../docs/reports/README.md)。
+- [Backlog CLI](../../../tools/backlog/README.md)、[Evidence](../_shared/evidence.md)。
 - 必要に応じて[score mechanics](../isucon-analyze/references/score-mechanics.md)、[benchmark behavior](../isucon-analyze/references/benchmark-behavior.md)。
 
 ## 担当範囲と参照資料
 
 Targetの作成・更新・統合・退役・達成判定とTargetからObjectiveへのリンクを担当する。統合等に必要なInterventionからTargetへのリンク整理も扱うが、他Ownerのリンク変更は調整事項に残す。Interventionの起票・本文・状態・Owner・変更境界と、Objectiveの内容・状態は変更しない。
 
-参照するのは公式仕様、Objective/Target/InterventionとHistory、保存済みRUN・ログ・profile・ユーザー遷移・集計値、および他スキルの調査・実装・検証報告である。アプリケーションのコード・設定を直接読んで原因や実現方法を分析せず、SSHで実効環境を調査しない。構成・適用時点はrun.jsonと担当報告で確認する。報告にコードの説明が含まれていても、削減案をそのままTargetへ昇格させない。
+参照するのは公式仕様、Objective/Target、関連するopen InterventionとそのHistory、保存済みRUN・ログ・profile・ユーザー遷移・集計値、および他スキルの調査・実装・検証報告である。アプリケーションのコード・設定を直接読んで原因や実現方法を分析せず、SSHで実効環境を調査しない。構成・適用時点はrun.jsonと担当報告で確認する。報告にコードの説明が含まれていても、削減案をそのままTargetへ昇格させない。
 
 保存済みEvidenceへの読み取り集計・RUN比較は可能で、既存DuckDB基盤を優先する。その利用に必要なCLI資料・取り込み定義・schemaは読んでよい。計測基盤の変更、実装、設定変更、deploy、service操作、bench、保存済みRUN成果物の再生成・上書き、当該競技やベンチマーカーのインターネット調査は行わない。
 
@@ -36,19 +36,19 @@ Targetの作成・更新・統合・退役・達成判定とTargetからObjectiv
 
 ## 現状確認と計測からの対象選定
 
-`task backlog -- objective list`、`task backlog -- target list`でACTIVE一覧を確認し、対象IDをshowして関連InterventionとHistoryを読む。ユーザーによる範囲指定がなければ全ACTIVE Objectiveと全ACTIVE Target、指定があればその範囲を扱う。ACTIVE Objectiveがなければ不足を報告し、受け皿を作らない。
+`task backlog -- objective list`、`task backlog -- target list`でACTIVE一覧を確認し、対象IDをshowして関連するopen InterventionとHistoryを読む。指定なしならACTIVE ObjectiveとそのTarget、指定があればその範囲を扱う。ACTIVE Objectiveがなければ不足を報告し、受け皿を作らない。
 
-終端Targetは過去の判断や再発確認に必要なIDを辿る。過去Interventionは必要に応じて `task backlog -- list --all --target A-ID` で絞る。過去の達成は今回の改善余地がないという証拠にはしない。
+終端Target自身の状態・Historyが管理判断に必要な場合だけ確認する。Interventionの重複確認・過去調査はopen Interventionに限定し、必要に応じて `task backlog -- list --target A-ID` で絞る（`--all`は使わない）。過去のTarget達成は今回の改善余地がないという証拠にはしない。
 
 指定RUN、指定なしなら最新finalized RUNのrun.jsonでsource・役割・APPLIED snapshot・artifact status・比較条件を確認する。担当報告から適用時点と未適用変更を区別する。RUNや評価指標が欠損している場合は捏造せず不足を記録する。公式・ユーザー要求から目標を定義できる場合も、計測済みbaselineとは区別する。
 
-個々の実装案を追う前に、公式採点上の成果とObjectiveに対応する待ち・仕事量・容量・損失を概観する。既存カード順や前回の優先度を探索順にしない。優先仮説にはスコアへの因果、支持する計測、反証・代替仮説、不確実性を示す。要求数と一要求の費用、累積応答時間とCPU仕事、共有処理と個別APIを区別する。順位や割合だけで最大律速・最大得点寄与を断定しない。比較根拠が足りなければ有望な複数経路と不足情報を示す。
+個々の実装案を追う前に、公式採点上の成果とObjectiveに対応する待ち・仕事量・容量・損失を概観する。既存open Interventionの順序や前回の優先度を探索順にしない。優先仮説にはスコアへの因果、支持する計測、反証・代替仮説、不確実性を示す。要求数と一要求の費用、累積応答時間とCPU仕事、共有処理と個別APIを区別する。順位や割合だけで最大律速・最大得点寄与を断定しない。比較根拠が足りなければ有望な複数経路と不足情報を示す。
 
-対象選定では[寄与仮説の再評価](../_shared/evidence.md#寄与仮説の再評価)に従い、関連History・担当報告と保存済み計測を照合する。TargetのGoal達成と、Objectiveへの寄与仮説の支持・反証・未確認を別々に判断する。
+対象選定では[寄与仮説の再評価](../_shared/evidence.md#寄与仮説の再評価)に従い、関連するopen InterventionのHistory・担当報告と保存済み計測を照合する。TargetのGoal達成と、Objectiveへの寄与仮説の支持・反証・未確認を別々に判断する。
 
-照合結果から、現行のScope・Goal・評価条件・Objectiveリンク・Priorityを維持または見直す理由を、参照カードID・RUNとともに対象TargetのHistoryへ残す（検査のみなら更新案に含める）。局所結果だけが改善した場合も、同じ優先度を維持する根拠を再評価する。Goal達成に得点増加を後付けで必須化せず、スコア横ばいだけでTargetを退役させない。
+照合結果から、現行のScope・Goal・評価条件・Objectiveリンク・Priorityを維持または見直す理由を、参照するopenカードID・RUNとともに対象TargetのHistoryへ残す（検査のみなら更新案に含める）。局所結果だけが改善した場合も、同じ優先度を維持する根拠を再評価する。Goal達成に得点増加を後付けで必須化せず、スコア横ばいだけでTargetを退役させない。
 
-[Work selection](../../../tools/backlog/backlog-workflow.md#work-selection)に従い、対象の全ACTIVE Targetを達成済み・未達・判定材料不足に分ける。現Goalの達成根拠が揃ったTargetは下記の更新規則に従ってRESOLVEDへ移し、維持するTargetはWhatと判断を変える問いをanalyzeへ渡す。優先度は探索順として伝え、低優先度やEvidence不足だけで引き継ぎ対象から外さない。実現方法の選定やコード調査はanalyzeの担当とする。
+この管理判断とは別に、[Work selection](../../../tools/backlog/backlog-workflow.md#work-selection)に従い今回管理判断で詳細に扱うWhatと、次の方法探索で優先するWhatを選ぶ。同じ対象を続ける場合も他の有望な対象との比較から理由を示す。ACTIVE維持や達成判定に必要なEvidenceの不足だけを追加探索の理由にせず、選ばなかった対象は直近の評価を参照して理由・再検討条件を残す。実現方法の選定やコード調査には広げず、優先するWhatと判断を変える問いをanalyzeへ推薦する。この推薦はanalyzeの全ACTIVE Target詳細探索を限定しない。
 
 Objective自体の仮説に問題がある場合は、対象ID・観測・未確認の関係をobjective担当へ返す。原因や実現方法の調査が必要な場合は、具体的な問いを担当へ引き渡す。
 
@@ -61,7 +61,7 @@ Objective自体の仮説に問題がある場合は、対象ID・観測・未確
 - 資源需要は同等の正常完了仕事あたり、レイテンシは同等の要求構成で評価する。成功数低下、応答省略、他処理への費用移転を成果にしない。主指標と副作用確認を分ける。
 - Objectiveリンクの因果とprimaryを確認する。局所結果の改善と得点寄与の実証を分け、企業賞を主スコアに混ぜない。
 - 対象・前提・目標が同じTargetの重複、実装案ごとの過分割、前提の陳腐化を確認する。実現方法や効果量の未確定だけを理由に定義可能なWhatを保留しない。
-- HowになっているGoalは、元の対象と計測に戻して結果目標へ改定する。タイトルだけでなくScope/Axis/Goal/Evaluation/fingerprint/Objectiveリンクを整合させる。削減案は過去EvidenceやInterventionの仮説として保存する。
+- HowになっているGoalは、元の対象と計測に戻して結果目標へ改定する。タイトルだけでなくScope/Axis/Goal/Evaluation/fingerprint/Objectiveリンクを整合させる。削減案は関連するopen Interventionの仮説として保存する。
 
 ## 更新・達成判定
 
@@ -69,14 +69,14 @@ Writer protocolに従い直前versionを取得しCLIで更新する。actorは `
 
 目標改定では旧Scope/Axis/Goal/Evaluation/fingerprintと変更理由をHistoryに保存する。関連Interventionの寄与関係と進行中Ownerへの影響を確認し、本文や状態を勝手に変更しない。既存の実装案と独立して新しい結果目標を評価する。
 
-現Goalに対する計測結果と担当の検証報告から達成を確認できたTargetはRESOLVEDへ移す。検査のみの依頼では遷移案を示す。Intervention採用、構造変更、候補不足、低優先度だけでは達成にしない。比較不能・指標欠損の場合は具体的不足を残すが、個別得点分離や特別な計測・再起動試験を追加の必須条件にしない。通常成果物で判定できる範囲を使う。正当性は実装・採用担当の検証を参照し、既知の違反を無視しない。
+RESOLVEDは現Goalに対する計測結果と担当の検証報告から判断する。Intervention採用、構造変更、候補不足、低優先度だけでは達成にしない。比較不能・指標欠損の場合は具体的不足を残すが、個別得点分離や特別な計測・再起動試験を追加の必須条件にしない。通常成果物で判定できる範囲を使う。正当性は実装・採用担当の検証を参照し、既知の違反を無視しない。
 
-終端Targetは再開・遡及改定しない。RETIRED/MERGED/再発時の新規Targetはworkflowに従い、ACTIVE Target/Objectiveを必要とするInterventionを不整合にしない。調整が必要なら対象ID・達成根拠・必要なリンク調整と担当を残して当該状態変更を保留する。調整待ちとGoal未達を区別し、追加の性能探索で代用しない。
+終端Targetは再開・遡及改定しない。RETIRED/MERGED/再発時の新規Targetはworkflowに従い、ACTIVE Target/Objectiveを必要とするInterventionを不整合にしない。調整が必要なら対象IDと理由を残して当該状態変更を保留する。
 
 ## 終了と引き継ぎ
 
-件数や起票の有無だけを終了理由にしない。対象の全ACTIVE Targetについて現Goalの達成判定と状態整理を行い、ACTIVEを維持する各TargetのWhat・探索すべき問い・不足情報を説明できるところまで整理する。主要な寄与経路の既存被覆と未被覆部分も確認する。担当範囲内の保存済みEvidenceでは判定できない場合、確認した資料と具体的に不足する計測・担当報告を示す。方法探索自体や全改善余地の網羅は行わない。
+件数や起票の有無だけを終了理由にしない。指定範囲の主要な寄与経路について優先判断、対応Targetと被覆範囲、未被覆部分、今回の区切りと再検討条件を説明できるところまで整理する。区切りは方法探索へ渡せるWhatが定義できた、必要な計測・報告が存在しない、など確認結果に基づく。全改善余地の網羅は要求しない。
 
-Objective別の範囲、Evidenceと時点、判断理由、更新ID、未確定点を記録し、他スキルの報告には出典を付ける。analyzeへは対象範囲内でACTIVEを維持する全Target IDと探索順、その理由、対象・主指標・Goal・比較/退行条件、Objectiveへの因果、baseline参照を渡す。達成済みで状態遷移の調整待ちの場合はその旨を区別する。具体的なHowをTargetの前提条件として渡さない。Objective側の不足・修正事項は別に報告する。
+Objective別の範囲、Evidenceと時点、判断理由、更新ID、未探索部分を記録し、他スキルの報告には出典を付ける。analyzeへはACTIVE Target一覧と優先するTarget ID・推薦理由、対象・主指標・Goal・比較/退行条件、Objectiveへの因果、baseline参照を渡す。analyzeはユーザーが限定しない限り全ACTIVE Targetを詳細探索する。推薦は調査順と各Target内の問いに使い、対象の除外指示にしない。ユーザーによる明示的な範囲指定があればそのまま引き継ぐ。具体的なHowをTargetの前提条件として渡さない。Objective側の不足・修正事項は別に報告する。
 
-RUNがあれば `docs/reports/isucon-target/` へ命名規則に従い新規保存し、なければHistoryと完了報告へ残す。最後に `task backlog -- validate` を通す。
+RUNがあれば対象TargetのHistoryへRUN・Evidence・判断を追記し、なければHistoryと完了報告へ残す。最後に `task backlog -- validate` を通す。

@@ -1,12 +1,55 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestRunGitWithRetry(t *testing.T) {
+	t.Run("succeeds after transient failures", func(t *testing.T) {
+		attempts := 0
+		out, err := runGitWithRetry(func() ([]byte, error) {
+			attempts++
+			if attempts < 3 {
+				return []byte("temporary failure"), errors.New("temporary failure")
+			}
+			return []byte("success"), nil
+		}, "commit")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if attempts != 3 {
+			t.Fatalf("attempts = %d, want 3", attempts)
+		}
+		if string(out) != "success" {
+			t.Fatalf("output = %q, want success", out)
+		}
+	})
+
+	t.Run("returns the final failure after all retries", func(t *testing.T) {
+		attempts := 0
+		out, err := runGitWithRetry(func() ([]byte, error) {
+			attempts++
+			return []byte("failure"), errors.New("temporary failure")
+		}, "commit")
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		if attempts != gitCommandRetryCount+1 {
+			t.Fatalf("attempts = %d, want %d", attempts, gitCommandRetryCount+1)
+		}
+		if !strings.Contains(err.Error(), "git commit") || !strings.Contains(err.Error(), "failure") {
+			t.Fatalf("error = %v", err)
+		}
+		if string(out) != "failure" {
+			t.Fatalf("output = %q, want failure", out)
+		}
+	})
+}
 
 func TestCommitRunArtifactsIsolation(t *testing.T) {
 	for _, stagedArtifact := range []bool{false, true} {

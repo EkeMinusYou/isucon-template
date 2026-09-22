@@ -91,6 +91,9 @@ func main() {
 		if err := dumpDatabase(config.dbPath, config.dumpPath); err != nil {
 			fatal(err)
 		}
+		if err := commitBacklogDump(config.root, config.dumpPath); err != nil {
+			fatal(err)
+		}
 	}
 }
 
@@ -304,6 +307,7 @@ func runInit(config cliConfig, args []string) {
 func runList(config cliConfig, args []string) {
 	fs := flag.NewFlagSet("list", flag.ExitOnError)
 	format := outputFormatFlag(fs)
+	fields := fs.String("fields", "", "comma-separated card JSON fields (requires --format json)")
 	all := fs.Bool("all", false, "include terminal cards")
 	status := fs.String("status", "", "filter by status")
 	area := fs.String("area", "", "filter by area")
@@ -322,6 +326,17 @@ func runList(config cliConfig, args []string) {
 	}
 	if *format == "json" && *watch {
 		fatal(errors.New("--format json cannot be combined with --watch"))
+	}
+	var selected []jsonField
+	if flagSeen(fs, "fields") {
+		if *format != "json" {
+			fatal(errors.New("--fields requires --format json"))
+		}
+		var err error
+		selected, err = parseCardListFields(*fields)
+		if err != nil {
+			fatal(err)
+		}
 	}
 	if *noColor {
 		initColor(true)
@@ -346,6 +361,13 @@ func runList(config cliConfig, args []string) {
 		revision, err := store.revision()
 		if err != nil {
 			return err
+		}
+		if selected != nil {
+			printJSON(struct {
+				Revision int              `json:"backlog_revision"`
+				Cards    []map[string]any `json:"cards"`
+			}{revision, projectCardList(cards, selected)})
+			return nil
 		}
 		nextID, err := store.metadata("next_id")
 		if err != nil {
@@ -414,9 +436,10 @@ func clearTerminal() {
 }
 
 func runShow(config cliConfig, args []string) {
-	args = moveCardIDToEnd(args, map[string]bool{"format": true})
+	args = moveCardIDToEnd(args, map[string]bool{"format": true, "fields": true})
 	fs := flag.NewFlagSet("show", flag.ExitOnError)
 	format := outputFormatFlag(fs)
+	fields := fs.String("fields", "", "comma-separated JSON fields (requires --format json)")
 	noColor := fs.Bool("no-color", false, "disable terminal colors")
 	fs.Parse(args)
 	if *noColor {
@@ -425,6 +448,7 @@ func runShow(config cliConfig, args []string) {
 	if fs.NArg() != 1 {
 		fatal(errors.New("show requires one card ID"))
 	}
+	selected := showFields(fs, *format, *fields, Card{})
 	store := openCLIStore(config)
 	defer store.Close()
 	card, err := store.getCard(normalizeID(fs.Arg(0)))
@@ -432,7 +456,11 @@ func runShow(config cliConfig, args []string) {
 		fatal(err)
 	}
 	if *format == "json" {
-		printJSON(card)
+		if selected != nil {
+			printJSON(projectJSONFields(card, selected))
+		} else {
+			printJSON(card)
+		}
 	} else {
 		printCard(card)
 	}
@@ -461,7 +489,7 @@ func runAdd(config cliConfig, args []string) {
 	actor := fs.String("actor", "", "writer identity")
 	reason := fs.String("reason", "", "history/change reason")
 	input := sectionInputFlags(fs)
-	fieldFlags := cardFieldFlags(fs)
+	fieldFlags := cardFieldFlags(fs, false)
 	title := fieldFlags.values["title"]
 	if err := fs.Parse(args); err != nil {
 		fatal(err)
@@ -486,18 +514,26 @@ func runAdd(config cliConfig, args []string) {
 type fieldFlagSet struct{ values map[string]*string }
 
 func cardValueFlags() map[string]bool {
-	result := map[string]bool{"actor": true, "reason": true, "expect-card-version": true, "format": true, "result": true, "result-file": true}
-	for _, key := range []string{"status", "title", "priority", "owner", "area", "source-runs", "compare-run", "observed-runs", "updated", "updated-by"} {
+	result := map[string]bool{"actor": true, "reason": true, "expect-card-version": true, "expect-owner": true, "format": true, "result": true, "result-file": true}
+	for _, key := range []string{"status", "title", "priority", "implementation-estimate-minutes", "owner", "area", "source-runs", "compare-run", "observed-runs", "updated", "updated-by"} {
 		result[key] = true
 	}
 	return result
 }
 
-func cardFieldFlags(fs *flag.FlagSet) fieldFlagSet {
+func cardFieldFlags(fs *flag.FlagSet, includeEstimate bool) fieldFlagSet {
 	values := map[string]*string{}
-	for _, key := range []string{"status", "title", "priority", "owner", "area", "source-runs", "compare-run", "observed-runs", "updated", "updated-by"} {
+	keys := []string{"status", "title", "priority", "owner", "area", "source-runs", "compare-run", "observed-runs", "updated", "updated-by"}
+	if includeEstimate {
+		keys = append(keys, "implementation-estimate-minutes")
+	}
+	for _, key := range keys {
 		value := ""
-		fs.StringVar(&value, key, "", "card field")
+		help := "card field"
+		if key == "implementation-estimate-minutes" {
+			help = "estimated implementation and local verification time in positive whole minutes; empty clears"
+		}
+		fs.StringVar(&value, key, "", help)
 		values[key] = &value
 	}
 	return fieldFlagSet{values: values}
@@ -551,8 +587,9 @@ func runUpdate(config cliConfig, args []string) {
 	actor := fs.String("actor", "", "writer identity")
 	reason := fs.String("reason", "", "history/change reason")
 	expected := fs.Int("expect-card-version", -1, "expected target card version")
+	expectedOwner := fs.String("expect-owner", "", "expected current owner, including empty for a claim")
 	input := sectionInputFlags(fs)
-	fields := cardFieldFlags(fs)
+	fields := cardFieldFlags(fs, true)
 	if err := fs.Parse(args); err != nil {
 		fatal(err)
 	}
@@ -570,7 +607,11 @@ func runUpdate(config cliConfig, args []string) {
 	store := openCLIStore(config)
 	defer store.Close()
 	cardID := normalizeID(fs.Arg(0))
-	if err := store.updateCard(cardID, patch, mutation{ExpectedCardVersion: expected, Actor: *actor, Operation: "update"}, *reason); err != nil {
+	var ownerCheck *string
+	if flagSeen(fs, "expect-owner") {
+		ownerCheck = expectedOwner
+	}
+	if err := store.updateCard(cardID, patch, mutation{ExpectedCardVersion: expected, ExpectedOwner: ownerCheck, Actor: *actor, Operation: "update"}, *reason); err != nil {
 		fatal(err)
 	}
 	printCardMutation(*format, cardID, *expected+1, "updated", nil)
@@ -584,7 +625,7 @@ func runResolve(config cliConfig, args []string) {
 	reason := fs.String("reason", "", "history/change reason")
 	expected := fs.Int("expect-card-version", -1, "expected target card version")
 	input := sectionInputFlags(fs)
-	fields := cardFieldFlags(fs)
+	fields := cardFieldFlags(fs, true)
 	if err := fs.Parse(args); err != nil {
 		fatal(err)
 	}
@@ -659,6 +700,8 @@ func runTransition(config cliConfig, args []string) {
 	actor := fs.String("actor", "", "writer identity")
 	reason := fs.String("reason", "", "history/change reason")
 	expected := fs.Int("expect-card-version", -1, "expected target card version")
+	expectedOwner := fs.String("expect-owner", "", "expected current owner")
+	releaseOwner := fs.Bool("release-owner", false, "atomically release ownership when handing off work")
 	if err := fs.Parse(args); err != nil {
 		fatal(err)
 	}
@@ -675,7 +718,14 @@ func runTransition(config cliConfig, args []string) {
 	store := openCLIStore(config)
 	defer store.Close()
 	cardID := normalizeID(fs.Arg(0))
-	woke, err := store.transitionCardWithResultAndWake(cardID, *status, result, mutation{ExpectedCardVersion: expected, Actor: *actor, Operation: "transition"}, *reason)
+	var ownerCheck *string
+	if flagSeen(fs, "expect-owner") {
+		ownerCheck = expectedOwner
+	}
+	if *releaseOwner && ownerCheck == nil {
+		fatal(errors.New("--release-owner requires --expect-owner"))
+	}
+	woke, err := store.transitionCardWithResultAndWake(cardID, *status, result, mutation{ExpectedCardVersion: expected, ExpectedOwner: ownerCheck, ReleaseOwner: *releaseOwner, Actor: *actor, Operation: "transition"}, *reason)
 	if err != nil {
 		fatal(err)
 	}
@@ -823,12 +873,14 @@ func runObjectiveList(config cliConfig, args []string) {
 	format := outputFormatFlag(fs)
 	all := fs.Bool("all", false, "include retired objectives")
 	status := fs.String("status", "", "filter by objective status")
+	priority := fs.String("priority", "", "filter by objective priority")
+	fs.StringVar(priority, "p", "", "filter by objective priority")
 	if err := fs.Parse(args); err != nil {
 		fatal(err)
 	}
 	store := openCLIStore(config)
 	defer store.Close()
-	objectives, err := store.listObjectives(ObjectiveFilter{All: *all, Status: *status})
+	objectives, err := store.listObjectives(ObjectiveFilter{All: *all, Status: *status, Priority: *priority})
 	if err != nil {
 		fatal(err)
 	}
@@ -840,15 +892,17 @@ func runObjectiveList(config cliConfig, args []string) {
 }
 
 func runObjectiveShow(config cliConfig, args []string) {
-	args = moveCardIDToEnd(args, map[string]bool{"format": true})
+	args = moveCardIDToEnd(args, map[string]bool{"format": true, "fields": true})
 	fs := flag.NewFlagSet("objective show", flag.ExitOnError)
 	format := outputFormatFlag(fs)
+	fields := fs.String("fields", "", "comma-separated JSON fields (requires --format json)")
 	if err := fs.Parse(args); err != nil {
 		fatal(err)
 	}
 	if fs.NArg() != 1 {
 		fatal(errors.New("objective show requires one objective ID"))
 	}
+	selected := showFields(fs, *format, *fields, Objective{})
 	store := openCLIStore(config)
 	defer store.Close()
 	objective, err := store.getObjective(fs.Arg(0))
@@ -856,7 +910,11 @@ func runObjectiveShow(config cliConfig, args []string) {
 		fatal(err)
 	}
 	if *format == "json" {
-		printJSON(objective)
+		if selected != nil {
+			printJSON(projectJSONFields(objective, selected))
+		} else {
+			printJSON(objective)
+		}
 	} else {
 		printObjective(objective)
 	}
@@ -868,6 +926,7 @@ func runObjectiveAdd(config cliConfig, args []string) {
 	status := fs.String("status", "ACTIVE", "ACTIVE or RETIRED")
 	mode := fs.String("mode", "", "SATISFY, MAXIMIZE, or MINIMIZE")
 	title := fs.String("title", "", "objective title")
+	priority := fs.String("priority", "", "objective priority")
 	metric := fs.String("metric-or-predicate", "", "metric or predicate used to judge the objective")
 	required := fs.Bool("required-for-valid-result", false, "mark as required for a valid result")
 	parent := fs.String("parent-objective", "", "parent objective ID")
@@ -880,7 +939,7 @@ func runObjectiveAdd(config cliConfig, args []string) {
 	}
 	store := openCLIStore(config)
 	defer store.Close()
-	newID, err := store.addObjective(NewObjective{ID: *id, Status: *status, Mode: *mode, Title: *title, MetricOrPredicate: *metric, RequiredForValidResult: *required, ParentObjectiveID: *parent, OfficialSources: *sources, Verification: *verification}, mutation{Actor: *actor, Operation: "objective.add"}, *reason)
+	newID, err := store.addObjective(NewObjective{ID: *id, Status: *status, Mode: *mode, Title: *title, Priority: *priority, MetricOrPredicate: *metric, RequiredForValidResult: *required, ParentObjectiveID: *parent, OfficialSources: *sources, Verification: *verification}, mutation{Actor: *actor, Operation: "objective.add"}, *reason)
 	if err != nil {
 		fatal(err)
 	}
@@ -888,13 +947,13 @@ func runObjectiveAdd(config cliConfig, args []string) {
 }
 
 func runObjectiveUpdate(config cliConfig, args []string) {
-	args = moveCardIDToEnd(args, map[string]bool{"expect-objective-version": true, "status": true, "mode": true, "title": true, "metric-or-predicate": true, "required-for-valid-result": true, "parent-objective": true, "official-sources": true, "verification": true, "actor": true, "reason": true})
+	args = moveCardIDToEnd(args, map[string]bool{"expect-objective-version": true, "status": true, "mode": true, "title": true, "priority": true, "metric-or-predicate": true, "required-for-valid-result": true, "parent-objective": true, "official-sources": true, "verification": true, "actor": true, "reason": true})
 	fs := flag.NewFlagSet("objective update", flag.ExitOnError)
 	expected := fs.Int("expect-objective-version", -1, "expected objective version")
 	actor := fs.String("actor", "", "writer identity")
 	reason := fs.String("reason", "", "update reason")
 	values := map[string]*string{}
-	for _, name := range []string{"status", "mode", "title", "metric-or-predicate", "required-for-valid-result", "parent-objective", "official-sources", "verification"} {
+	for _, name := range []string{"status", "mode", "title", "priority", "metric-or-predicate", "required-for-valid-result", "parent-objective", "official-sources", "verification"} {
 		value := ""
 		fs.StringVar(&value, name, "", "objective field")
 		values[name] = &value
@@ -915,6 +974,8 @@ func runObjectiveUpdate(config cliConfig, args []string) {
 			patch.Mode = values[f.Name]
 		case "title":
 			patch.Title = values[f.Name]
+		case "priority":
+			patch.Priority = values[f.Name]
 		case "metric-or-predicate":
 			patch.MetricOrPredicate = values[f.Name]
 		case "parent-objective":
@@ -1027,15 +1088,17 @@ func runTargetList(config cliConfig, args []string) {
 }
 
 func runTargetShow(config cliConfig, args []string) {
-	args = moveCardIDToEnd(args, map[string]bool{"format": true})
+	args = moveCardIDToEnd(args, map[string]bool{"format": true, "fields": true})
 	fs := flag.NewFlagSet("target show", flag.ExitOnError)
 	format := outputFormatFlag(fs)
+	fields := fs.String("fields", "", "comma-separated JSON fields (requires --format json)")
 	if err := fs.Parse(args); err != nil {
 		fatal(err)
 	}
 	if fs.NArg() != 1 {
 		fatal(errors.New("target show requires one target ID"))
 	}
+	selected := showFields(fs, *format, *fields, Target{})
 	store := openCLIStore(config)
 	defer store.Close()
 	target, err := store.getTarget(fs.Arg(0))
@@ -1043,7 +1106,11 @@ func runTargetShow(config cliConfig, args []string) {
 		fatal(err)
 	}
 	if *format == "json" {
-		printJSON(target)
+		if selected != nil {
+			printJSON(projectJSONFields(target, selected))
+		} else {
+			printJSON(target)
+		}
 	} else {
 		printTarget(target)
 	}
@@ -1272,28 +1339,29 @@ func runValidate(config cliConfig, args []string) {
 }
 
 func runPass(config cliConfig, args []string) {
-	args = moveCardIDToEnd(args, map[string]bool{"actor": true, "reason": true, "evidence-run": true})
+	args = moveCardIDToEnd(args, map[string]bool{"actor": true, "reason": true, "evidence-run": true, "owner": true, "expect-card-versions": true, "outcomes": true})
 	fs := flag.NewFlagSet("pass", flag.ExitOnError)
 	actor := fs.String("actor", "", "internal writer identity")
 	reason := fs.String("reason", "benchmark passed; promote selected APPLIED cards", "history/change reason")
-	evidenceRun := fs.String("evidence-run", "latest", "finalized benchmark RUN containing the APPLIED snapshot, or latest")
-	force := fs.Bool("force", false, "override pass, score, and comparison compatibility checks")
+	evidenceRun := fs.String("evidence-run", "", "explicit finalized benchmark RUN containing the APPLIED snapshot")
+	owner := fs.String("owner", "", "owner of every reviewed card")
+	versions := fs.String("expect-card-versions", "", "reviewed card versions, e.g. B-001=4,B-002=7")
+	force := fs.Bool("force", false, "override pass and known-score checks")
 	outcomes := fs.String("outcomes", filepath.Join(config.root, "runs", "outcomes.tsv"), "derived adoption outcome TSV")
 	if err := fs.Parse(args); err != nil {
 		fatal(err)
 	}
-	if fs.NArg() != 1 {
-		fatal(errors.New("pass requires a comma-separated card ID list or all"))
+	if fs.NArg() != 1 || strings.EqualFold(strings.TrimSpace(fs.Arg(0)), "all") {
+		fatal(errors.New("pass requires explicit comma-separated card IDs; all is not supported"))
 	}
 	if *actor != "task:pass" {
 		fatal(errors.New("the backlog pass subcommand is internal; use top-level 'task pass' so runs/outcomes.tsv is recorded"))
 	}
-	if strings.TrimSpace(*evidenceRun) == "" || *evidenceRun == "latest" {
-		latest, err := latestRunID(config.root)
-		if err != nil {
-			fatal(err)
-		}
-		*evidenceRun = latest
+	if runs, err := parseRunIDsStrict(*evidenceRun); err != nil || len(runs) != 1 || runs[0] != *evidenceRun {
+		fatal(errors.New("pass requires an explicit --evidence-run; use task pass RUN=<RUN_ID>"))
+	}
+	if strings.TrimSpace(*owner) == "" {
+		fatal(errors.New("pass requires --owner; use task pass OWNER=<verifier-session>"))
 	}
 	store := openCLIStore(config)
 	defer store.Close()
@@ -1305,16 +1373,9 @@ func runPass(config cliConfig, args []string) {
 	if err != nil {
 		fatal(err)
 	}
-	if len(ids) == 0 {
-		if err := store.writeOutcomes(*outcomes); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: outcomes TSV could not be regenerated: %v\n", err)
-		}
-		revision, err := store.revision()
-		if err != nil {
-			fatal(err)
-		}
-		fmt.Printf("pass: 0 cards, revision %d\n", revision)
-		return
+	expectations, err := adoptionExpectations(run, ids, *owner, *versions)
+	if err != nil {
+		fatal(err)
 	}
 	for _, id := range ids {
 		card, getErr := store.getCard(id)
@@ -1326,40 +1387,14 @@ func runPass(config cliConfig, args []string) {
 		}
 	}
 	score := formatOptionalInt64(run.Score)
-	comparisonRun, comparisonScore, delta := "", "unknown", "unknown"
-	var comparisonScoreValue, deltaValue *int64
-	comparisonStatus := run.Comparison.Status
-	if comparisonStatus == "" {
-		comparisonStatus = "none"
-	}
-	if run.Comparison.RunID != "" {
-		comparisonRun = run.Comparison.RunID
-		control, loadErr := loadPassedRunSnapshot(config.root, run.Comparison.RunID, false)
-		if loadErr != nil {
-			if !*force {
-				fatal(fmt.Errorf("load declared control RUN: %w", loadErr))
-			}
-			fmt.Fprintf(os.Stderr, "warning: forced pass could not load declared control RUN: %v\n", loadErr)
-		} else {
-			comparisonRun = control.RunID
-			comparisonScoreValue = control.Score
-			comparisonScore = formatOptionalInt64(control.Score)
-			if run.Score != nil && control.Score != nil && comparisonStatus == "compatible" {
-				value := *run.Score - *control.Score
-				deltaValue = &value
-				delta = strconv.FormatInt(value, 10)
-			}
-		}
-	}
-	passReason := fmt.Sprintf("%s (evidence_run=%s, score=%s, comparison_run=%s, comparison_score=%s, delta=%s, comparison_status=%s, forced=%t, snapshot_revision=%d)",
-		strings.TrimSpace(*reason), run.RunID, score, valueOr(comparisonRun, "none"), comparisonScore, delta, comparisonStatus, *force, run.BacklogSnapshot.Revision)
+	passReason := fmt.Sprintf("%s (owner=%s, evidence_run=%s, score=%s, forced=%t, snapshot_revision=%d)",
+		strings.TrimSpace(*reason), *owner, run.RunID, score, *force, run.BacklogSnapshot.Revision)
 	event := AdoptionEvent{
 		RunID: run.RunID, AdoptedAt: now(), Actor: *actor, Forced: *force,
-		Score: run.Score, Passed: run.Passed, ComparisonRunID: comparisonRun,
-		ComparisonScore: comparisonScoreValue, ComparisonStatus: comparisonStatus, Delta: deltaValue,
+		Score: run.Score, Passed: run.Passed, ComparisonStatus: "none",
 		ManifestSHA256: run.ManifestSHA256, SnapshotRevision: run.BacklogSnapshot.Revision,
 	}
-	cards, err := store.adoptCardsMatching(ids, snapshotChangeBoundaryHashes(run), event, passReason)
+	cards, err := store.adoptCardsMatching(ids, expectations, event, passReason)
 	if err != nil {
 		fatal(err)
 	}
@@ -1371,8 +1406,7 @@ func runPass(config cliConfig, args []string) {
 	for _, card := range cards {
 		fmt.Printf("validated %s: %s\n", card.ID, card.Title)
 	}
-	fmt.Printf("pass-context run_id=%s score=%s comparison_run_id=%s comparison_score=%s delta=%s comparison_status=%s forced=%t\n",
-		run.RunID, score, valueOr(comparisonRun, "none"), comparisonScore, delta, comparisonStatus, *force)
+	fmt.Printf("pass-context run_id=%s score=%s forced=%t\n", run.RunID, score, *force)
 	if err := store.validate(); err != nil {
 		fatal(err)
 	}
@@ -1398,22 +1432,18 @@ func formatOptionalInt64(value *int64) string {
 }
 
 func passSnapshotCardIDs(store *Store, run runSnapshotEnvelope, value string) ([]string, error) {
-	ids := snapshotCardIDs(run)
-	if !strings.EqualFold(strings.TrimSpace(value), "all") {
-		requested, err := parseCardIDList(value)
-		if err != nil {
-			return nil, err
+	ids, err := parseCardIDList(value)
+	if err != nil {
+		return nil, err
+	}
+	available := make(map[string]bool)
+	for _, id := range snapshotCardIDs(run) {
+		available[id] = true
+	}
+	for _, id := range ids {
+		if !available[id] {
+			return nil, fmt.Errorf("card %s was not APPLIED in evidence RUN %s", id, run.RunID)
 		}
-		available := make(map[string]bool, len(ids))
-		for _, id := range ids {
-			available[id] = true
-		}
-		for _, id := range requested {
-			if !available[id] {
-				return nil, fmt.Errorf("card %s was not APPLIED in evidence RUN %s", id, run.RunID)
-			}
-		}
-		ids = requested
 	}
 	for _, id := range ids {
 		card, err := store.getCard(id)
@@ -1463,32 +1493,32 @@ Global options:
 
 Commands:
   init                                    initialize the backlog
-  list [--all] [--status S] [--area A] [-p P] [--target A-NNN] [--unowned|--owner ACTOR] [--watch] [--interval D] [--format text|json]
+  list [--all] [--status S] [--area A] [-p P] [--target A-NNN] [--unowned|--owner ACTOR] [--watch] [--interval D] [--format text|json] [--fields FIELD,...]
   watch [list options]                   refresh the list periodically
-  show CARD_ID [--format text|json]
+  show CARD_ID [--format text|json] [--fields FIELD,...]
   snapshot-applied --output PATH          atomically save the current APPLIED card set
   add --title TITLE --actor ACTOR --reason REASON [card fields] [section input] [--format text|json]
-  update CARD_ID --expect-card-version N --actor ACTOR --reason REASON [card fields] [section input] [--format text|json]
+  update CARD_ID --expect-card-version N --actor ACTOR --reason REASON [--expect-owner OWNER] [card fields] [section input] [--format text|json]
   migrate-evaluation CARD_ID --expect-card-version N --actor ACTOR --reason REASON < evaluation.txt
   resolve CARD_ID --expect-card-version N --status READY|BLOCKED|REJECTED --actor ACTOR --reason REASON [card fields] [section input] [--format text|json]
-  transition CARD_ID --expect-card-version N --status STATUS --actor ACTOR --reason REASON [--result TEXT|--result-file PATH] [--format text|json]
+  transition CARD_ID --expect-card-version N --status STATUS --actor ACTOR --reason REASON [--expect-owner OWNER] [--release-owner] [--result TEXT|--result-file PATH] [--format text|json]
   dependency add CARD_ID --on CARD_ID [--required-status STATUS --mode MODE] --expect-card-version N --actor ACTOR --reason REASON
   dependency remove CARD_ID --on CARD_ID --expect-card-version N --actor ACTOR --reason REASON
   dependency list CARD_ID
-  objective list [--all] [--status S] [--format text|json]
-  objective show OBJECTIVE_ID [--format text|json]
-  objective add --mode MODE --title TITLE --metric-or-predicate VALUE --verification VALUE --actor ACTOR --reason REASON
+  objective list [--all] [--status S] [-p P|--priority P] [--format text|json]
+  objective show OBJECTIVE_ID [--format text|json] [--fields FIELD,...]
+  objective add --mode MODE --title TITLE --priority P --metric-or-predicate VALUE --verification VALUE --actor ACTOR --reason REASON
   objective update OBJECTIVE_ID --expect-objective-version N --actor ACTOR --reason REASON [objective fields]
   objective link|unlink OBJECTIVE_ID (--target A-NNN|--intervention B-NNN) --expect-objective-version N --actor ACTOR --reason REASON
   target list [--all] [--status S] [-p P] [--format text|json]
-  target show TARGET_ID [--format text|json]
+  target show TARGET_ID [--format text|json] [--fields FIELD,...]
   target add --objective O-NNN --title TITLE --fingerprint FP --scope SCOPE --axis AXIS --goal GOAL --evaluation METHOD --evidence E [--previous-target A-NNN] --actor ACTOR --reason REASON
   target update TARGET_ID --expect-target-version N --actor ACTOR --reason REASON [target fields]
   target transition TARGET_ID --expect-target-version N --status STATUS [--merged-into TARGET_ID] [--completion-evidence E] --actor ACTOR --reason REASON
   target link TARGET_ID --card CARD_ID [--primary] --expect-target-version N --actor ACTOR --reason REASON
   target unlink TARGET_ID --card CARD_ID --expect-target-version N --actor ACTOR --reason REASON
   history add CARD_ID --actor ACTOR --message MESSAGE
-  pass CARD_ID[,CARD_ID...]|all --actor task:pass [--evidence-run RUN_ID|latest] [--outcomes FILE] [--reason REASON] [--force]
+  pass CARD_ID[,CARD_ID...] --actor task:pass --evidence-run RUN_ID --owner OWNER --expect-card-versions ID=N[,ID=N...] [--outcomes FILE] [--reason REASON] [--force]
                                           internal command used by top-level 'task pass'
   evidence [-format text|json] [--run RUN_ID] CARD_ID[,CARD_ID...]  summarize evidence from a RUN whose APPLIED snapshot contains each card
   validate
@@ -1504,8 +1534,8 @@ Text output remains the default. JSON output cannot be combined with watch.
 
 Every write transaction increments backlog_revision internally. update, resolve, and transition require
 --expect-card-version so a changed target card is rejected instead of overwritten. History is append-only.
-Card fields include normalized source/compare/observed RUN relations. Record purpose, boundary,
-decision, evaluation, blockers, and reconsider conditions in the card sections and History.
+Card fields include normalized source/compare/observed RUN relations. Record purpose, a provisional or final
+boundary, decision, evaluation, blockers, and reconsider conditions in the card sections and History.
 `)
 }
 

@@ -1,0 +1,39 @@
+{
+  "description": "Save every turn in sessions that explicitly invoke $isucon-agent.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$(git rev-parse --show-toplevel)/.codex/hooks/isucon_agent_conversation.sh\" mark"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$(git rev-parse --show-toplevel)/.codex/hooks/isucon_agent_conversation.sh\" export",
+            "timeout": 30,
+            "statusMessage": "Saving and committing isucon-agent conversation"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "^other$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$(git rev-parse --show-toplevel)/.codex/hooks/isucon_agent_conversation.sh\" cleanup",
+            "timeout": 3
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -5,12 +5,6 @@ import (
 	"testing"
 )
 
-func TestLockWaitHeaderMatchesRowWidth(t *testing.T) {
-	if got, want := len(lockWaitHeader()), 23; got != want {
-		t.Fatalf("len(lockWaitHeader()) = %d, want %d", got, want)
-	}
-}
-
 func TestSanitizeLockField(t *testing.T) {
 	got := sanitizeLockField(" SELECT\t1\nFROM dual ")
 	if got != "SELECT 1 FROM dual" {

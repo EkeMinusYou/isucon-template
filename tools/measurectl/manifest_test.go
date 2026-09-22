@@ -70,7 +70,7 @@ func TestManifestBeginAndFinalizePreserveSnapshotAndSource(t *testing.T) {
 		CapturedAt:    "2026-09-01T12:00:00+09:00",
 		Revision:      42,
 		Cards: []AppliedSnapshotCard{{
-			ID: "B-001", Status: "APPLIED", Version: 3, ChangeBoundaryHash: "sha256:boundary", DecisionHash: "sha256:decision",
+			ID: "B-001", Status: "APPLIED", Version: 3, ApplicationID: "B-001@3", ChangeBoundaryHash: "sha256:boundary", DecisionHash: "sha256:decision",
 		}},
 	}
 	body, err := json.Marshal(snapshot)
@@ -90,7 +90,20 @@ func TestManifestBeginAndFinalizePreserveSnapshotAndSource(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	manifestBody, err := os.ReadFile(filepath.Join(runDir, "run.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(manifestBody), `"comparison"`) {
+		t.Fatalf("manifest contains removed comparison field: %s", manifestBody)
+	}
+	if strings.Contains(string(manifestBody), `"dirty"`) {
+		t.Fatalf("manifest contains removed source dirty field: %s", manifestBody)
+	}
 	started := readTestManifest(t, filepath.Join(runDir, "run.json"))
+	if started.BacklogSnapshot.Cards[0].ApplicationID != "B-001@3" {
+		t.Fatalf("application ID lost: %#v", started.BacklogSnapshot)
+	}
 	if started.Phase != "started" || started.BacklogSnapshot.Revision != 42 || len(started.BacklogSnapshot.Cards) != 1 {
 		t.Fatalf("started manifest = %#v", started)
 	}
@@ -114,6 +127,9 @@ func TestManifestBeginAndFinalizePreserveSnapshotAndSource(t *testing.T) {
 	if finalized.LoadWindow.Status != "ok" || finalized.LoadWindow.DurationMS != 60250 {
 		t.Fatalf("load window = %#v", finalized.LoadWindow)
 	}
+	if finalized.BacklogSnapshot.Cards[0].ApplicationID != "B-001@3" {
+		t.Fatalf("application ID lost on finalize: %#v", finalized.BacklogSnapshot)
+	}
 	if finalized.BacklogSnapshot.Revision != started.BacklogSnapshot.Revision || finalized.Source != started.Source || finalized.Roles.MySQL != "isucon-3" {
 		t.Fatalf("begin fields changed: started=%#v finalized=%#v", started, finalized)
 	}
@@ -127,6 +143,19 @@ func TestManifestBeginAndFinalizePreserveSnapshotAndSource(t *testing.T) {
 	if _, exists := artifactStatuses["*-fgprof.pprof"]; exists {
 		t.Fatalf("optional fgprof was recorded as missing: %#v", artifactStatuses)
 	}
+}
+
+func readTestManifest(t *testing.T, path string) Manifest {
+	t.Helper()
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest Manifest
+	if err := json.Unmarshal(body, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	return manifest
 }
 
 func TestManifestBeginRejectsOutdatedAppliedSnapshot(t *testing.T) {
@@ -173,241 +202,5 @@ func TestAppendScoresDistinguishesUnknownFromZero(t *testing.T) {
 	realZero := strings.Split(lines[2], "\t")
 	if unknown[1] != "" || realZero[1] != "0" {
 		t.Fatalf("unknown=%q zero=%q", unknown[1], realZero[1])
-	}
-}
-
-func TestCompareManifestAcceptsOnlyDeclaredCardAndRoleDeltas(t *testing.T) {
-	controlDir := filepath.Join(t.TempDir(), "20260901-120000")
-	if err := os.MkdirAll(controlDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	passed := true
-	control := Manifest{
-		SchemaVersion: 4,
-		Phase:         "finalized",
-		RunID:         "20260901-120000",
-		Passed:        &passed,
-		Preflight:     Preflight{CollectorClean: true},
-		Source:        CodeSource{Commit: "abc123"},
-		Roles:         Roles{App: []string{"isucon-1"}, MySQL: "isucon-1"},
-		BacklogSnapshot: BacklogSnapshot{SchemaVersion: 3, Status: "ok", Cards: []AppliedSnapshotCard{
-			{ID: "B-001", ChangeBoundaryHash: "sha256:control", DecisionHash: "sha256:decision"},
-		}},
-		Artifacts: []Artifact{{Name: "alp", Status: "ok"}},
-	}
-	body, err := json.Marshal(control)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(controlDir, "run.json"), body, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	target := control
-	target.RunID = "20260901-130000"
-	target.Source.Commit = "def456"
-	target.Roles.MySQL = "isucon-2"
-	target.BacklogSnapshot.Cards = []AppliedSnapshotCard{{ID: "B-001", ChangeBoundaryHash: "sha256:target", DecisionHash: "sha256:decision"}}
-
-	allowed, err := compareManifest(target, controlDir, []string{"B-001"}, []string{"mysql"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if allowed.Status != "compatible" || len(allowed.CardDelta) != 1 || len(allowed.RoleDelta) != 1 {
-		t.Fatalf("allowed comparison = %#v", allowed)
-	}
-
-	undeclared, err := compareManifest(target, controlDir, nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if undeclared.Status != "incompatible" {
-		t.Fatalf("undeclared comparison = %#v", undeclared)
-	}
-
-	decisionOnly := control
-	decisionOnly.RunID = "20260901-140000"
-	decisionOnly.BacklogSnapshot.Cards = []AppliedSnapshotCard{{ID: "B-001", ChangeBoundaryHash: "sha256:control", DecisionHash: "sha256:changed"}}
-	decisionComparison, err := compareManifest(decisionOnly, controlDir, nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if decisionComparison.Status != "compatible" || len(decisionComparison.CardDelta) != 0 {
-		t.Fatalf("decision-only comparison = %#v", decisionComparison)
-	}
-
-	artifactMismatchTarget := target
-	artifactMismatchTarget.Phase = "finalized"
-	artifactMismatchTarget.Artifacts = append(append([]Artifact{}, target.Artifacts...), Artifact{Name: "extra.tsv", Status: "ok"})
-	artifactMismatch, err := compareManifest(artifactMismatchTarget, controlDir, []string{"B-001"}, []string{"mysql"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if artifactMismatch.Status != "incompatible" {
-		t.Fatalf("artifact mismatch comparison = %#v", artifactMismatch)
-	}
-
-	unused, err := compareManifest(control, controlDir, []string{"B-001"}, []string{"mysql"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if unused.Status != "incompatible" {
-		t.Fatalf("unused allowances comparison = %#v", unused)
-	}
-}
-
-func TestCompareManifestRejectsUncleanControl(t *testing.T) {
-	controlDir := filepath.Join(t.TempDir(), "20260901-120000")
-	if err := os.MkdirAll(controlDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	passed := true
-	control := Manifest{
-		SchemaVersion: 4,
-		Phase:         "finalized",
-		RunID:         "20260901-120000",
-		Passed:        &passed,
-		Source:        CodeSource{Commit: "abc123"},
-		Artifacts:     []Artifact{{Name: "alp", Status: "ok"}},
-	}
-	body, err := json.Marshal(control)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(controlDir, "run.json"), body, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	result, err := compareManifest(control, controlDir, nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Status != "incompatible" {
-		t.Fatalf("unclean comparison = %#v", result)
-	}
-}
-
-func TestCompareManifestRejectsEmptyArtifactsAndRunIDMismatch(t *testing.T) {
-	controlDir := filepath.Join(t.TempDir(), "20260901-120000")
-	if err := os.MkdirAll(controlDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	passed := true
-	control := Manifest{
-		SchemaVersion: 4,
-		Phase:         "finalized",
-		RunID:         "20260901-120000",
-		Passed:        &passed,
-		Preflight:     Preflight{CollectorClean: true},
-		Source:        CodeSource{Commit: "abc123"},
-	}
-	body, err := json.Marshal(control)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(controlDir, "run.json"), body, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	result, err := compareManifest(control, controlDir, nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Status != "incompatible" {
-		t.Fatalf("empty artifacts comparison = %#v", result)
-	}
-
-	control.RunID = "different"
-	body, _ = json.Marshal(control)
-	if err := os.WriteFile(filepath.Join(controlDir, "run.json"), body, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := compareManifest(control, controlDir, nil, nil); err == nil {
-		t.Fatal("RUN ID mismatch unexpectedly succeeded")
-	}
-}
-
-func readTestManifest(t *testing.T, path string) Manifest {
-	t.Helper()
-	body, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var manifest Manifest
-	if err := json.Unmarshal(body, &manifest); err != nil {
-		t.Fatal(err)
-	}
-	return manifest
-}
-
-func TestCompareManifestDetectsAdditionalRoleChanges(t *testing.T) {
-	for _, scenario := range []struct {
-		name          string
-		before, after map[string][]string
-	}{
-		{"unchanged legacy", nil, nil},
-		{"added", nil, map[string][]string{"cache": {"host-a"}}},
-		{"changed", map[string][]string{"cache": {"host-a"}}, map[string][]string{"cache": {"host-b"}}},
-		{"removed", map[string][]string{"cache": {"host-a"}}, nil},
-	} {
-		t.Run(scenario.name, func(t *testing.T) {
-			dir := filepath.Join(t.TempDir(), "20260901-120000")
-			if err := os.MkdirAll(dir, 0o755); err != nil {
-				t.Fatal(err)
-			}
-			passed := true
-			control := Manifest{
-				SchemaVersion: 4, Phase: "finalized", RunID: filepath.Base(dir), Passed: &passed,
-				Preflight: Preflight{CollectorClean: true}, Source: CodeSource{Commit: "baseline"},
-				Roles:           Roles{Additional: scenario.before},
-				BacklogSnapshot: BacklogSnapshot{SchemaVersion: 3, Status: "ok"},
-				Artifacts:       []Artifact{{Name: "result", Status: "ok"}},
-			}
-			body, err := json.Marshal(control)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(filepath.Join(dir, "run.json"), body, 0o600); err != nil {
-				t.Fatal(err)
-			}
-			target := control
-			target.Roles.Additional = scenario.after
-			result, err := compareManifest(target, dir, nil, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if scenario.name == "unchanged legacy" {
-				if result.Status != "compatible" {
-					t.Fatalf("legacy comparison: %#v", result)
-				}
-				return
-			}
-			if result.Status != "incompatible" || len(result.RoleDelta) != 1 || result.RoleDelta[0] != "cache" {
-				t.Fatalf("undeclared role delta: %#v", result)
-			}
-			result, err = compareManifest(target, dir, nil, []string{"cache"})
-			if err != nil || result.Status != "compatible" {
-				t.Fatalf("allowed role delta: %#v, %v", result, err)
-			}
-		})
-	}
-}
-
-func TestCompareManifestRejectsCollectorModeChange(t *testing.T) {
-	dir := t.TempDir()
-	passed := true
-	control := Manifest{RunID: filepath.Base(dir), SchemaVersion: 4, Phase: "finalized", Passed: &passed, Preflight: Preflight{CollectorClean: true}, BacklogSnapshot: BacklogSnapshot{SchemaVersion: 3, Status: "ok", Cards: []AppliedSnapshotCard{}}}
-	body, err := json.Marshal(control)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "run.json"), body, 0600); err != nil {
-		t.Fatal(err)
-	}
-	target := control
-	target.CollectorsDisabled = true
-	comparison, err := compareManifest(target, dir, nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if comparison.Status == "compatible" || !strings.Contains(strings.Join(comparison.Reasons, " "), "periodic collector mode differs") {
-		t.Fatalf("mode mismatch not rejected: %#v", comparison)
 	}
 }

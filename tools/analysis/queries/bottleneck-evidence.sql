@@ -13,6 +13,17 @@ order by scenario;
 .print '== CAPACITY =='
 select * from bottleneck_capacity_summary where run_id = getvariable('run_id');
 
+.print '== HOST SATURATION SUMMARY =='
+select host, samples, cpu_count,
+       cpu_busy_peak_pct, cpu_busy_peak_at, cpu_busy_peak_offset_seconds,
+       cpu_busy_ge80_samples, cpu_busy_ge80_ratio,
+       idle_min_pct, idle_mean_pct, iowait_mean_pct,
+       run_queue_over_cpu_samples, blocked_samples,
+       cpu_pressure_some_avg10_mean, cpu_pressure_some_avg10_max
+from bottleneck_host_saturation_summary
+where run_id = getvariable('run_id')
+order by cpu_busy_peak_pct desc, host;
+
 .print '== CONSUMERS =='
 select host, resource_kind, service, demand_core_seconds, capacity_core_seconds,
        utilization_ratio, cpu_busy_pct, cpu_pressure_some_avg10, demand_rank
@@ -49,15 +60,17 @@ limit 20;
 
 .print '== QUERY RANKING (TOP 20 PER SOURCE) =='
 with ranked as (
-    select *, row_number() over (partition by source order by sum_time_seconds desc, calls desc) as cost_rank
+    select *, row_number() over (partition by source, host order by sum_time_seconds desc, calls desc) as cost_rank
     from query_cost
     where run_id = getvariable('run_id')
 )
-select source, cost_rank, left(query_fingerprint, 180) as query_fingerprint, calls, sum_time_seconds,
-       avg_time_ms, p95_time_ms, lock_time_seconds, rows_examined, rows_sent
+select host, source, cost_rank, left(query_fingerprint, 180) as query_fingerprint, calls, sum_time_seconds,
+       avg_time_ms, p95_time_ms, lock_time_seconds, rows_examined, rows_sent,
+       rows_affected, no_index_used, no_good_index_used,
+       tmp_disk_tables, tmp_tables, sort_merge_passes, errors
 from ranked
 where cost_rank <= 20
-order by source, cost_rank;
+order by source, host, cost_rank;
 
 .print '== FGPROF METADATA (WALL-CLOCK, NOT CPU) =='
 select host, source, sample_type, original_sample_unit, duration_seconds,

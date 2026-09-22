@@ -25,21 +25,28 @@ create table if not exists upstreams (
     upstream_time_avg_ms double
 );
 
+-- analysisctl derives this window from ingress request-rate transitions. The
+-- manifest and bench.log markers remain the wider collection-window fallback.
 create or replace view load_windows as
 select
     m.run_id,
-    coalesce(m.load_started_at, b.started_at) as started_at,
-    coalesce(m.load_ended_at, b.ended_at) as ended_at,
+    coalesce(a.started_at, m.load_started_at, b.started_at) as started_at,
+    coalesce(a.ended_at, m.load_ended_at, b.ended_at) as ended_at,
     coalesce(
+        date_diff('millisecond', a.started_at, a.ended_at) / 1000.0,
         m.load_duration_ms / 1000.0,
         date_diff('millisecond', b.started_at, b.ended_at) / 1000.0
     ) as duration_seconds,
     case
+        when a.status = 'ok' and a.started_at is not null and a.ended_at > a.started_at then a.source
         when m.load_window_status = 'ok' then m.load_window_source
         when b.started_at is not null and b.ended_at > b.started_at then 'bench.log-backfill'
         else coalesce(m.load_window_source, b.source, 'unavailable')
     end as source,
     case
+        when a.status = 'ok'
+             and a.started_at is not null
+             and a.ended_at > a.started_at then 'ok'
         when m.load_window_status = 'ok'
              and m.load_started_at is not null
              and m.load_ended_at > m.load_started_at then 'ok'
@@ -47,6 +54,7 @@ select
         else 'unavailable'
     end as status,
     case
+        when a.status = 'ok' then a.reason
         when m.load_window_status = 'ok'
              and m.load_started_at is not null
              and m.load_ended_at > m.load_started_at then ''
@@ -54,13 +62,14 @@ select
         else coalesce(nullif(m.load_window_reason, ''), 'load phase markers are unavailable')
     end as reason
 from manifests m
-left join bench_phases b using (run_id);
+left join bench_phases b using (run_id)
+left join analysis_windows a using (run_id);
 
 create or replace view measurement_quality as
 with periodic_points as (
     select distinct run_id, source, host, ts
     from metrics
-    where source in ('proc', 'service', 'disk', 'mysql')
+    where source in ('proc', 'service', 'disk', 'mysql', 'sql_pool')
 ),
 window_points as (
     select
@@ -80,7 +89,7 @@ periodic_values as (
     join load_windows w using (run_id)
     where w.status = 'ok'
       and m.ts >= w.started_at and m.ts < w.ended_at
-      and m.source in ('proc', 'service', 'disk', 'mysql')
+      and m.source in ('proc', 'service', 'disk', 'mysql', 'sql_pool')
     group by all
 ),
 periodic as (
@@ -102,7 +111,17 @@ derived as (
             when 'proc' then p.host || '-proc-metrics.tsv'
             when 'service' then p.host || '-service-metrics.tsv'
             when 'disk' then p.host || '-disk-metrics.tsv'
-            when 'mysql' then 'mysql-status.tsv'
+            when 'mysql' then
+                case
+                    when exists (
+                        select 1
+                        from artifacts a
+                        where a.run_id = p.run_id
+                          and a.name = p.host || '-mysql-status.tsv'
+                    ) then p.host || '-mysql-status.tsv'
+                    else 'mysql-status.tsv'
+                end
+            when 'sql_pool' then p.host || '-sql-pool-metrics.tsv'
         end as artifact_name,
         p.in_window_samples,
         greatest(1, floor(w.duration_seconds)::bigint) as expected_samples,
@@ -111,35 +130,68 @@ derived as (
         p.non_finite_values
     from periodic p
     join load_windows w using (run_id)
+),
+classified as (
+    select
+        a.*,
+        case
+            when a.name = 'user-transitions.json' then 'transition'
+            -- ends_with keeps the suffix out of a LIKE pattern: measurectl
+            -- artifacts -check reads SQL string literals as artifact names, and
+            -- a wildcard pattern there looks like an undeclared artifact to it.
+            when ends_with(lower(a.name), '.pprof') then 'profile'
+            when lower(a.name) = 'mysql-status.tsv'
+              or lower(a.name) like '%-mysql-status.tsv'
+              or lower(a.name) like '%-proc-metrics.tsv'
+              or lower(a.name) like '%-service-metrics.tsv'
+              or lower(a.name) like '%-disk-metrics.tsv'
+              or lower(a.name) like '%-sql-pool-metrics.tsv' then 'periodic'
+            else 'capture'
+        end as measurement_kind
+    from artifacts a
 )
 select
-    a.run_id,
-    a.name as artifact_name,
-    a.status as artifact_status,
-    coalesce(a.quality_expected, d.artifact_name is not null, false) as periodic_expected,
-    coalesce(a.quality_rows, 0) as rows_recorded,
-    coalesce(a.quality_in_window_samples, d.in_window_samples, 0) as in_window_samples,
-    coalesce(a.quality_expected_samples, d.expected_samples, 0) as expected_samples,
-    coalesce(a.quality_window_coverage_pct, d.window_coverage_pct, 0) as window_coverage_pct,
-    coalesce(a.quality_max_gap_ms, d.max_gap_ms, 0) as max_gap_ms,
-    coalesce(a.quality_monotonic, true) as monotonic,
-    coalesce(a.quality_finite, d.non_finite_values = 0, true) as finite,
+    c.run_id,
+    c.name as artifact_name,
+    c.status as artifact_status,
+    c.measurement_kind,
+    c.measurement_kind = 'periodic' as periodic_expected,
+    coalesce(c.quality_rows, 0) as rows_recorded,
+    coalesce(d.in_window_samples, c.quality_in_window_samples, 0) as in_window_samples,
+    coalesce(d.expected_samples, c.quality_expected_samples, 0) as expected_samples,
+    coalesce(d.window_coverage_pct, c.quality_window_coverage_pct, 0) as window_coverage_pct,
+    coalesce(d.max_gap_ms, c.quality_max_gap_ms, 0) as max_gap_ms,
+    coalesce(c.quality_monotonic, true) as monotonic,
+    coalesce(d.non_finite_values = 0, c.quality_finite, true) as finite,
     case
-        when a.status <> 'ok' then 'invalid'
-        when coalesce(a.quality_expected, d.artifact_name is not null, false) = false then 'artifact-ok'
+        when c.status <> 'ok' then 'invalid'
+        when c.measurement_kind <> 'periodic' then
+            case
+                when c.quality_status in ('valid', 'invalid', 'unavailable') then c.quality_status
+                else 'artifact-ok'
+            end
         when w.status <> 'ok' then 'unavailable'
-        when coalesce(a.quality_in_window_samples, d.in_window_samples, 0)
-             < greatest(1, coalesce(a.quality_expected_samples, d.expected_samples, 1) - 1) then 'invalid'
-        when coalesce(a.quality_max_gap_ms, d.max_gap_ms, 0) > 2500 then 'invalid'
-        when not coalesce(a.quality_monotonic, true) then 'invalid'
-        when not coalesce(a.quality_finite, d.non_finite_values = 0, true) then 'invalid'
+        when coalesce(d.in_window_samples, c.quality_in_window_samples, 0)
+             < greatest(1, coalesce(d.expected_samples, c.quality_expected_samples, 1) - 1) then 'invalid'
+        when coalesce(d.max_gap_ms, c.quality_max_gap_ms, 0) > 2500 then 'invalid'
+        when not coalesce(c.quality_monotonic, true) then 'invalid'
+        when not coalesce(d.non_finite_values = 0, c.quality_finite, true) then 'invalid'
         else 'valid'
     end as quality_status,
-    coalesce(nullif(a.quality_reason, ''), nullif(a.reason, ''), '') as reason,
-    case when d.artifact_name is not null then 'metrics+load_windows' else 'run.json' end as quality_source
-from artifacts a
+    coalesce(nullif(c.quality_reason, ''), nullif(c.reason, ''), '') as reason,
+    case when d.artifact_name is not null then 'filtered-metrics+load_windows' else 'run.json' end as quality_source
+from classified c
 join load_windows w using (run_id)
-left join derived d on d.run_id = a.run_id and d.artifact_name = a.name;
+left join derived d on d.run_id = c.run_id and d.artifact_name = c.name;
+
+create or replace view measurement_quality_periodic as
+select * from measurement_quality where measurement_kind = 'periodic';
+
+create or replace view measurement_quality_profile as
+select * from measurement_quality where measurement_kind = 'profile';
+
+create or replace view measurement_quality_transition as
+select * from measurement_quality where measurement_kind = 'transition';
 
 create or replace view valid_runs as
 with artifact_summary as (
@@ -160,7 +212,6 @@ select
     coalesce(a.bad_artifacts, 0) as bad_artifacts,
     coalesce(a.periodic_artifacts, 0) as periodic_artifacts,
     coalesce(a.bad_periodic_artifacts, 0) as bad_periodic_artifacts,
-    coalesce(m.comparison_status, 'none') as comparison_status,
     case
         when m.passed is not true then 'invalid'
         when w.status <> 'ok' then 'invalid'
@@ -168,7 +219,6 @@ select
         when coalesce(a.bad_artifacts, 0) <> 0 then 'invalid'
         when coalesce(a.periodic_artifacts, 0) = 0 then 'invalid'
         when coalesce(a.bad_periodic_artifacts, 0) <> 0 then 'invalid'
-        when m.compare_run_id is not null and m.comparison_status <> 'compatible' then 'invalid'
         else 'valid'
     end as overall_status,
     concat_ws('; ',
@@ -177,8 +227,7 @@ select
         case when coalesce(a.artifact_count, 0) = 0 then 'no artifacts recorded' end,
         case when coalesce(a.bad_artifacts, 0) <> 0 then a.bad_artifacts || ' artifact(s) are not ok' end,
         case when coalesce(a.periodic_artifacts, 0) = 0 then 'no periodic artifacts recorded' end,
-        case when coalesce(a.bad_periodic_artifacts, 0) <> 0 then a.bad_periodic_artifacts || ' periodic artifact(s) failed quality' end,
-        case when m.compare_run_id is not null and m.comparison_status <> 'compatible' then 'comparison contract is not compatible' end
+        case when coalesce(a.bad_periodic_artifacts, 0) <> 0 then a.bad_periodic_artifacts || ' periodic artifact(s) failed quality' end
     ) as reasons
 from manifests m
 join load_windows w using (run_id)
@@ -326,6 +375,54 @@ select
 from upstreams_by_ingress u
 left join load_windows w using (run_id);
 
+create table if not exists http_traffic (
+    run_id varchar,
+    ingress_host varchar,
+    ts timestamptz,
+    bucket_seconds integer,
+    method varchar,
+    route varchar,
+    requests bigint,
+    status_2xx bigint,
+    status_3xx bigint,
+    status_4xx bigint,
+    status_5xx bigint,
+    sum_time_sec double,
+    max_time_sec double,
+    sum_upstream_time_sec double,
+    upstream_time_samples bigint,
+    sum_body_bytes double
+);
+
+-- endpoint_cost の時系列版。負荷区間外の bucket も含むので in_load_window で絞る。
+create or replace view http_traffic_series as
+select
+    t.run_id,
+    t.ingress_host,
+    t.ts,
+    date_diff('millisecond', w.started_at, t.ts) / 1000.0 as load_offset_seconds,
+    coalesce(w.status = 'ok' and t.ts >= w.started_at and t.ts < w.ended_at, false) as in_load_window,
+    t.method,
+    t.route,
+    t.bucket_seconds,
+    t.requests,
+    t.requests / t.bucket_seconds as requests_per_second,
+    t.sum_time_sec as response_time_sum_seconds,
+    t.sum_time_sec * 1000 / nullif(t.requests, 0) as response_time_avg_ms,
+    t.max_time_sec * 1000 as response_time_max_ms,
+    t.sum_upstream_time_sec * 1000 / nullif(t.upstream_time_samples, 0) as upstream_time_avg_ms,
+    t.upstream_time_samples,
+    t.status_2xx,
+    t.status_3xx,
+    t.status_4xx,
+    t.status_5xx,
+    t.sum_body_bytes,
+    w.duration_seconds as load_window_seconds,
+    'access-log time bucket' as scope,
+    'raw/access-<host>.log' as source_artifact
+from http_traffic t
+left join load_windows w using (run_id);
+
 create or replace view resource_demand as
 with in_window as (
     select m.*
@@ -400,6 +497,7 @@ join load_windows w using (run_id);
 create or replace view query_cost as
 select
     q.run_id,
+    q.host,
     q.source,
     q.query as query_fingerprint,
     q.count as calls,
@@ -410,7 +508,14 @@ select
     q.sum_lock_sec as lock_time_seconds,
     q.rows_examined,
     q.rows_sent,
-    q.sum_time_sec / nullif(sum(q.sum_time_sec) over (partition by q.run_id, q.source), 0) as query_time_share,
+    q.rows_affected,
+    q.no_index_used,
+    q.no_good_index_used,
+    q.tmp_disk_tables,
+    q.tmp_tables,
+    q.sort_merge_passes,
+    q.errors,
+    q.sum_time_sec / nullif(sum(q.sum_time_sec) over (partition by q.run_id, q.source, q.host), 0) as query_time_share,
     case q.source when 'slp' then 'slp.tsv' when 'digest' then 'mysql-digest.tsv' else q.source end as source_artifact
 from queries q;
 
@@ -441,28 +546,75 @@ samples as (
         max(value) filter (where metric = 'memory_pressure_some_avg10') as memory_pressure_some_avg10
     from in_window
     group by all
+), host_summary as (
+    select
+        run_id,
+        host,
+        count(*) as samples,
+        max(cpu_count) as cpu_count,
+        sum(cpu_busy_pct) as cpu_busy_pct_sum,
+        min(cpu_idle_pct) as idle_min_pct,
+        avg(cpu_idle_pct) as idle_mean_pct,
+        avg(cpu_iowait_pct) as iowait_mean_pct,
+        count(*) filter (where procs_running > cpu_count) as run_queue_over_cpu_samples,
+        count(*) filter (where procs_blocked > 0) as blocked_samples,
+        avg(cpu_pressure_some_avg10) as cpu_pressure_some_avg10_mean,
+        avg(io_pressure_some_avg10) as io_pressure_some_avg10_mean,
+        avg(memory_pressure_some_avg10) as memory_pressure_some_avg10_mean,
+        count(*) filter (where cpu_busy_pct >= 80.0) as cpu_busy_ge80_samples
+    from samples
+    group by run_id, host
+), host_peaks as (
+    select
+        run_id,
+        host,
+        max(cpu_busy_pct) as cpu_busy_peak_pct,
+        max(cpu_pressure_some_avg10) as cpu_pressure_some_avg10_max
+    from samples
+    group by run_id, host
+), host_peak_times as (
+    select
+        p.run_id,
+        p.host,
+        min(s.ts) as cpu_busy_peak_at
+    from samples s
+    join host_peaks p using (run_id, host)
+    where s.cpu_busy_pct = p.cpu_busy_peak_pct
+    group by p.run_id, p.host
 )
 select
-    s.run_id,
-    s.host,
-    count(*) as samples,
-    max(s.cpu_count) as cpu_count,
+    h.run_id,
+    h.host,
+    h.samples,
+    h.cpu_count,
     -- Idle stays capacity minus busy so it reconciles with resource_demand and
     -- capacity_ledger; cpu_idle_pct is reported separately as the raw gauge.
-    max(s.cpu_count) * count(*) - sum(s.cpu_busy_pct) / 100.0 * max(s.cpu_count) as idle_core_seconds,
-    min(s.cpu_idle_pct) as idle_min_pct,
-    avg(s.cpu_idle_pct) as idle_mean_pct,
-    avg(s.cpu_iowait_pct) as iowait_mean_pct,
-    count(*) filter (where s.procs_running > s.cpu_count) as run_queue_over_cpu_samples,
-    count(*) filter (where s.procs_blocked > 0) as blocked_samples,
-    avg(s.cpu_pressure_some_avg10) as cpu_pressure_some_avg10_mean,
-    avg(s.io_pressure_some_avg10) as io_pressure_some_avg10_mean,
-    avg(s.memory_pressure_some_avg10) as memory_pressure_some_avg10_mean,
+    h.cpu_count * h.samples - h.cpu_busy_pct_sum / 100.0 * h.cpu_count as idle_core_seconds,
+    p.cpu_busy_peak_pct,
+    t.cpu_busy_peak_at,
+    date_diff(
+        'millisecond',
+        w.started_at,
+        t.cpu_busy_peak_at
+    ) / 1000.0 as cpu_busy_peak_offset_seconds,
+    h.cpu_busy_ge80_samples,
+    h.cpu_busy_ge80_samples::double / nullif(h.samples, 0) as cpu_busy_ge80_ratio,
+    h.idle_min_pct,
+    h.idle_mean_pct,
+    h.iowait_mean_pct,
+    h.run_queue_over_cpu_samples,
+    h.blocked_samples,
+    h.cpu_pressure_some_avg10_mean,
+    p.cpu_pressure_some_avg10_max,
+    h.io_pressure_some_avg10_mean,
+    h.memory_pressure_some_avg10_mean,
     w.duration_seconds as load_window_seconds,
     'proc metrics within load_windows' as calculation
-from samples s
+from host_summary h
+join host_peaks p using (run_id, host)
+join host_peak_times t using (run_id, host)
 join load_windows w using (run_id)
-group by all;
+;
 
 -- Every remaining periodic metric, aggregated over the same window without a
 -- hardcoded metric list, so a new collector column is queryable the day it

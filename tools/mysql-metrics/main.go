@@ -46,14 +46,17 @@ var statusNames = []string{
 	"Created_tmp_tables",
 	"Created_tmp_disk_tables",
 	"Aborted_connects",
+	"Max_used_connections",
+	"Connection_errors_max_connections",
 }
 
 var statusQuery = "SHOW GLOBAL STATUS WHERE Variable_name IN ('" + strings.Join(statusNames, "','") + "')"
 
 type statusSnapshot struct {
-	at         time.Time
-	statusRows int
-	values     map[string]uint64
+	at             time.Time
+	statusRows     int
+	maxConnections uint64
+	values         map[string]uint64
 }
 
 type collector struct {
@@ -245,7 +248,18 @@ func queryStatus(ctx context.Context, db *sql.DB) (statusSnapshot, error) {
 	if err := rows.Err(); err != nil {
 		return statusSnapshot{}, err
 	}
-	return statusSnapshot{at: time.Now(), statusRows: statusRows, values: values}, nil
+	if err := rows.Close(); err != nil {
+		return statusSnapshot{}, err
+	}
+	var rawMaxConnections string
+	if err := db.QueryRowContext(ctx, "SELECT @@global.max_connections").Scan(&rawMaxConnections); err != nil {
+		return statusSnapshot{}, fmt.Errorf("query max_connections: %w", err)
+	}
+	maxConnections, err := strconv.ParseUint(rawMaxConnections, 10, 64)
+	if err != nil {
+		return statusSnapshot{}, fmt.Errorf("parse max_connections=%q: %w", rawMaxConnections, err)
+	}
+	return statusSnapshot{at: time.Now(), statusRows: statusRows, maxConnections: maxConnections, values: values}, nil
 }
 
 func header() []string {
@@ -254,6 +268,7 @@ func header() []string {
 		"timestamp",
 		"elapsed_ms",
 		"status_rows",
+		"max_connections",
 		"threads_connected",
 		"threads_running",
 		"threads_cached",
@@ -297,6 +312,9 @@ func header() []string {
 		"tmp_disk_ratio_pct",
 		"aborted_connects_total",
 		"aborted_connects_per_sec",
+		"max_used_connections",
+		"connection_errors_max_connections_total",
+		"connection_errors_max_connections_per_sec",
 	}
 }
 
@@ -337,6 +355,7 @@ func (c *collector) write(current statusSnapshot) error {
 		current.at.UTC().Format(time.RFC3339Nano),
 		strconv.FormatInt(current.at.Sub(c.start).Milliseconds(), 10),
 		strconv.Itoa(current.statusRows),
+		strconv.FormatUint(current.maxConnections, 10),
 		strconv.FormatUint(value("Threads_connected"), 10),
 		strconv.FormatUint(value("Threads_running"), 10),
 		strconv.FormatUint(value("Threads_cached"), 10),
@@ -380,6 +399,9 @@ func (c *collector) write(current statusSnapshot) error {
 		tmpDiskRatio,
 		strconv.FormatUint(value("Aborted_connects"), 10),
 		rate("Aborted_connects"),
+		strconv.FormatUint(value("Max_used_connections"), 10),
+		strconv.FormatUint(value("Connection_errors_max_connections"), 10),
+		rate("Connection_errors_max_connections"),
 	}
 	if len(values) != len(header()) {
 		return fmt.Errorf("MySQL metrics row width=%d, header width=%d", len(values), len(header()))

@@ -23,10 +23,10 @@ sources:
     compress: true
 
   - name: slow
-    role: mysql
+    role: mysql_all
     remote: /var/log/mysql/mysql-slow.log
-    # long_query_time=0 だと 150MB を超える。走行ごとに残さず毎回上書きする。
-    local: '{raw_dir}/mysql-slow.log'
+    # Keep one raw log per database so query costs remain attributable to a host.
+    local: '{raw_dir}/mysql-slow-{host}.log'
     compress: false
 
 digesters:
@@ -162,21 +162,22 @@ digesters:
     timeout: 120s
     outputs:
       - file: user-transitions.json
-        run: tools/user-transition-metrics/user-transition-metrics -config tools/user-transition-metrics/routes.json -output - {input}
+        run: tools/user-transition-metrics/user-transition-metrics -config tools/contest/user-transition-routes.json -output - {input}
         on_error: '{"schema_version":3,"identity_field":"session_id","ordering":"request_start_time; ties by response_end_time then input order","scenario_grouping":"exact set of normalized method-route nodes observed in one Cookie session","summary":{"input_files":0,"input_lines":0,"malformed_lines":0,"invalid_time_lines":0,"api_requests":0,"classified_requests":0,"unmatched_api_requests":0,"requests_with_identity":0,"missing_identity_requests":0,"sessions":0,"transitions":0,"overlapping_transitions":0,"ambiguous_order_transitions":0,"window_start_unix_ms":0,"window_end_unix_ms":0,"scenario_groups":0,"scenarios_emitted":0,"scenario_sessions_omitted":0},"edges":[],"scenarios":[]}'
         on_skip: '{"schema_version":3,"identity_field":"session_id","ordering":"request_start_time; ties by response_end_time then input order","scenario_grouping":"exact set of normalized method-route nodes observed in one Cookie session","summary":{"input_files":0,"input_lines":0,"malformed_lines":0,"invalid_time_lines":0,"api_requests":0,"classified_requests":0,"unmatched_api_requests":0,"requests_with_identity":0,"missing_identity_requests":0,"sessions":0,"transitions":0,"overlapping_transitions":0,"ambiguous_order_transitions":0,"window_start_unix_ms":0,"window_end_unix_ms":0,"scenario_groups":0,"scenarios_emitted":0,"scenario_sessions_omitted":0},"edges":[],"scenarios":[]}'
 
   - name: pt-query-digest
     label: pt-query-digest
     source: slow
-    stderr: pt-query-digest.stderr
+    per_host: true
+    stderr: '{host}-pt-query-digest.stderr'
     timeout: 120s
     # preflight で落ちた走行のスロークエリを集計しても、読むのは初期化の分だけになる。
     skip_if_bench_failed: true
     outputs:
-      - file: pt-query-digest.log
+      - file: '{host}-pt-query-digest.log'
         run: pt-query-digest {input}
-      - file: pt-query-digest.json
+      - file: '{host}-pt-query-digest.json'
         run: pt-query-digest --output json {input}
         on_error: '[]'
         on_skip: '[]'
@@ -188,7 +189,8 @@ digesters:
   - name: mysql-digest
     label: performance_schema digest
     remote:
-      role: mysql
+      role: mysql_all
+      per_host: true
       # performance_schema が無効なら空振りせずに落として、スキップ扱いにする。
       script: |
         if ! sudo mysql -N -e 'SELECT @@performance_schema' 2>/dev/null | grep -q '^1$'; then
@@ -218,26 +220,28 @@ digesters:
           WHERE COUNT_STAR > 0
           ORDER BY SUM_TIMER_WAIT DESC
         "
-    stderr: mysql-digest.stderr
+    stderr: '{host}-mysql-digest.stderr'
     outputs:
       # SQL の出力に列名が付かないので、header を前置する。
       # SELECT の並びと必ず一致させること。
-      - file: mysql-digest.tsv
+      - file: '{host}-mysql-digest.tsv'
         header: "schema_name\tdigest\tcount\tsum_time_sec\tmax_time_sec\tsum_lock_sec\tavg_lock_sec\trows_examined\trows_sent\trows_affected\tno_index_used\tno_good_index_used\ttmp_disk_tables\ttmp_tables\tsort_merge_passes\terrors\tdigest_text"
         on_skip: "schema_name\tdigest\tcount\tsum_time_sec\tmax_time_sec\tsum_lock_sec\tavg_lock_sec\trows_examined\trows_sent\trows_affected\tno_index_used\tno_good_index_used\ttmp_disk_tables\ttmp_tables\tsort_merge_passes\terrors\tdigest_text"
 
   - name: slp
     label: slp
     source: slow
-    stderr: slp.stderr
+    per_host: true
+    stderr: '{host}-slp.stderr'
     timeout: 180s
     skip_if_bench_failed: true
     # PATH に無ければ集計を飛ばす (理由は stderr に残る)。
     install_hint: go install github.com/tkuchiki/slp/cmd/slp@latest
     outputs:
-      - file: slp.tsv
+      - file: '{host}-slp.tsv'
         run: >-
           slp my --file {input}
+          --limit 20000
           --sort sum-query-time -r --format tsv --nosave-pos --percentiles 95
           -o count,query,sum-query-time,avg-query-time,max-query-time,min-query-time,p95-query-time,sum-lock-time,avg-lock-time,max-lock-time,sum-rows-examined,avg-rows-examined,max-rows-examined,sum-rows-sent,avg-rows-sent
         # 集計をスキップしても、実データと同じ列名の空ファイルは残す

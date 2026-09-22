@@ -3,6 +3,7 @@ import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxi
 import { api, type FgprofFunction, type FgprofProfile, type FgprofResponse } from '../api'
 import { useSort } from '../useSort'
 import { EmptyState } from './EmptyState'
+import { PprofGraphViewer } from './PprofGraphViewer'
 import { SortableTh } from './SortableTh'
 import { TableScroll } from './TableScroll'
 
@@ -100,16 +101,11 @@ function ProfileChart({ profile, sortKey }: { profile: FgprofProfile; sortKey: S
 
 function FgprofCallGraph({ runId, host }: { runId: string; host: string }) {
   return (
-    <div className="mt-6">
-      <div className="mb-1 text-sm font-semibold">コールグラフ</div>
-      <div className="mb-2 text-sm text-base-content/60">矢印は caller → callee、ノードとエッジの太さはwall-clockサンプル量を表します</div>
-      <iframe
-        title={`${host} fgprof コールグラフ`}
-        src={api.fgprofGraph(runId, host)}
-        loading="lazy"
-        className="h-[720px] w-full rounded-box border border-base-300 bg-base-100"
-      />
-    </div>
+    <PprofGraphViewer
+      title={`${host} fgprof コールグラフ`}
+      src={api.fgprofGraph(runId, host)}
+      description="矢印は caller → callee、ノードとエッジの太さはwall-clockサンプル量を表します"
+    />
   )
 }
 

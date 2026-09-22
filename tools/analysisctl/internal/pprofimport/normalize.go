@@ -70,27 +70,6 @@ type edgeValue struct {
 	sampleOccurrences int
 }
 
-func selectSampleType(profile *pprofprofile.Profile) (int, *pprofprofile.ValueType, error) {
-	for i, sampleType := range profile.SampleType {
-		if sampleType != nil && sampleType.Type == "time" {
-			return i, sampleType, nil
-		}
-	}
-	if profile.DefaultSampleType != "" {
-		for i, sampleType := range profile.SampleType {
-			if sampleType != nil && sampleType.Type == profile.DefaultSampleType {
-				return i, sampleType, nil
-			}
-		}
-	}
-	for i, sampleType := range profile.SampleType {
-		if sampleType != nil {
-			return i, sampleType, nil
-		}
-	}
-	return -1, nil, fmt.Errorf("profile has no sample type")
-}
-
 func valueToSeconds(value int64, unit string) (float64, error) {
 	switch strings.ToLower(unit) {
 	case "nanoseconds":
@@ -159,22 +138,6 @@ func profileIdentity(path string) (runID, host string, err error) {
 		return "", "", fmt.Errorf("profile %q has no host", base)
 	}
 	return runID, host, nil
-}
-
-func normalizeProfile(path string) (normalizedProfile, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return normalizedProfile{}, err
-	}
-	profile, err := pprofprofile.ParseData(data)
-	if err != nil {
-		return normalizedProfile{}, fmt.Errorf("parse %s: %w", path, err)
-	}
-	sampleIndex, _, err := selectSampleType(profile)
-	if err != nil {
-		return normalizedProfile{}, err
-	}
-	return normalizeMetric(path, data, profile, sampleIndex)
 }
 
 // Time values use seconds; bytes and counts keep their original scale.

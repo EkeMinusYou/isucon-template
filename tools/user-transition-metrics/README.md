@@ -27,7 +27,7 @@ Cookie がないリクエストは遷移・シナリオのどちらにも含め�
 ```shell
 task build-user-transition-metrics
 tools/user-transition-metrics/user-transition-metrics \
-  -config tools/user-transition-metrics/routes.json \
+  -config tools/contest/user-transition-routes.json \
   -max-scenarios 256 \
   -output /tmp/user-transitions.json \
   runs/<RUN_ID>/raw/access-*.log.zst

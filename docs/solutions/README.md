@@ -36,10 +36,13 @@
 
 - [アプリケーション処理の非同期化](asynchronous-processing.md) — 独立処理をboundedなgoroutineで並列化し、同期境界を保つ実装
 - [PGOを有効にする](pgo.md) — CPUプロファイルを利用したプロファイル誘導最適化
+- [Goのバージョンを上げる](upgrade-go-version.md) — ツールチェーンを更新し、互換性とビルド経路を整える実装パターン
 - [bulk upsertのqueryを作成](bulk-upsert-query.md) — 複数レコードをまとめて更新するSQL実装例
 - [DBに適切なインデックスを追加する](database-index.md) — WHERE/JOIN/ORDER BY に沿った単一・複合インデックスの設計
 - [DBのロック保持時間と競合範囲を短縮する](database-lock-duration.md) — トランザクション境界、ロック対象、索引、ロック順を整理する実装パターン
 - [オンメモリ化](in-memory.md) — DBの読み取りや再計算をキャッシュ・read modelへ移す例
+- [WAL付きオンメモリ状態と遅延DB投影](wal-backed-in-memory-state.md) — キー単位の状態遷移をWALへ追記し、DB投影をbatch化する実装パターン
 - [N+1クエリを解消する](n-plus-one.md) — 関連データを一括取得する実装パターン
 - [Unix Domain Socketでnginxとアプリケーションを接続する](unix-domain-socket.md) — 同一ホスト内の接続をUDSへ変更する例
 - [静的データをファイル化してnginxから配信する](nginx-static-files.md) — APIを介さず静的データを配信する例
+- [ユーザーIDによるデータベース水平分割](user-id-sharding.md) — 所有者キーで行を複数DBへ分け、書き込みを含めて分散する実装パターン

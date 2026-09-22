@@ -21,8 +21,12 @@ func TestSeriesHandlersReturnEmptyArrayWhenUnavailable(t *testing.T) {
 		name    string
 		path    string
 		handler http.HandlerFunc
+		field   string
 	}{
-		{name: "mysql", path: "mysql", handler: a.handleMysql},
+		{name: "mysql", path: "mysql", handler: a.handleMysql, field: "hosts"},
+		{name: "alp", path: "alp", handler: a.handleAlp, field: "rows"},
+		{name: "upstream", path: "upstream", handler: a.handleUpstream, field: "rows"},
+		{name: "user-transitions", path: "user-transitions", handler: a.handleUserTransitions, field: "edges"},
 	}
 
 	for _, tt := range tests {
@@ -36,21 +40,12 @@ func TestSeriesHandlersReturnEmptyArrayWhenUnavailable(t *testing.T) {
 			if recorder.Code != http.StatusOK {
 				t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
 			}
-			var got struct {
-				Available bool  `json:"available"`
-				Series    []any `json:"series"`
-			}
+			var got map[string]json.RawMessage
 			if err := json.NewDecoder(recorder.Body).Decode(&got); err != nil {
 				t.Fatal(err)
 			}
-			if got.Available {
-				t.Fatal("available = true, want false")
-			}
-			if got.Series == nil {
-				t.Fatal("series = nil, want an empty JSON array")
-			}
-			if len(got.Series) != 0 {
-				t.Fatalf("len(series) = %d, want 0", len(got.Series))
+			if string(got["available"]) != "false" || string(got[tt.field]) != "[]" {
+				t.Fatalf("unexpected unavailable response: %s", got)
 			}
 		})
 	}

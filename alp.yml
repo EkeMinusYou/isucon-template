@@ -3,3 +3,6 @@ sort: sum
 reverse: true
 limit: 65536
 matching_groups:
+  # >>> contest values >>>
+  # Normalize the contest's dynamic path segments here, most specific first.
+  # <<< contest values <<<

@@ -180,46 +180,6 @@ type bucketAccum struct {
 	warnings    int64
 }
 
-// countScenarioWarnings reads bench.log (tab-separated: timestamp, level,
-// logger, message, ...) and returns a map of elapsed-second (relative to
-// t0) to the count of warn/error level lines, ignoring anything outside
-// [0, maxElapsed].
-func countScenarioWarnings(dir string, t0 int64, maxElapsed int64) (map[int64]int64, error) {
-	f, err := os.Open(filepath.Join(dir, "bench.log"))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	defer f.Close()
-
-	counts := make(map[int64]int64)
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
-	for scanner.Scan() {
-		line := scanner.Text()
-		cols := strings.SplitN(line, "\t", 3)
-		if len(cols) < 2 {
-			continue
-		}
-		level := strings.TrimSpace(cols[1])
-		if level != "warn" && level != "error" {
-			continue
-		}
-		t, err := time.Parse(time.RFC3339Nano, cols[0])
-		if err != nil {
-			continue
-		}
-		elapsed := t.Unix() - t0
-		if elapsed < 0 || elapsed > maxElapsed {
-			continue
-		}
-		counts[elapsed]++
-	}
-	return counts, scanner.Err()
-}
-
 // timelineHostPoint is a compact CPU/load/memory sample aligned to the same
 // elapsed-second axis as timelineBucket, using each proc-metrics.tsv row's
 // wall-clock timestamp rather than its sampler-local elapsed_ms.
@@ -272,11 +232,14 @@ func parseTimelineHostSeries(path string, t0 int64) ([]timelineHostPoint, error)
 }
 
 type timelineResponse struct {
-	RunID     string           `json:"run_id"`
-	Available bool             `json:"available"`
-	StartTime string           `json:"start_time"`
-	Buckets   []timelineBucket `json:"buckets"`
-	Hosts     []timelineHost   `json:"hosts"`
+	RunID             string            `json:"run_id"`
+	BenchErrorCounts  []benchErrorCount `json:"bench_error_counts"`
+	BenchErrors       []string          `json:"bench_errors"`
+	BenchLogAvailable bool              `json:"bench_log_available"`
+	Available         bool              `json:"available"`
+	StartTime         string            `json:"start_time"`
+	Buckets           []timelineBucket  `json:"buckets"`
+	Hosts             []timelineHost    `json:"hosts"`
 }
 
 func (a *app) handleTimeline(w http.ResponseWriter, r *http.Request) {
@@ -287,13 +250,18 @@ func (a *app) handleTimeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	benchErrors, benchLogAvailable, warningEvents, errorCounts, err := a.readBenchErrors(r.Context(), runID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	records, err := readAccessRecords(dir)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if len(records) == 0 {
-		writeJSON(w, timelineResponse{RunID: runID, Available: false, Buckets: []timelineBucket{}, Hosts: []timelineHost{}})
+		writeJSON(w, timelineResponse{RunID: runID, BenchErrors: benchErrors, BenchErrorCounts: errorCounts, BenchLogAvailable: benchLogAvailable, Available: false, Buckets: []timelineBucket{}, Hosts: []timelineHost{}})
 		return
 	}
 
@@ -331,10 +299,12 @@ func (a *app) handleTimeline(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	warnings, err := countScenarioWarnings(dir, t0, maxElapsed)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
+	warnings := make(map[int64]int64)
+	for _, second := range warningEvents {
+		elapsed := second - t0
+		if elapsed >= 0 && elapsed <= maxElapsed {
+			warnings[elapsed]++
+		}
 	}
 
 	buckets := make([]timelineBucket, 0, maxElapsed+1)
@@ -372,10 +342,13 @@ func (a *app) handleTimeline(w http.ResponseWriter, r *http.Request) {
 	sort.Slice(hosts, func(i, j int) bool { return hosts[i].Host < hosts[j].Host })
 
 	writeJSON(w, timelineResponse{
-		RunID:     runID,
-		Available: true,
-		StartTime: time.Unix(t0, 0).UTC().Format(time.RFC3339),
-		Buckets:   buckets,
-		Hosts:     hosts,
+		RunID:             runID,
+		BenchErrors:       benchErrors,
+		BenchErrorCounts:  errorCounts,
+		BenchLogAvailable: benchLogAvailable,
+		Available:         true,
+		StartTime:         time.Unix(t0, 0).UTC().Format(time.RFC3339),
+		Buckets:           buckets,
+		Hosts:             hosts,
 	})
 }

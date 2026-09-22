@@ -177,7 +177,7 @@ func TestExecCancelsBlockedInputProducerWhenConsumerFails(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	started := time.Now()
-	err := runner.exec(ctx, Digester{Stdin: "yes"}, []string{"head", "-c", "1"}, []string{"input"}, filepath.Join(dir, "out"))
+	err := runner.exec(ctx, Digester{Stdin: "yes"}, []string{"sh", "-c", "head -c 1; exit 7"}, []string{"input"}, filepath.Join(dir, "out"), "")
 	if err == nil {
 		t.Fatal("failing consumer returned nil")
 	}
@@ -201,7 +201,7 @@ func TestExecWaitsForSuccessfulInputProducerBeforeCleanupCancel(t *testing.T) {
 
 	// Close stdout before the producer process exits. The consumer can finish
 	// successfully during the delay, reproducing the cleanup cancellation race.
-	err := runner.exec(ctx, Digester{Stdin: "sh"}, []string{"cat"}, []string{"-c", "printf complete; exec 1>&-; sleep 0.1"}, out)
+	err := runner.exec(ctx, Digester{Stdin: "sh"}, []string{"cat"}, []string{"-c", "printf complete; exec 1>&-; sleep 0.1"}, out, "")
 	if err != nil {
 		t.Fatalf("complete producer was reported as failed: %v", err)
 	}
@@ -211,6 +211,32 @@ func TestExecWaitsForSuccessfulInputProducerBeforeCleanupCancel(t *testing.T) {
 	}
 	if string(body) != "complete" {
 		t.Fatalf("output = %q, want complete", body)
+	}
+}
+
+func TestExecIgnoresStderrFromSuccessfulCommand(t *testing.T) {
+	dir := t.TempDir()
+	stderrPath := filepath.Join(dir, "digest.stderr")
+	outPath := filepath.Join(dir, "digest.out")
+	runner := &digestRunner{runDir: dir}
+
+	err := runner.exec(
+		context.Background(),
+		Digester{Stderr: "digest.stderr"},
+		[]string{"sh", "-c", "printf progress >&2; printf result"},
+		nil,
+		outPath,
+		"",
+	)
+	if err != nil {
+		t.Fatalf("successful command returned an error: %v", err)
+	}
+	out, err := os.ReadFile(outPath)
+	if err != nil || string(out) != "result" {
+		t.Fatalf("output=%q err=%v", out, err)
+	}
+	if _, err := os.Stat(stderrPath); !os.IsNotExist(err) {
+		t.Fatalf("successful stderr was recorded as a failure: %v", err)
 	}
 }
 
@@ -251,17 +277,17 @@ func TestFetchFailureDoesNotReuseStaleRawAndMarksDigestArtifacts(t *testing.T) {
 	r := &digestRunner{
 		runDir: dir,
 		rawDir: dir,
-		cfg: &DigestConfig{Digesters: []Digester{{
+		roles:  map[string][]string{"mysql": {"mysql"}},
+		cfg: &DigestConfig{Sources: []Source{{Name: "slow", Role: "mysql", Remote: "/slow.log", Local: local}}, Digesters: []Digester{{
 			Name: "slp", Source: "slow", Stderr: "slp.stderr",
 			Outputs: []Output{{File: "slp.tsv"}},
 		}}},
 		fetchFn: func(_, _, _ string) error { return errors.New("ENOSPC") },
 	}
-	err := r.fetchSource(Source{Name: "slow", Remote: "/slow.log", Local: local}, "mysql")
+	err := r.fetchAll()
 	if err == nil || !strings.Contains(err.Error(), "ENOSPC") {
 		t.Fatalf("fetch error = %v, want ENOSPC", err)
 	}
-	r.markSourceFetchFailure(Source{Name: "slow"}, "mysql", err)
 	if _, statErr := os.Stat(local); !os.IsNotExist(statErr) {
 		t.Fatalf("stale raw still exists: %v", statErr)
 	}

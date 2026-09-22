@@ -1,0 +1,51 @@
+# templateの正本パスと、競技ごとに入れ替わるパスの宣言。
+# 各行はgitのpathspecで、ディレクトリを書くとその配下すべてを指す。
+#
+# [template] templateが内容ごと保持する。競技リポジトリ側の差分はbackport候補になる。
+# [contest]  競技ごとに入れ替わる。差分をbackport候補として報告しない。
+# [exclude]  広い[template]指定から除外する。除外対象でも[template]に
+#            ファイルとして明示したパスはtemplate例外として残す。
+#
+# `tools/contest/README.md`は競技固有ディレクトリの説明としてtemplateへ残す例外である。
+# どの節にも一致しないパスは`task template-diff`が未分類として報告するので、
+# 領域を増やしたら該当する節へ追記する。
+#
+# 汎用ファイルの中に残る競技固有の値は、この宣言では分けられない。
+# `# contest:`コメントと`# >>> contest values >>>`区画で表し、template-diffが別枠で報告する。
+
+[template]
+.codex/hooks.json
+.codex/hooks
+.agents
+.claude
+.envrc
+.gitattributes
+.gitignore
+AGENTS.md
+CLAUDE.md
+README.md
+Taskfile.yml
+alp.yml
+docs/official/README.md
+docs/solutions
+docs/special-sources
+tools
+tools/contest/README.md
+
+[contest]
+Taskfile.contest.yml
+docs/conversation
+docs/official
+etc
+generated
+mysql
+nginx
+runs
+tools/contest
+webapp
+# Contest-specific files that cannot leave a generic directory.
+# Add the contest's own entries here, e.g. tools/analysisctl/<contest>_test.go.
+tools/setup/smoke.py
+
+[exclude]
+tools/contest

@@ -23,8 +23,10 @@ CREATE TABLE IF NOT EXISTS metadata (
 CREATE TABLE IF NOT EXISTS cards (
     id TEXT PRIMARY KEY,
     card_version INTEGER NOT NULL DEFAULT 0,
+    application_id TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL CHECK (status IN ('INVESTIGATE', 'READY', 'DOING', 'VERIFY', 'APPLIED', 'BLOCKED', 'VALIDATED', 'REJECTED')),
     title TEXT NOT NULL,
+    implementation_estimate_minutes INTEGER CHECK (implementation_estimate_minutes IS NULL OR (typeof(implementation_estimate_minutes) = 'integer' AND implementation_estimate_minutes > 0)),
     priority TEXT NOT NULL DEFAULT '',
     owner TEXT NOT NULL DEFAULT '',
     area TEXT NOT NULL DEFAULT '',
@@ -61,6 +63,7 @@ CREATE TABLE IF NOT EXISTS objectives (
     status TEXT NOT NULL CHECK (status IN ('ACTIVE', 'RETIRED')),
     mode TEXT NOT NULL CHECK (mode IN ('SATISFY', 'MAXIMIZE', 'MINIMIZE')),
     title TEXT NOT NULL,
+    priority TEXT NOT NULL DEFAULT '',
     metric_or_predicate TEXT NOT NULL,
     required_for_valid_result INTEGER NOT NULL DEFAULT 0 CHECK (required_for_valid_result IN (0, 1)),
     parent_objective_id TEXT NOT NULL DEFAULT '',
@@ -189,6 +192,7 @@ CREATE TABLE IF NOT EXISTS adoption_event_cards (
     card_id TEXT NOT NULL REFERENCES cards(id),
     origin TEXT NOT NULL DEFAULT '',
     change_boundary_hash TEXT NOT NULL,
+    application_id TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (adoption_event_id, card_id)
 );
 
@@ -263,7 +267,13 @@ func (s *Store) initialize() error {
 	if err := s.migrateLegacyTargets(); err != nil {
 		return err
 	}
-	return nil
+	if err := s.migrateApplicationIDs(); err != nil {
+		return err
+	}
+	if err := s.migrateImplementationEstimate(); err != nil {
+		return err
+	}
+	return s.migrateObjectivePriority()
 }
 
 func parseRunIDsStrict(raw string) ([]string, error) {
@@ -367,14 +377,14 @@ type queryer interface {
 }
 
 const cardColumns = `
-id, card_version, status, title, priority, owner, area, updated, updated_by`
+id, card_version, status, title, priority, owner, area, updated, updated_by, application_id, implementation_estimate_minutes`
 
 func getCardFrom(q queryer, id string) (Card, error) {
 	var card Card
 	row := q.QueryRow(`SELECT `+cardColumns+` FROM cards WHERE id = ?`, id)
 	err := row.Scan(
 		&card.ID, &card.Version, &card.Status, &card.Title, &card.Priority, &card.Owner, &card.Area,
-		&card.Updated, &card.UpdatedBy,
+		&card.Updated, &card.UpdatedBy, &card.ApplicationID, &card.ImplementationEstimateMinutes,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -582,7 +592,7 @@ func (s *Store) listCards(filter ListFilter) ([]Card, error) {
 		var card Card
 		if err := rows.Scan(
 			&card.ID, &card.Version, &card.Status, &card.Title, &card.Priority, &card.Owner, &card.Area,
-			&card.Updated, &card.UpdatedBy,
+			&card.Updated, &card.UpdatedBy, &card.ApplicationID, &card.ImplementationEstimateMinutes,
 		); err != nil {
 			return nil, err
 		}
@@ -715,6 +725,8 @@ func loadListDependencies(q queryer, cards []Card) error {
 }
 
 type mutation struct {
+	ExpectedOwner         *string
+	ReleaseOwner          bool
 	ExpectedTargetVersion *int
 	Primary               bool
 	CompletionEvidence    string
@@ -888,6 +900,9 @@ func validateReadyContract(q queryer, cardID string) error {
 			return fmt.Errorf("card %s cannot be READY without a non-empty %s section", card.ID, name)
 		}
 	}
+	if err := validateEvaluationBody(sectionBody(card.Sections, sectionEvaluation)); err != nil {
+		return fmt.Errorf("card %s has invalid Evaluation: %w", card.ID, err)
+	}
 	var exempt int
 	if card.Status == "VALIDATED" || card.Status == "REJECTED" {
 		if err := q.QueryRow(`SELECT COUNT(*) FROM legacy_target_exemptions WHERE card_id=?`, card.ID).Scan(&exempt); err != nil {
@@ -972,13 +987,14 @@ type CardPatch struct {
 }
 
 var patchColumns = map[string]string{
-	"status":     "status",
-	"title":      "title",
-	"priority":   "priority",
-	"owner":      "owner",
-	"area":       "area",
-	"updated":    "updated",
-	"updated-by": "updated_by",
+	"implementation-estimate-minutes": "implementation_estimate_minutes",
+	"status":                          "status",
+	"title":                           "title",
+	"priority":                        "priority",
+	"owner":                           "owner",
+	"area":                            "area",
+	"updated":                         "updated",
+	"updated-by":                      "updated_by",
 }
 
 var runRelationFields = map[string]string{"source-runs": "SOURCE", "compare-run": "COMPARE", "observed-runs": "OBSERVED"}
@@ -1008,6 +1024,11 @@ func (s *Store) mutateCard(id string, patch CardPatch, options mutation, reason 
 	if err := ensureReason(options.Actor, reason); err != nil {
 		return nil, err
 	}
+	if body, ok := patch.Sections[sectionEvaluation]; ok {
+		if err := validateEvaluationBody(body); err != nil {
+			return nil, err
+		}
+	}
 	if value, ok := patch.Values["status"]; ok {
 		value = normalizeStatus(value)
 		if !allowedStatuses[value] {
@@ -1029,6 +1050,10 @@ func (s *Store) mutateCard(id string, patch CardPatch, options mutation, reason 
 	}
 	currentCard, err := getCardFrom(tx, id)
 	if err != nil {
+		tx.Rollback()
+		return nil, err
+	}
+	if err := checkExpectedOwner(currentCard, options.ExpectedOwner); err != nil {
 		tx.Rollback()
 		return nil, err
 	}
@@ -1100,7 +1125,12 @@ func (s *Store) mutateCard(id string, patch CardPatch, options mutation, reason 
 			return nil, fmt.Errorf("unsupported card field %q", key)
 		}
 		setParts = append(setParts, column+" = ?")
-		args = append(args, patch.Values[key])
+		value, err := cardPatchValue(key, patch.Values[key])
+		if err != nil {
+			tx.Rollback()
+			return nil, err
+		}
+		args = append(args, value)
 	}
 	for key, relation := range runRelationFields {
 		if value, ok := patch.Values[key]; ok {
@@ -1514,6 +1544,9 @@ func (s *Store) transitionCardAndWake(id, status string, options mutation, reaso
 
 func (s *Store) transitionCardWithResultAndWake(id, status string, result *string, options mutation, reason string) ([]string, error) {
 	status = normalizeStatus(status)
+	if status == "VALIDATED" {
+		return nil, errors.New("VALIDATED requires task pass with the reviewed RUN, application, Owner and versions")
+	}
 	if !allowedStatuses[status] {
 		return nil, fmt.Errorf("invalid status %q", status)
 	}
@@ -1536,6 +1569,14 @@ func (s *Store) transitionCardWithResultAndWake(id, status string, result *strin
 	if err != nil {
 		tx.Rollback()
 		return nil, err
+	}
+	if err := checkExpectedOwner(card, options.ExpectedOwner); err != nil {
+		tx.Rollback()
+		return nil, err
+	}
+	if options.ReleaseOwner && !((card.Status == "APPLIED" && status == "DOING") || status == "APPLIED" || status == "REJECTED") {
+		tx.Rollback()
+		return nil, errors.New("--release-owner requires APPLIED -> DOING, application, or rejection")
 	}
 	if err := validateCardStatusTransition(card, status); err != nil {
 		tx.Rollback()
@@ -1560,13 +1601,21 @@ func (s *Store) transitionCardWithResultAndWake(id, status string, result *strin
 	updated := now()
 	query := `UPDATE cards SET status = ?, updated = ?, updated_by = ? WHERE id = ?`
 	args := []any{status, updated, options.Actor, id}
-	if status == "READY" || status == "INVESTIGATE" || (card.Status == "INVESTIGATE" && status == "REJECTED") {
+	if options.ReleaseOwner || status == "READY" || status == "INVESTIGATE" || (card.Status == "INVESTIGATE" && status == "REJECTED") {
 		query = `UPDATE cards SET status = ?, owner = ?, updated = ?, updated_by = ? WHERE id = ?`
 		args = []any{status, "", updated, options.Actor, id}
 	}
 	if _, err := tx.Exec(query, args...); err != nil {
 		tx.Rollback()
 		return nil, err
+	}
+	if status == "APPLIED" && card.Status != "APPLIED" {
+		applicationID := fmt.Sprintf("%s@%d", card.ID, card.Version)
+		if _, err := tx.Exec(`UPDATE cards SET application_id = ? WHERE id = ?`, applicationID, id); err != nil {
+			tx.Rollback()
+			return nil, err
+		}
+		reason += "; application_id=" + applicationID
 	}
 	if err := validateReadyDependents(tx, id); err != nil {
 		tx.Rollback()
@@ -1638,6 +1687,11 @@ func (s *Store) addCard(input NewCard, options mutation) (string, error) {
 	if err := ensureReason(input.Actor, input.Reason); err != nil {
 		return "", err
 	}
+	if body, ok := input.Sections[sectionEvaluation]; ok {
+		if err := validateEvaluationBody(body); err != nil {
+			return "", err
+		}
+	}
 	if input.Values == nil {
 		input.Values = map[string]string{}
 	}
@@ -1651,6 +1705,8 @@ func (s *Store) addCard(input NewCard, options mutation) (string, error) {
 	if status != "INVESTIGATE" {
 		return "", fmt.Errorf("new cards must start as INVESTIGATE, got %s; use resolve after completing the READY contract", status)
 	}
+	// New cards are deliberately exempt from the READY contract. Investigation
+	// may fill in the Change boundary before the card is promoted.
 	if err := ensureReadyActor(input.Actor, status); err != nil {
 		return "", err
 	}
@@ -1701,7 +1757,12 @@ func (s *Store) addCard(input NewCard, options mutation) (string, error) {
 			continue
 		}
 		columns = append(columns, patchColumns[key])
-		args = append(args, values[key])
+		value, err := cardPatchValue(key, values[key])
+		if err != nil {
+			tx.Rollback()
+			return "", err
+		}
+		args = append(args, value)
 	}
 	columns = append(columns, "updated", "updated_by")
 	args = append(args, now(), input.Actor)

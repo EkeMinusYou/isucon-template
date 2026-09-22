@@ -14,7 +14,7 @@ func newDesignTarget(t *testing.T, s *Store, fingerprint, previous string) strin
 	return id
 }
 
-func TestTargetGoalHistoryAndRecurrence(t *testing.T) {
+func TestTargetGoalHistoryAndResolutionEvidence(t *testing.T) {
 	s := testStore(t)
 	id := newDesignTarget(t, s, "icon-latency", "")
 	target, _ := s.getTarget(id)
@@ -36,48 +36,6 @@ func TestTargetGoalHistoryAndRecurrence(t *testing.T) {
 	if err := s.transitionTarget(id, "RESOLVED", "", target.Version, mutation{Actor: "human:test", CompletionEvidence: "saved RUN shows p95 1.4 ms at equal request rate"}, "goal met"); err != nil {
 		t.Fatal(err)
 	}
-	next := newDesignTarget(t, s, "icon-latency", id)
-	recurring, _ := s.getTarget(next)
-	if recurring.PreviousTargetID != id {
-		t.Fatalf("previous=%q", recurring.PreviousTargetID)
-	}
-	original, _ := s.getTarget(id)
-	if original.Status != "RESOLVED" || original.CompletionEvidence == "" {
-		t.Fatalf("original mutated: %#v", original)
-	}
-}
-
-func TestPrimaryTargetAndObjectiveSwitches(t *testing.T) {
-	s := testStore(t)
-	first := newDesignTarget(t, s, "first", "")
-	second := newDesignTarget(t, s, "second", "")
-	card, err := s.addCard(NewCard{TargetID: first, Title: "batch reads", Actor: "skill:test", Reason: "reduce round trips"}, mutation{Actor: "skill:test"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	target, _ := s.getTarget(second)
-	if err := s.setTargetLink(second, card, true, "", "", target.Version, mutation{Actor: "skill:test", Primary: true, ExpectedCardVersion: intPtr(0)}, "shared improvement"); err != nil {
-		t.Fatal(err)
-	}
-	var primary string
-	if err := s.db.QueryRow(`SELECT target_id FROM target_interventions WHERE card_id=? AND is_primary=1`, card).Scan(&primary); err != nil {
-		t.Fatal(err)
-	}
-	if primary != second {
-		t.Fatalf("primary=%s", primary)
-	}
-	target, _ = s.getTarget(second)
-	objective, _ := s.getObjective("O-002")
-	if err := s.setObjectiveRelation("O-002", second, "target", "less delay advances scoring actions", true, objective.Version, mutation{Actor: "skill:test", Primary: true, ExpectedTargetVersion: intPtr(target.Version)}, "make principal outcome explicit"); err != nil {
-		t.Fatal(err)
-	}
-	updated, _ := s.getTarget(second)
-	if updated.PrimaryObjectiveID != "O-002" {
-		t.Fatalf("primary objective=%s", updated.PrimaryObjectiveID)
-	}
-	if err := s.validate(); err != nil {
-		t.Fatal(err)
-	}
 }
 
 func TestMergedTargetSurvivorCanComplete(t *testing.T) {
@@ -85,6 +43,11 @@ func TestMergedTargetSurvivorCanComplete(t *testing.T) {
 	original := newDesignTarget(t, s, "original", "")
 	survivor := newDesignTarget(t, s, "survivor", "")
 	target, _ := s.getTarget(original)
+	for _, invalid := range []string{"", original} {
+		if err := s.transitionTarget(original, "MERGED", invalid, target.Version, mutation{Actor: "human:test"}, "invalid survivor"); err == nil {
+			t.Fatalf("accepted survivor %q", invalid)
+		}
+	}
 	if err := s.transitionTarget(original, "MERGED", survivor, target.Version, mutation{Actor: "human:test"}, "same target episode"); err != nil {
 		t.Fatal(err)
 	}
@@ -98,6 +61,10 @@ func TestMergedTargetSurvivorCanComplete(t *testing.T) {
 	merged, _ := s.getTarget(original)
 	if merged.Status != "MERGED" || merged.MergedIntoID != survivor {
 		t.Fatalf("merge history changed: %#v", merged)
+	}
+	newEvidence := "new evidence"
+	if err := s.updateTarget(original, TargetPatch{Evidence: &newEvidence}, merged.Version, mutation{Actor: "human:test"}, "rewrite terminal target"); err == nil || !strings.Contains(err.Error(), "immutable") {
+		t.Fatalf("terminal update error = %v", err)
 	}
 	if _, err := s.db.Exec(`UPDATE targets SET status='MERGED',merged_into_target_id=? WHERE id=?`, original, survivor); err != nil {
 		t.Fatal(err)
@@ -121,6 +88,10 @@ func TestPrimarySwitchRejectsStaleOwnerSetVersions(t *testing.T) {
 	card, _ := s.getCard(cardID)
 	if err := s.setTargetLink(second, cardID, true, "", "", secondTarget.Version, mutation{Actor: "writer:one", Primary: true, ExpectedCardVersion: intPtr(card.Version)}, "primary switch"); err != nil {
 		t.Fatal(err)
+	}
+	updatedCard, err := s.getCard(cardID)
+	if err != nil || updatedCard.PrimaryTargetID != second {
+		t.Fatalf("primary target = %#v, %v", updatedCard, err)
 	}
 	if err := s.setTargetLink(third, cardID, true, "", "", thirdTarget.Version, mutation{Actor: "writer:two", Primary: true, ExpectedCardVersion: intPtr(card.Version)}, "stale competing switch"); err == nil || !strings.Contains(err.Error(), "card version conflict") {
 		t.Fatalf("stale primary switch=%v", err)

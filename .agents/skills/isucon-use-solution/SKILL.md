@@ -17,14 +17,14 @@ description: 指定された一つのdocs/solutions文書を現行と照合し�
 
 [既知資料の候補評価手順](../isucon-analyze/references/known-solutions.md) に従う。この手順は本スキルから直接実行し、広範な `isucon-analyze` の探索へ対象を拡張しない。
 
-対象文書の全文、特に適用条件・制約と探索方法を読み、現行コード・SQL・スキーマ・役割配置から適用箇所を探す。読み書きの所有者、更新・削除・失効、状態の公開順序、障害・初期化・再起動時の経路を必要な範囲で追い、鮮度・整合性・認証認可を維持する具体的な変更境界を示す。
+対象文書の全文、特に適用条件・制約と探索方法を読み、現行コード・SQL・スキーマ・役割配置から適用箇所を探す。読み書きの所有者、更新・削除・失効、状態の公開順序、障害・初期化・再起動時の経路を必要な範囲で追い、鮮度・整合性・認証認可を維持する適用候補と、分かる範囲の変更対象を示す。厳密な変更境界は起票後のinvestigateで具体化する。
 
-文書内の実装例や共有基盤を必須条件とせず、現在の構成で成立する実装経路を評価する。複数ファイル・ホスト・schema・初期化にまたがっても、一体で実装・適用・採否判断する変更は一枚にする。独立して採否を判定できる適用箇所だけ分ける。実装・元文書の編集は行わない。
+文書内の実装例や共有基盤を必須条件とせず、現在の構成で成立する実装経路を評価する。複数ファイル・ホスト・schema・初期化にまたがっても、一体で実装・適用・採否判断する変更は一枚にする。分割は同一提案の重複を避けるために行い、起票時に独立した小さな適用箇所へ切り分けることを要求しない。実装・元文書の編集は行わない。
 
 [Backlog workflow](../../../tools/backlog/backlog-workflow.md)のTarget・Relations・Writer protocolに従い、適合する既存ACTIVE Targetがあれば作成時に関連付け、主Targetを一つにする。Objective・Targetは変更しない。適合するTargetがなければリンクなしで起票し、対象・改善目標・得点への寄与仮説・baseline Evidence・評価条件と、既存Targetで扱えない理由を本文へ残す。Target不足だけで起票を保留しない。共通目標として管理する価値があれば[isucon-target](../isucon-target/SKILL.md)へ発見内容を報告するが、その整備を起票の前提にしない。
 
-起票時の actor は `skill:isucon-use-solution`。重複は対象・機構・Change boundaryで判定し、Interventionに独自Fingerprintを要求しない。
+起票時の actor は `skill:isucon-use-solution`。重複は関連するopen Interventionに対して、対象・機構・分かっているChange boundaryで判定し、境界が未確定な候補はその不明点を残してINVESTIGATEへ渡す。Interventionに独自Fingerprintを要求しない。
 
 ## 完了報告
 
-対象文書と適用箇所ごとの判断を先に示し、起票・補足したカード ID と Target・Objective、出典リンク、改善機構、Change boundary、見送った理由、未確定点を報告する。次の判断は `isucon-investigate` へ引き渡す。
+対象文書と適用候補ごとの判断を先に示し、起票・補足したカード ID と Target・Objective、出典リンク、改善機構、既知のChange boundaryまたは未確定点、見送った理由を報告する。次の判断は `isucon-investigate` へ引き渡す。

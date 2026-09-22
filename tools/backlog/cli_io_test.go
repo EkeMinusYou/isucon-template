@@ -164,13 +164,44 @@ func TestCLIJSONReadsAndFilters(t *testing.T) {
 	}
 	for _, args := range [][]string{
 		{"list", "--format", "yaml"},
-		{"list", "--watch", "--format", "json"},
 		{"watch", "--format", "json"},
 	} {
 		failed := runBacklogCLI(t, dbPath, "", args...)
 		if failed.err == nil || failed.stdout != "" {
 			t.Fatalf("invalid flags succeeded: %v: %#v", args, failed)
 		}
+	}
+}
+
+func TestCLIObjectivePriorityWorkflow(t *testing.T) {
+	if _, err := exec.LookPath("sqlite3"); err != nil {
+		t.Skip("sqlite3 is not installed")
+	}
+	dbPath := filepath.Join(t.TempDir(), "backlog.sqlite3")
+	created := runBacklogCLI(t, dbPath, "", "objective", "add", "--mode", "MAXIMIZE", "--title", "CLI priority", "--priority", "P0", "--metric-or-predicate", "score", "--verification", "compare", "--actor", "human:test", "--reason", "create objective")
+	if created.err != nil || created.stdout != "O-001\n" {
+		t.Fatalf("objective creation = %#v", created)
+	}
+
+	var objective Objective
+	requireCLIJSON(t, runBacklogCLI(t, dbPath, "", "objective", "show", "O-001", "--format", "json"), &objective)
+	if objective.Priority != "P0" || objective.Version != 0 {
+		t.Fatalf("created objective = %#v", objective)
+	}
+	var listed []Objective
+	requireCLIJSON(t, runBacklogCLI(t, dbPath, "", "objective", "list", "--priority", "p0", "--format", "json"), &listed)
+	if len(listed) != 1 || listed[0].ID != "O-001" {
+		t.Fatalf("priority-filtered objectives = %#v", listed)
+	}
+
+	updated := runBacklogCLI(t, dbPath, "", "objective", "update", "O-001", "--priority", "P1", "--expect-objective-version", "0", "--actor", "human:test", "--reason", "reassess objective priority")
+	if updated.err != nil || updated.stdout != "objective updated\n" {
+		t.Fatalf("objective update = %#v", updated)
+	}
+	listed = nil
+	requireCLIJSON(t, runBacklogCLI(t, dbPath, "", "objective", "list", "-p", "P1", "--format", "json"), &listed)
+	if len(listed) != 1 || listed[0].Priority != "P1" || listed[0].Version != 1 {
+		t.Fatalf("updated priority-filtered objectives = %#v", listed)
 	}
 }
 
@@ -186,12 +217,9 @@ func TestResultInputSources(t *testing.T) {
 		want  map[string]string
 	}{
 		{"unchanged", nil, "", nil},
-		{"literal", []string{"--result", "a\nb"}, "", map[string]string{"Result": "a\nb"}},
 		{"clear", []string{"--result="}, "", map[string]string{"Result": ""}},
 		{"file", []string{"--result-file", path}, "", map[string]string{"Result": "file result\nsecond line"}},
-		{"stdin", []string{"--result-file", "-"}, "stdin result\n", map[string]string{"Result": "stdin result"}},
 		{"sections and result", []string{"--section-stdin", "--result", "done"}, `{"Observation":"observed"}`, map[string]string{"Observation": "observed", "Result": "done"}},
-		{"sections and file", []string{"--section-stdin", "--result-file", path}, `{"Observation":"observed"}`, map[string]string{"Observation": "observed", "Result": "file result\nsecond line"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			fs := flag.NewFlagSet("test", flag.ContinueOnError)

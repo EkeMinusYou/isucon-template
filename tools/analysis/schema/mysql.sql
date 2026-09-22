@@ -1,10 +1,11 @@
--- MySQL の SHOW STATUS サンプル。host は役割 (runs.mysql_host) から引く。
+-- MySQL SHOW STATUS samples. New artifacts encode the source host in the
+-- filename; the manifest fallback keeps historical single-host RUNs readable.
 create or replace view mysql_status as
 select
     r.run_id,
-    r.mysql_host as host,
+    coalesce(nullif(regexp_extract(m.filename, '/([^/]+)-mysql-status\.tsv$', 1), ''), r.mysql_host) as host,
     m.* exclude (filename)
-from read_csv(getvariable('run_glob') || '/mysql-status.tsv', delim = '\t',
+from read_csv(getvariable('run_glob') || '/*mysql-status.tsv', delim = '\t',
               header = true, filename = true, union_by_name = true) m
 left join runs r
   on r.run_id = regexp_extract(m.filename, 'runs/([^/]+)/', 1);

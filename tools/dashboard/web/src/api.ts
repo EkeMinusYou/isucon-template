@@ -1,4 +1,14 @@
+export type RunRoles = {
+  app: string[] | null
+  app_traffic: string[] | null
+  nginx: string[] | null
+  entry: string
+  mysql: string
+  additional: Record<string, string[]> | null
+}
+
 export type RunInfo = {
+  roles: RunRoles | null
   run_id: string
   has_alp: boolean
   has_slowquery: boolean
@@ -39,6 +49,7 @@ export type AlpResponse = {
 }
 
 export type SlowQueryClass = {
+  host: string
   query: string
   query_count: number
 
@@ -231,7 +242,10 @@ export type MysqlPoint = {
 export type MysqlResponse = {
   run_id: string
   available: boolean
-  series: MysqlPoint[]
+  hosts: Array<{
+    host: string
+    series: MysqlPoint[]
+  }>
 }
 
 export type UpstreamRow = {
@@ -366,6 +380,9 @@ export type TimelineHost = {
 }
 
 export type TimelineResponse = {
+  bench_error_counts: { elapsed_s: number; error_count: number }[]
+  bench_errors: string[]
+  bench_log_available: boolean
   run_id: string
   available: boolean
   start_time: string
@@ -457,21 +474,6 @@ export type BacklogCardDetail = {
   targets: BacklogTargetRelation[]
 }
 
-export type ReportInfo = {
-  /** path relative to docs/reports, e.g. "isucon-analyze/20260828-235318-r2.md" */
-  filename: string
-  /** directory the report is filed under (the report type), "" for the top level */
-  kind: string
-  title: string
-  mod_time: string
-  size: number
-}
-
-export type ReportContent = {
-  filename: string
-  content: string
-}
-
 async function getJSON<T>(path: string): Promise<T> {
   const res = await fetch(path)
   if (!res.ok) {
@@ -507,11 +509,4 @@ export const api = {
   backlog: (includeClosed = false) =>
     getJSON<BacklogResponse>(`/api/backlog${includeClosed ? '?all=1' : ''}`),
   backlogDetail: (id: string) => getJSON<BacklogCardDetail>(`/api/backlog/${encodeURIComponent(id)}`),
-  reports: () => getJSON<ReportInfo[]>('/api/reports'),
-  reportContent: (filename: string) =>
-    // reports live in per-type subdirectories, so encode each path segment
-    // and keep the separators.
-    getJSON<ReportContent>(
-      `/api/reports/${filename.split('/').map(encodeURIComponent).join('/')}`,
-    ),
 }

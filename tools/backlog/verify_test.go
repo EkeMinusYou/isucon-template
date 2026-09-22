@@ -27,6 +27,21 @@ func TestParseEvaluationContractRejectsUnknownAndTrailingFields(t *testing.T) {
 	}
 }
 
+func TestValidateEvaluationBodyAllowsFreeTextAndRejectsStructuredErrors(t *testing.T) {
+	if err := validateEvaluationBody("inspect saved correctness results"); err != nil {
+		t.Fatalf("free-text Evaluation error = %v", err)
+	}
+	for _, body := range []string{
+		`{"version":1,"baseline_run":"20260101-000001"}`,
+		`{"version":1} {"version":1}`,
+		"```json\n{\"version\":1,\"unknown\":true}\n```",
+	} {
+		if err := validateEvaluationBody(body); err == nil {
+			t.Fatalf("validateEvaluationBody(%q) error = nil", body)
+		}
+	}
+}
+
 func TestBuildEvaluationSummaryAcceptsFreeText(t *testing.T) {
 	card := Card{
 		ID:     "B-001",
@@ -73,7 +88,7 @@ func TestSelectCompareManifest(t *testing.T) {
 		{RunID: "20260101-000002", Roles: roles},
 		{RunID: "20260101-000003", Roles: verifyRoles{App: []string{"h1"}, Entry: "h2", Additional: roles.Additional}},
 		{RunID: "20260101-000004", Roles: verifyRoles{App: []string{"h1"}, Entry: "h1", Additional: map[string][]string{"pdns": {"h3"}}}},
-		{RunID: "20260101-000005", Roles: roles, Comparison: runComparison{RunID: "20260101-000001", Status: "compatible"}},
+		{RunID: "20260101-000005", Roles: roles},
 		{RunID: "20260101-000006", Roles: roles},
 	}
 	for _, tc := range []struct{ name, explicit, want string }{

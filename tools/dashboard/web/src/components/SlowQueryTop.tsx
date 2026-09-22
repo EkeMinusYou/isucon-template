@@ -21,7 +21,10 @@ export function SlowQueryTop({ data }: Props) {
   const [selected, setSelected] = useState<SlowQueryClass | null>(null)
 
   const top = useMemo(
-    () => data.classes.slice(0, 10).map((c) => ({ ...c, label: shortText(c.query) })),
+    () =>
+      data.classes
+        .slice(0, 10)
+        .map((c) => ({ ...c, label: `${c.host}: ${shortText(c.query)}` })),
     [data.classes],
   )
 
@@ -36,13 +39,13 @@ export function SlowQueryTop({ data }: Props) {
   )
 
   const { sorted, sortKey, sortDir, toggle } = useSort<SlowQueryClass>(data.classes, 'query_time_sum', 'desc')
-  const rowKey = (c: SlowQueryClass) => c.query
+  const rowKey = (c: SlowQueryClass) => `${c.host}:${c.query}`
 
   if (!data.available || data.classes.length === 0) {
     return (
       <EmptyState
-        title="slp.tsv がまだありません"
-        detail="計測パイプライン更新前のRUN、preflight 失敗、slp 未インストール、または集計失敗の可能性があります（詳細は slp.stderr）"
+        title="ホスト別slp.tsv がまだありません"
+        detail="計測パイプライン更新前のRUN、preflight 失敗、slp 未インストール、または集計失敗の可能性があります（詳細はホスト別slp.stderr）"
       />
     )
   }
@@ -59,7 +62,7 @@ export function SlowQueryTop({ data }: Props) {
           <div className="stat-value text-2xl">{data.total_query_count.toLocaleString()}</div>
         </div>
         <div className="stat px-4 py-2">
-          <div className="stat-title text-sm">ユニーク数</div>
+          <div className="stat-title text-sm">ホスト別クラス数</div>
           <div className="stat-value text-2xl">{data.unique_query_count.toLocaleString()}</div>
         </div>
         <div className="stat px-4 py-2">
@@ -143,6 +146,7 @@ export function SlowQueryTop({ data }: Props) {
         <table className="table table-zebra table-pin-rows text-base">
           <thead>
             <tr>
+              {th('host', 'host', 'left')}
               {th('query', 'query', 'left')}
               {th('calls', 'query_count')}
               {th('sum(s)', 'query_time_sum')}
@@ -157,6 +161,7 @@ export function SlowQueryTop({ data }: Props) {
                 className="cursor-pointer hover:bg-base-200"
                 onClick={() => setSelected(c)}
               >
+                <td className="font-mono text-sm">{c.host}</td>
                 <td className="max-w-md truncate" title={c.query}>
                   {shortText(c.query)}
                 </td>

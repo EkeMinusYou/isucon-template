@@ -9,6 +9,7 @@ import {
 } from '../api'
 import { useSort } from '../useSort'
 import { EmptyState } from './EmptyState'
+import { PprofGraphViewer } from './PprofGraphViewer'
 import { SortableTh } from './SortableTh'
 import { TableScroll } from './TableScroll'
 
@@ -153,18 +154,11 @@ function ProfileChart({ profile, sortKey }: { profile: GoPprofProfile; sortKey: 
 
 function CallGraph({ runId, profile }: { runId: string; profile: GoPprofProfile }) {
   return (
-    <div className="mt-6">
-      <div className="mb-1 text-sm font-semibold">コールグラフ</div>
-      <div className="mb-2 text-sm text-base-content/60">
-        矢印は caller → callee、ノードとエッジの太さは{profile.sample_type}のサンプル量を表します
-      </div>
-      <iframe
-        title={`${profile.host} ${profile.kind} pprof コールグラフ`}
-        src={api.pprofGraph(runId, profile.kind, profile.host)}
-        loading="lazy"
-        className="h-[720px] w-full rounded-box border border-base-300 bg-base-100"
-      />
-    </div>
+    <PprofGraphViewer
+      title={`${profile.host} ${profile.kind} pprof コールグラフ`}
+      src={api.pprofGraph(runId, profile.kind, profile.host)}
+      description={`矢印は caller → callee、ノードとエッジの太さは${profile.sample_type}のサンプル量を表します`}
+    />
   )
 }
 

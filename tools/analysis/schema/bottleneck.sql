@@ -34,7 +34,6 @@ select
     coalesce(a.invalid_periodic_artifacts, 0) as invalid_periodic_artifacts,
     coalesce(a.artifact_failures, '') as artifact_failures,
     m.commit,
-    m.dirty,
     coalesce(p.applied_cards, '') as applied_cards,
     m.app_hosts,
     m.app_traffic_hosts,
@@ -82,15 +81,47 @@ select
     h.demand_core_seconds as busiest_host_demand_core_seconds,
     h.capacity_core_seconds as busiest_host_capacity_core_seconds,
     h.utilization_ratio as busiest_host_utilization_ratio,
+    s.cpu_busy_peak_pct as busiest_host_cpu_busy_peak_pct,
+    s.cpu_busy_peak_at as busiest_host_cpu_busy_peak_at,
+    s.cpu_busy_peak_offset_seconds as busiest_host_cpu_busy_peak_offset_seconds,
+    s.cpu_busy_ge80_samples as busiest_host_cpu_busy_ge80_samples,
+    s.cpu_busy_ge80_ratio as busiest_host_cpu_busy_ge80_ratio,
     s.idle_min_pct as busiest_host_idle_min_pct,
     s.idle_mean_pct as busiest_host_idle_mean_pct,
     s.run_queue_over_cpu_samples as busiest_host_run_queue_over_cpu_samples,
     s.blocked_samples as busiest_host_blocked_samples,
     s.cpu_pressure_some_avg10_mean as busiest_host_cpu_pressure_some_avg10_mean,
+    s.cpu_pressure_some_avg10_max as busiest_host_cpu_pressure_some_avg10_max,
     c.load_window_seconds
 from capacity_ledger c
 join hosts h on h.run_id = c.run_id and h.busy_rank = 1
 left join host_saturation s on s.run_id = c.run_id and s.host = h.host;
+
+-- Per-host saturation summary so peaks on non-busiest hosts remain visible.
+create or replace view bottleneck_host_saturation_summary as
+select
+    run_id,
+    host,
+    samples,
+    cpu_count,
+    cpu_busy_peak_pct,
+    cpu_busy_peak_at,
+    cpu_busy_peak_offset_seconds,
+    cpu_busy_ge80_samples,
+    cpu_busy_ge80_ratio,
+    idle_core_seconds,
+    idle_min_pct,
+    idle_mean_pct,
+    iowait_mean_pct,
+    run_queue_over_cpu_samples,
+    blocked_samples,
+    cpu_pressure_some_avg10_mean,
+    cpu_pressure_some_avg10_max,
+    io_pressure_some_avg10_mean,
+    memory_pressure_some_avg10_mean,
+    load_window_seconds,
+    calculation
+from host_saturation;
 
 create or replace view bottleneck_wait_axes as
 select
@@ -126,6 +157,9 @@ from window_metrics
 where (source = 'mysql' and metric in (
            'threads_running', 'row_lock_current_waits', 'row_lock_waits_per_sec',
            'row_lock_time_ms_per_sec', 'innodb_log_waits_per_sec'))
+   or (source = 'sql_pool' and metric in (
+           'pool_utilization_pct', 'wait_count_per_sec',
+           'wait_duration_ms_per_sec', 'average_wait_ms'))
    or (source = 'disk' and metric in ('avg_queue_size', 'io_util_pct', 'read_await_ms', 'write_await_ms'));
 
 create or replace view bottleneck_endpoint_ranking as
@@ -179,14 +213,20 @@ select
     load_window_seconds
 from window_metrics
 where (source = 'mysql' and metric in (
-           'threads_connected', 'threads_running', 'threads_created_per_sec',
+           'max_connections', 'max_used_connections', 'threads_connected', 'threads_running', 'threads_created_per_sec',
            'connections_per_sec', 'questions_per_sec', 'com_select_per_sec',
            'com_insert_per_sec', 'com_update_per_sec', 'com_delete_per_sec',
            'created_tmp_tables_per_sec', 'created_tmp_disk_tables_per_sec',
            'tmp_disk_ratio_pct', 'buffer_pool_hit_pct', 'row_lock_current_waits',
            'row_lock_waits_per_sec', 'row_lock_time_ms_per_sec',
            'innodb_log_waits_per_sec', 'aborted_connects_per_sec',
+           'connection_errors_max_connections_total',
+           'connection_errors_max_connections_per_sec',
            'bytes_received_per_sec', 'bytes_sent_per_sec'))
+   or (source = 'sql_pool' and metric in (
+           'max_open_connections', 'open_connections', 'in_use', 'idle',
+           'pool_utilization_pct', 'wait_count_total', 'wait_duration_ms_total',
+           'wait_count_per_sec', 'wait_duration_ms_per_sec', 'average_wait_ms'))
    or (source = 'disk' and metric in (
            'avg_queue_size', 'io_util_pct', 'io_in_progress',
            'read_bytes_per_sec', 'write_bytes_per_sec',

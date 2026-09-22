@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -37,13 +38,6 @@ func TestAppendMissingArtifactsRecordsRequiredAndSkipsOptional(t *testing.T) {
 	if len(got) != 2 || got[0].Name != "raw/access-*.log.zst" || got[1].Name != "required.tsv" ||
 		got[0].Status != "missing" || got[1].Status != "missing" || got[0].Reason == "" || got[1].Reason == "" {
 		t.Fatalf("missing artifacts = %#v", got)
-	}
-}
-
-func TestOptionalOneshotProducesOptionalArtifactSpec(t *testing.T) {
-	optional := false
-	if (Oneshot{EnabledByDefault: &optional}).enabledByDefault() {
-		t.Fatal("disabled oneshot reported enabled by default")
 	}
 }
 
@@ -90,6 +84,77 @@ func TestPerHostDigesterArtifactsMatchCollectedFiles(t *testing.T) {
 	}
 	if err := checkRunDir(dir, journals); err == nil {
 		t.Fatal("a completely missing per-host artifact was accepted")
+	}
+}
+
+func TestCaptureArtifactContractExpandsEveryRoleHost(t *testing.T) {
+	dir := t.TempDir()
+	collectors := filepath.Join(dir, "collectors.yaml")
+	digesters := filepath.Join(dir, "digesters.yaml")
+	if err := os.WriteFile(collectors, []byte(`collectors:
+  - name: mysql
+    hosts: mysql_all
+    binary: mysql-metrics
+    remote_root: /tmp/mysql-metrics
+    outputs:
+      metrics.tsv: '{host}-mysql-status.tsv'
+    stderr: '{host}-mysql-status.stderr'
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(digesters, []byte(`sources:
+  - name: slow
+    role: mysql_all
+    remote: /var/log/mysql/mysql-slow.log
+    local: '{raw_dir}/mysql-slow-{host}.log'
+digesters:
+  - name: pt
+    source: slow
+    per_host: true
+    stderr: '{host}-pt.stderr'
+    outputs:
+      - file: '{host}-pt.log'
+        run: printf ok
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := Manifest{Roles: Roles{Additional: map[string][]string{
+		"mysql_all": {"isucon-2", "isucon-3"},
+	}}}
+	contract, err := captureArtifactContract(m, collectors, digesters)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var required []ArtifactSpec
+	for _, spec := range contract {
+		if !spec.Optional && (spec.Producer == "collector:mysql" || spec.Producer == "digester:pt") {
+			required = append(required, spec)
+		}
+	}
+	if len(required) != 4 {
+		t.Fatalf("required host artifacts = %#v", required)
+	}
+	for _, spec := range required {
+		if strings.ContainsAny(spec.Pattern, "*?[") || spec.HostRole != "" {
+			t.Fatalf("host artifact was not expanded: %#v", spec)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "isucon-2-mysql-status.tsv"), []byte("ok"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "isucon-2-pt.log"), []byte("ok"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkRunDir(dir, required); err == nil {
+		t.Fatal("one role host was missing but the contract passed")
+	}
+	for _, name := range []string{"isucon-3-mysql-status.tsv", "isucon-3-pt.log"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("ok"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := checkRunDir(dir, required); err != nil {
+		t.Fatalf("complete host contract was rejected: %v", err)
 	}
 }
 

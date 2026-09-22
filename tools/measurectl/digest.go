@@ -217,11 +217,18 @@ func (r *digestRunner) markSourceFetchFailure(src Source, host string, err error
 		if d.Source != src.Name {
 			continue
 		}
-		r.appendStderr(d, reason)
+		if d.PerHost {
+			r.appendStderrForHost(d, reason, host)
+		} else {
+			r.appendStderr(d, reason)
+		}
 		for _, out := range d.Outputs {
-			path := filepath.Join(r.runDir, out.File)
-			if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
-				_ = os.WriteFile(path, nil, 0o644)
+			outputPath := filepath.Join(r.runDir, out.File)
+			if d.PerHost {
+				outputPath = filepath.Join(r.runDir, r.expand(out.File, host))
+			}
+			if _, statErr := os.Stat(outputPath); os.IsNotExist(statErr) {
+				_ = os.WriteFile(outputPath, nil, 0o644)
 			}
 		}
 	}
@@ -259,14 +266,32 @@ func (r *digestRunner) digest(d Digester) error {
 	if !ok {
 		return fmt.Errorf("source %q が宣言にありません", d.Source)
 	}
+	if d.PerHost {
+		hosts, ok := r.roles[src.Role]
+		if !ok || len(hosts) == 0 {
+			return fmt.Errorf("source %q が指す役割 %q のホストが -role で渡されていません", src.Name, src.Role)
+		}
+		return parallelIndex(len(hosts), func(index int) error {
+			return r.digestSource(d, src, hosts[index])
+		})
+	}
+	return r.digestSource(d, src, "")
+}
 
+func (r *digestRunner) digestSource(d Digester, src Source, host string) error {
 	// スキップ条件を順に見る。どれかに当たれば、理由を stderr に残して
 	// on_skip の既定値でファイルを埋める (解析側が中身の有無で分岐しなくて済む)。
-	if reason := r.skipReason(d, src); reason != "" {
+	if reason := r.skipReason(d, src, host); reason != "" {
+		if d.PerHost {
+			return r.skipHost(d, host, reason)
+		}
 		return r.skip(d, reason)
 	}
 
 	inputs, err := r.inputsFor(src)
+	if d.PerHost {
+		inputs, err = r.inputsForHost(src, host)
+	}
 	if err != nil {
 		return err
 	}
@@ -281,7 +306,7 @@ func (r *digestRunner) digest(d Digester) error {
 		wg.Add(1)
 		go func(out Output) {
 			defer wg.Done()
-			if err := r.runOutput(d, out, inputs); err != nil {
+			if err := r.runOutput(d, out, inputs, host); err != nil {
 				mu.Lock()
 				errs = append(errs, err)
 				mu.Unlock()
@@ -344,7 +369,7 @@ func (r *digestRunner) digestRemote(d Digester) error {
 }
 
 func (r *digestRunner) skipRemoteHost(d Digester, host, reason string) error {
-	r.appendStderr(d, reason)
+	r.appendStderrForHost(d, reason, host)
 	for _, output := range d.Outputs {
 		if output.OnSkip == "" {
 			continue
@@ -355,6 +380,25 @@ func (r *digestRunner) skipRemoteHost(d Digester, host, reason string) error {
 		}
 	}
 	fmt.Printf("%s の集計をスキップ（%s）\n", d.Name, reason)
+	return nil
+}
+
+func (r *digestRunner) skipHost(d Digester, host, reason string) error {
+	if r.dryRun {
+		fmt.Printf("[dry-run] skip %s on %s: %s\n", d.Name, host, reason)
+		return nil
+	}
+	r.appendStderrForHost(d, reason, host)
+	for _, output := range d.Outputs {
+		if output.OnSkip == "" {
+			continue
+		}
+		path := filepath.Join(r.runDir, r.expand(output.File, host))
+		if err := os.WriteFile(path, []byte(unescape(output.OnSkip)+"\n"), 0o644); err != nil {
+			return err
+		}
+	}
+	fmt.Printf("%s の集計をスキップ（%s, host=%s）\n", d.Name, reason, host)
 	return nil
 }
 
@@ -380,10 +424,16 @@ func parallelIndex(count int, fn func(int) error) error {
 }
 
 // skipReason は集計を飛ばす理由を返す。飛ばさないなら空文字。
-func (r *digestRunner) skipReason(d Digester, src Source) string {
+func (r *digestRunner) skipReason(d Digester, src Source, host string) string {
 	inputs, err := r.inputsFor(src)
+	if d.PerHost {
+		inputs, err = r.inputsForHost(src, host)
+	}
 	if err != nil || len(inputs) == 0 {
-		return fmt.Sprintf("%s skipped: %s not collected", d.Name, src.Name)
+		if host == "" {
+			return fmt.Sprintf("%s skipped: %s not collected", d.Name, src.Name)
+		}
+		return fmt.Sprintf("%s skipped: %s not collected on %s", d.Name, src.Name, host)
 	}
 	if d.SkipIfBenchFailed && r.benchFailed {
 		return fmt.Sprintf("%s skipped: benchmark failed during preflight", d.Name)
@@ -433,9 +483,9 @@ func (r *digestRunner) skip(d Digester, reason string) error {
 	return nil
 }
 
-func (r *digestRunner) runOutput(d Digester, out Output, inputs []string) error {
-	path := filepath.Join(r.runDir, out.File)
-	argv := r.buildArgv(out.Run, inputs)
+func (r *digestRunner) runOutput(d Digester, out Output, inputs []string, host string) error {
+	path := filepath.Join(r.runDir, r.expand(out.File, host))
+	argv := r.buildArgv(out.Run, inputs, host)
 	if len(argv) == 0 {
 		return fmt.Errorf("%s: run が空です", out.File)
 	}
@@ -460,7 +510,7 @@ func (r *digestRunner) runOutput(d Digester, out Output, inputs []string) error 
 		defer cancel()
 	}
 
-	err := r.exec(ctx, d, argv, inputs, path)
+	err := r.exec(ctx, d, argv, inputs, path, host)
 	if err == nil {
 		fmt.Printf("%s 集計\n", path)
 		return nil
@@ -470,7 +520,7 @@ func (r *digestRunner) runOutput(d Digester, out Output, inputs []string) error 
 	if ctx.Err() == context.DeadlineExceeded {
 		err = fmt.Errorf("timed out after %s", d.Timeout)
 	}
-	r.appendStderr(d, fmt.Sprintf("%s failed: %v", out.File, err))
+	r.appendStderrForHost(d, fmt.Sprintf("%s failed: %v", filepath.Base(path), err), host)
 
 	// on_error があれば、その内容で埋めて続行する。ダッシュボードのように
 	// 「壊れた中身より空のほうが扱いやすい」出力のための逃げ道。
@@ -486,7 +536,7 @@ func (r *digestRunner) runOutput(d Digester, out Output, inputs []string) error 
 
 // exec は 1 出力ぶんの実行。stdin が宣言されていれば、そのコマンドで入力を
 // 読んで集計コマンドの標準入力へつなぐ。
-func (r *digestRunner) exec(ctx context.Context, d Digester, argv, inputs []string, path string) error {
+func (r *digestRunner) exec(ctx context.Context, d Digester, argv, inputs []string, path, host string) error {
 	// 集計コマンドが途中で落ちると、入力を流し込んでいる側は書き込み先を失って
 	// 止まったままになる。この呼び出し専用の context を挟んで、抜けるときに
 	// 確実に殺す。
@@ -542,22 +592,26 @@ func (r *digestRunner) exec(ctx context.Context, d Digester, argv, inputs []stri
 		}
 	}
 	cancel()
-	if s := strings.TrimSpace(stderr.String()); s != "" {
-		r.appendStderr(d, s)
+	// stderr is diagnostic output, not an error signal. Some successful
+	// commands, including pt-query-digest, report progress there.
+	if err != nil {
+		if s := strings.TrimSpace(stderr.String()); s != "" {
+			r.appendStderrForHost(d, s, host)
+		}
 	}
 	return err
 }
 
 // buildArgv はコマンド文字列を argv へ落とす。シェルを経由しないので、
 // 引数にクォートやリダイレクトは書けない (宣言側でそれが要らない形にしてある)。
-func (r *digestRunner) buildArgv(run string, inputs []string) []string {
+func (r *digestRunner) buildArgv(run string, inputs []string, host string) []string {
 	var argv []string
 	for _, token := range strings.Fields(run) {
 		if token == "{input}" {
 			argv = append(argv, inputs...)
 			continue
 		}
-		argv = append(argv, r.expand(token, ""))
+		argv = append(argv, r.expand(token, host))
 	}
 	return argv
 }
@@ -600,7 +654,11 @@ func (r *digestRunner) compressAll() error {
 // inputsFor は source のローカルパスを展開して、実在するファイルを返す。
 // {host} を含むパスは glob として扱う (ホストごとに 1 本ずつ落ちてくる)。
 func (r *digestRunner) inputsFor(s Source) ([]string, error) {
-	pattern := r.expand(s.Local, "*")
+	return r.inputsForHost(s, "*")
+}
+
+func (r *digestRunner) inputsForHost(s Source, host string) ([]string, error) {
+	pattern := r.expand(s.Local, host)
 	// 圧縮済みの回も拾う。zstdcat は非圧縮ファイルもそのまま通す。
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
@@ -651,10 +709,14 @@ func (r *digestRunner) expand(s, host string) string {
 }
 
 func (r *digestRunner) appendStderr(d Digester, msg string) {
+	r.appendStderrForHost(d, msg, "")
+}
+
+func (r *digestRunner) appendStderrForHost(d Digester, msg, host string) {
 	if d.Stderr == "" || r.dryRun {
 		return
 	}
-	path := filepath.Join(r.runDir, d.Stderr)
+	path := filepath.Join(r.runDir, r.expand(d.Stderr, host))
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return

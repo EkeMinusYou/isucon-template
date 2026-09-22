@@ -33,6 +33,8 @@ type ArtifactSpec struct {
 	Producer string `json:"producer"`
 	// 正常時に残らないもの (stderr は空なら after-bench が消す)。
 	Optional bool `json:"optional"`
+	// Role used to expand host-specific artifacts into a RUN contract; cleared before persistence.
+	HostRole string `json:"host_role,omitempty"`
 }
 
 func runArtifacts(args []string) error {
@@ -112,24 +114,12 @@ func loadArtifactSpecs(collectorsPath, digestersPath string) ([]ArtifactSpec, er
 	}
 	for _, c := range cfg.Collectors {
 		for _, local := range c.Outputs {
-			specs = append(specs, ArtifactSpec{
-				Pattern:  hostGlob(local),
-				Producer: "collector:" + c.Name,
-				Optional: !c.enabledByDefault(),
-			})
+			specs = append(specs, newArtifactSpec(local, "collector:"+c.Name, !c.enabledByDefault(), c.Hosts))
 		}
-		specs = append(specs, ArtifactSpec{
-			Pattern:  hostGlob(c.Stderr),
-			Producer: "collector:" + c.Name,
-			Optional: true,
-		})
+		specs = append(specs, newArtifactSpec(c.Stderr, "collector:"+c.Name, true, c.Hosts))
 	}
 	for _, o := range cfg.Oneshots {
-		specs = append(specs, ArtifactSpec{
-			Pattern:  hostGlob(o.Output),
-			Producer: "oneshot:" + o.Name,
-			Optional: !o.enabledByDefault(),
-		})
+		specs = append(specs, newArtifactSpec(o.Output, "oneshot:"+o.Name, !o.enabledByDefault(), o.Hosts))
 	}
 
 	dcfg, err := loadDigestConfig(digestersPath)
@@ -137,8 +127,8 @@ func loadArtifactSpecs(collectorsPath, digestersPath string) ([]ArtifactSpec, er
 		return nil, err
 	}
 	for _, s := range dcfg.Sources {
-		// 走行ディレクトリの外に置く生ログ (raw/mysql-slow.log) は
-		// 走行ごとの成果物ではないので数えない。
+		// Raw logs outside the RUN directory (raw/mysql-slow-{host}.log) are
+		// persistent working files, not RUN artifacts.
 		local := hostGlob(s.Local)
 		if !strings.Contains(local, "{run_dir}") {
 			continue
@@ -156,18 +146,17 @@ func loadArtifactSpecs(collectorsPath, digestersPath string) ([]ArtifactSpec, er
 		specs = append(specs, ArtifactSpec{Pattern: local, Producer: "source:" + s.Name})
 	}
 	for _, d := range dcfg.Digesters {
-		for _, o := range d.Outputs {
-			specs = append(specs, ArtifactSpec{
-				Pattern:  hostGlob(o.File),
-				Producer: "digester:" + d.Name,
-				Optional: !d.enabledByDefault(),
-			})
+		hostRole := ""
+		if d.PerHost {
+			src, _ := dcfg.source(d.Source)
+			hostRole = src.Role
+		} else if d.Remote != nil && d.Remote.PerHost {
+			hostRole = d.Remote.Role
 		}
-		specs = append(specs, ArtifactSpec{
-			Pattern:  d.Stderr,
-			Producer: "digester:" + d.Name,
-			Optional: true,
-		})
+		for _, o := range d.Outputs {
+			specs = append(specs, newArtifactSpec(o.File, "digester:"+d.Name, !d.enabledByDefault(), hostRole))
+		}
+		specs = append(specs, newArtifactSpec(d.Stderr, "digester:"+d.Name, true, hostRole))
 	}
 
 	// 宣言ではなく measurectl 自身やベンチが書くもの。
@@ -344,6 +333,12 @@ func matchesAnySpec(name string, specs []ArtifactSpec) bool {
 		if ok, _ := filepath.Match(name, base); ok {
 			return true
 		}
+		// Historical RUNs used a bare filename before host-specific artifacts
+		// were introduced (for example mysql-status.tsv). Keep those readers
+		// compatible without making the legacy name a new required artifact.
+		if strings.HasPrefix(base, "*-") && strings.TrimPrefix(base, "*-") == name {
+			return true
+		}
 	}
 	return false
 }
@@ -365,6 +360,18 @@ func isArtifactName(s string) bool {
 // hostGlob は宣言の {host} を、実ファイルを探すための * に均す。
 func hostGlob(s string) string {
 	return strings.ReplaceAll(s, "{host}", "*")
+}
+
+func newArtifactSpec(pattern, producer string, optional bool, hostRole string) ArtifactSpec {
+	if !strings.Contains(pattern, "{host}") {
+		hostRole = ""
+	}
+	return ArtifactSpec{
+		Pattern:  hostGlob(pattern),
+		Producer: producer,
+		Optional: optional,
+		HostRole: hostRole,
+	}
 }
 
 func suffixIf(cond bool, suffix string) string {

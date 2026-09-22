@@ -4,14 +4,14 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 )
 
-// mysqlPoint mirrors a useful subset of `mysql-status.tsv` (one row per
-// sample of `SHOW GLOBAL STATUS`/`SHOW GLOBAL VARIABLES` deltas on the
-// single MySQL host). Monotonic *_total counters are intentionally skipped
-// in favor of their *_per_sec rate, which is what actually reads as a time
-// series; gauges (thread/pool/lock counts, hit/ratio percentages) are kept
-// as-is.
+// mysqlPoint mirrors a useful subset of a host-specific `*-mysql-status.tsv`
+// row. Monotonic *_total counters are intentionally skipped in favor of their
+// *_per_sec rate, which is what actually reads as a time series; gauges
+// (thread/pool/lock counts, hit/ratio percentages) are kept as-is.
 type mysqlPoint struct {
 	ElapsedMs int64 `json:"elapsed_ms"`
 
@@ -49,12 +49,17 @@ type mysqlPoint struct {
 }
 
 type mysqlResponse struct {
-	RunID     string       `json:"run_id"`
-	Available bool         `json:"available"`
-	Series    []mysqlPoint `json:"series"`
+	RunID     string            `json:"run_id"`
+	Available bool              `json:"available"`
+	Hosts     []mysqlHostSeries `json:"hosts"`
 }
 
-func parseMysqlSeries(path string) ([]mysqlPoint, error) {
+type mysqlHostSeries struct {
+	Host   string       `json:"host"`
+	Series []mysqlPoint `json:"series"`
+}
+
+func parseMysqlSeries(path string, window *analysisWindow) ([]mysqlPoint, error) {
 	header, rows, err := readTSV(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -65,10 +70,16 @@ func parseMysqlSeries(path string) ([]mysqlPoint, error) {
 	if columnIndex(header, "elapsed_ms") < 0 {
 		return nil, nil
 	}
+	if window != nil && columnIndex(header, "timestamp") < 0 {
+		return nil, nil
+	}
 
 	series := make([]mysqlPoint, 0, len(rows))
 	for _, row := range rows {
 		c := &colIndexer{header: header, row: row}
+		if !rowInAnalysisWindow(c, window) {
+			continue
+		}
 		series = append(series, mysqlPoint{
 			ElapsedMs: c.int64("elapsed_ms"),
 
@@ -108,6 +119,47 @@ func parseMysqlSeries(path string) ([]mysqlPoint, error) {
 	return series, nil
 }
 
+func mysqlStatusHost(path, fallback string) string {
+	base := filepath.Base(path)
+	if base == "mysql-status.tsv" {
+		if fallback != "" {
+			return fallback
+		}
+		return "mysql"
+	}
+	return strings.TrimSuffix(base, "-mysql-status.tsv")
+}
+
+func mysqlStatusPaths(dir string) []string {
+	paths := mustGlob(filepath.Join(dir, "*-mysql-status.tsv"))
+	// RUNs created before the host-specific naming change remain readable.
+	legacy := filepath.Join(dir, "mysql-status.tsv")
+	if fileExists(legacy) {
+		paths = append(paths, legacy)
+	}
+	sort.Strings(paths)
+	return paths
+}
+
+func parseMysqlHostSeries(paths []string, fallbackHost string, window *analysisWindow) ([]mysqlHostSeries, error) {
+	result := make([]mysqlHostSeries, 0, len(paths))
+	for _, path := range paths {
+		series, err := parseMysqlSeries(path, window)
+		if err != nil {
+			return nil, err
+		}
+		if series == nil {
+			continue
+		}
+		result = append(result, mysqlHostSeries{
+			Host:   mysqlStatusHost(path, fallbackHost),
+			Series: series,
+		})
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Host < result[j].Host })
+	return result, nil
+}
+
 func (a *app) handleMysql(w http.ResponseWriter, r *http.Request) {
 	runID := r.PathValue("run_id")
 	dir, ok := a.resolveRunDir(runID)
@@ -115,14 +167,19 @@ func (a *app) handleMysql(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "unknown run_id")
 		return
 	}
-	series, err := parseMysqlSeries(filepath.Join(dir, "mysql-status.tsv"))
+	window, err := a.readAnalysisWindow(r.Context(), runID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	available := series != nil
-	if series == nil {
-		series = make([]mysqlPoint, 0)
+	fallbackHost := ""
+	if roles := readRunRoles(dir); roles != nil {
+		fallbackHost = roles.Mysql
 	}
-	writeJSON(w, mysqlResponse{RunID: runID, Available: available, Series: series})
+	hosts, err := parseMysqlHostSeries(mysqlStatusPaths(dir), fallbackHost, window)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, mysqlResponse{RunID: runID, Available: len(hosts) > 0, Hosts: hosts})
 }

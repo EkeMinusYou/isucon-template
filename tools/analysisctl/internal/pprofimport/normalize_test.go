@@ -1,6 +1,7 @@
 package pprofimport
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -8,7 +9,7 @@ import (
 	pprofprofile "github.com/google/pprof/profile"
 )
 
-func TestNormalizeProfileWallTimeAndEdges(t *testing.T) {
+func TestImportProfileWallTimeAndEdges(t *testing.T) {
 	leaf := &pprofprofile.Function{ID: 1, Name: "example/leaf", Filename: "leaf.go"}
 	parent := &pprofprofile.Function{ID: 2, Name: "example/parent", Filename: "parent.go"}
 	leafLocation := &pprofprofile.Location{ID: 1, Line: []pprofprofile.Line{{Function: leaf, Line: 10}}}
@@ -41,33 +42,34 @@ func TestNormalizeProfileWallTimeAndEdges(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := normalizeProfile(path)
-	if err != nil {
+	out := t.TempDir()
+	if err := Run(out, []string{path}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	if got.metadata.totalValue != 3 || got.metadata.durationSeconds != 5 || got.metadata.sampleUnit != "nanoseconds" {
-		t.Fatalf("metadata = %#v", got.metadata)
+	metadata := readRows(t, out, "profile-metadata.rows")
+	if len(metadata) != 1 || metadata[0]["total_wall_seconds"] != "3" || metadata[0]["duration_seconds"] != "5" || metadata[0]["sample_unit"] != "nanoseconds" {
+		t.Fatalf("metadata = %#v", metadata)
 	}
-	if len(got.samples) != 2 || len(got.frames) != 3 {
-		t.Fatalf("samples/frames = %d/%d", len(got.samples), len(got.frames))
+	if samples, frames := readRows(t, out, "profile-samples.rows"), readRows(t, out, "profile-frames.rows"); len(samples) != 2 || len(frames) != 3 {
+		t.Fatalf("samples/frames = %d/%d", len(samples), len(frames))
 	}
-	if len(got.edges) != 1 || got.edges[0].caller != "example/parent" || got.edges[0].callee != "example/leaf" || got.edges[0].value != 2 {
-		t.Fatalf("edges = %#v", got.edges)
+	edges := readRows(t, out, "pprof-edges.rows")
+	var timeEdges []map[string]string
+	for _, row := range edges {
+		if row["sample_type"] == "time" {
+			timeEdges = append(timeEdges, row)
+		}
 	}
-	values := map[string]functionRow{}
-	for _, row := range got.functions {
-		values[row.function] = row
+	if len(timeEdges) != 1 || timeEdges[0]["caller"] != "example/parent" || timeEdges[0]["callee"] != "example/leaf" || timeEdges[0]["value"] != "2" {
+		t.Fatalf("edges = %#v", timeEdges)
 	}
-	if values["example/leaf"].flatValue != 2 || values["example/leaf"].cumulative != 2 {
-		t.Fatalf("leaf = %#v", values["example/leaf"])
+	values := map[string]map[string]string{}
+	for _, row := range readRows(t, out, "pprof-functions.rows") {
+		if row["sample_type"] == "time" {
+			values[row["function"]] = row
+		}
 	}
-	if values["example/parent"].flatValue != 1 || values["example/parent"].cumulative != 3 {
-		t.Fatalf("parent = %#v", values["example/parent"])
-	}
-}
-
-func TestValueToSecondsRejectsCPUCountUnit(t *testing.T) {
-	if _, err := valueToSeconds(1, "count"); err == nil {
-		t.Fatal("count unit was accepted as wall time")
+	if values["example/leaf"]["flat_value"] != "2" || values["example/leaf"]["cumulative_value"] != "2" || values["example/parent"]["flat_value"] != "1" || values["example/parent"]["cumulative_value"] != "3" {
+		t.Fatalf("functions = %#v", values)
 	}
 }

@@ -59,7 +59,6 @@ type verifyManifest struct {
 	Roles           verifyRoles      `json:"roles"`
 	Source          verifyCodeSource `json:"source"`
 	Artifacts       []verifyArtifact `json:"artifacts"`
-	Comparison      runComparison    `json:"comparison"`
 	BacklogSnapshot AppliedSnapshot  `json:"backlog_snapshot"`
 	Dir             string           `json:"-"`
 }
@@ -75,7 +74,6 @@ type verifyRoles struct {
 
 type verifyCodeSource struct {
 	Commit string `json:"commit"`
-	Dirty  bool   `json:"dirty"`
 }
 
 type verifyArtifact struct {
@@ -106,7 +104,6 @@ type runSummary struct {
 	Score  *int64 `json:"score"`
 	Passed *bool  `json:"passed"`
 	Commit string `json:"commit"`
-	Dirty  bool   `json:"dirty"`
 }
 
 type artifactSummary struct {
@@ -264,6 +261,9 @@ func buildEvaluationSummary(root string, card Card, target verifyManifest, manif
 		summary.Warnings = append(summary.Warnings, "カード状態はAPPLIED/VALIDATEDではありません: "+card.Status)
 	}
 	if snapshotCard, ok := appliedSnapshotCard(target.BacklogSnapshot, card.ID); ok {
+		if err := validateApplicationID(card, snapshotCard); err != nil {
+			summary.Warnings = append(summary.Warnings, err.Error())
+		}
 		if snapshotCard.ChangeBoundaryHash != cardChangeBoundaryHash(card) {
 			summary.Warnings = append(summary.Warnings, "現在のChange boundaryは対象RUNのsnapshotから変更されています")
 		}
@@ -334,6 +334,15 @@ func parseEvaluationContract(body string) (verificationContract, error) {
 	return contract, nil
 }
 
+func validateEvaluationBody(body string) error {
+	body = strings.TrimSpace(body)
+	if body == "" || (!strings.HasPrefix(body, "{") && !strings.HasPrefix(body, "```")) {
+		return nil
+	}
+	_, err := parseEvaluationContract(body)
+	return err
+}
+
 func appliedSnapshotCard(snapshot AppliedSnapshot, cardID string) (AppliedSnapshotCard, bool) {
 	if snapshot.Status != "ok" || snapshot.SchemaVersion != 3 {
 		return AppliedSnapshotCard{}, false
@@ -400,7 +409,7 @@ func selectCompareManifest(value string, target verifyManifest, manifests []veri
 }
 
 func summarizeRun(root string, manifest verifyManifest) runSummary {
-	return runSummary{ID: manifest.RunID, Path: relativePath(root, manifest.Dir), Score: manifest.Score, Passed: manifest.Passed, Commit: manifest.Source.Commit, Dirty: manifest.Source.Dirty}
+	return runSummary{ID: manifest.RunID, Path: relativePath(root, manifest.Dir), Score: manifest.Score, Passed: manifest.Passed, Commit: manifest.Source.Commit}
 }
 
 func summarizeArtifact(root string, manifest verifyManifest, name string) artifactSummary {
@@ -582,7 +591,7 @@ func printEvaluationSummaries(summaries []verificationSummary) {
 			fmt.Println()
 		}
 		fmt.Printf("%s %s [%s]\n", summary.CardID, summary.Title, summary.Status)
-		fmt.Printf("  target:  %s score=%s pass=%s source=%s dirty=%t (%s)\n", summary.TargetRun.ID, pointerInt(summary.TargetRun.Score), pointerBool(summary.TargetRun.Passed), summary.TargetRun.Commit, summary.TargetRun.Dirty, summary.TargetRun.Path)
+		fmt.Printf("  target:  %s score=%s pass=%s source=%s (%s)\n", summary.TargetRun.ID, pointerInt(summary.TargetRun.Score), pointerBool(summary.TargetRun.Passed), summary.TargetRun.Commit, summary.TargetRun.Path)
 		if summary.CompareRun != nil {
 			fmt.Printf("  compare: %s score=%s pass=%s (%s)\n", summary.CompareRun.ID, pointerInt(summary.CompareRun.Score), pointerBool(summary.CompareRun.Passed), summary.CompareRun.Path)
 		}

@@ -10,8 +10,8 @@ import (
 func TestAdoptCardsMatchingRecordsOneAtomicEvent(t *testing.T) {
 	store := testStore(t)
 	seedBacklog(t, store, 7, "B-003",
-		Card{ID: "B-001", Status: "APPLIED", Title: "first", History: []HistoryEntry{{Actor: "agent:first", Body: "created"}}},
-		Card{ID: "B-002", Status: "APPLIED", Title: "second", History: []HistoryEntry{{Actor: "agent:second", Body: "created"}}})
+		Card{ID: "B-001", Status: "APPLIED", Owner: "verifier:test", Title: "first", History: []HistoryEntry{{Actor: "agent:first", Body: "created"}}},
+		Card{ID: "B-002", Status: "APPLIED", Owner: "verifier:test", Title: "second", History: []HistoryEntry{{Actor: "agent:second", Body: "created"}}})
 	first, err := store.getCard("B-001")
 	if err != nil {
 		t.Fatal(err)
@@ -27,8 +27,8 @@ func TestAdoptCardsMatchingRecordsOneAtomicEvent(t *testing.T) {
 		Forced: true, Score: &score, Passed: &passed, ComparisonStatus: "none",
 		ManifestSHA256: "sha256:" + strings.Repeat("0", 64), SnapshotRevision: 7,
 	}
-	cards, err := store.adoptCardsMatching([]string{"B-001", "B-002"}, map[string]string{
-		"B-001": cardChangeBoundaryHash(first), "B-002": cardChangeBoundaryHash(second),
+	cards, err := store.adoptCardsMatching([]string{"B-001", "B-002"}, map[string]AdoptionExpectation{
+		"B-001": {Snapshot: snapshotCard(first), Version: first.Version, Owner: first.Owner}, "B-002": {Snapshot: snapshotCard(second), Version: second.Version, Owner: second.Owner},
 	}, event, "forced adoption")
 	if err != nil {
 		t.Fatal(err)
@@ -78,8 +78,8 @@ func TestAdoptCardsMatchingRecordsOneAtomicEvent(t *testing.T) {
 func TestAdoptCardsMatchingRollsBackEveryCardOnMismatch(t *testing.T) {
 	store := testStore(t)
 	seedBacklog(t, store, 3, "B-003",
-		Card{ID: "B-001", Status: "APPLIED", Title: "first"},
-		Card{ID: "B-002", Status: "APPLIED", Title: "second"})
+		Card{ID: "B-001", Status: "APPLIED", Owner: "verifier:test", Title: "first"},
+		Card{ID: "B-002", Status: "APPLIED", Owner: "verifier:test", Title: "second"})
 	first, err := store.getCard("B-001")
 	if err != nil {
 		t.Fatal(err)
@@ -88,8 +88,8 @@ func TestAdoptCardsMatchingRollsBackEveryCardOnMismatch(t *testing.T) {
 		RunID: "20260901-120000", AdoptedAt: "2026-09-01T12:10:00Z", Actor: "task:pass",
 		ComparisonStatus: "none", ManifestSHA256: "sha256:" + strings.Repeat("0", 64), SnapshotRevision: 3,
 	}
-	_, err = store.adoptCardsMatching([]string{"B-001", "B-002"}, map[string]string{
-		"B-001": cardChangeBoundaryHash(first), "B-002": "sha256:stale",
+	_, err = store.adoptCardsMatching([]string{"B-001", "B-002"}, map[string]AdoptionExpectation{
+		"B-001": {Snapshot: snapshotCard(first), Version: first.Version, Owner: first.Owner}, "B-002": {Snapshot: AppliedSnapshotCard{ChangeBoundaryHash: "sha256:stale"}},
 	}, event, "adoption")
 	if err == nil || !strings.Contains(err.Error(), "change boundary differs") {
 		t.Fatalf("adoption mismatch error = %v", err)
@@ -109,5 +109,18 @@ func TestAdoptCardsMatchingRollsBackEveryCardOnMismatch(t *testing.T) {
 	}
 	if events != 0 {
 		t.Fatalf("adoption events = %d, want 0", events)
+	}
+}
+
+func adoptFixtureCard(t *testing.T, store *Store, id, reason string) {
+	t.Helper()
+	card, err := store.getCard(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	event := AdoptionEvent{RunID: "20260901-120000", AdoptedAt: now(), Actor: "task:pass", ComparisonStatus: "none", ManifestSHA256: "sha256:" + strings.Repeat("0", 64)}
+	_, err = store.adoptCardsMatching([]string{id}, map[string]AdoptionExpectation{id: {Snapshot: snapshotCard(card), Version: card.Version, Owner: card.Owner}}, event, reason)
+	if err != nil {
+		t.Fatal(err)
 	}
 }

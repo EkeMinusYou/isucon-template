@@ -11,7 +11,6 @@ select
     try_cast(json_extract_string(content, '$.passed') as boolean) as passed,
     try_cast(json_extract_string(content, '$.started_at') as timestamp) as started_at,
     json_extract_string(content, '$.source.commit') as commit,
-    try_cast(json_extract_string(content, '$.source.dirty') as boolean) as dirty,
     try_cast(json_extract(content, '$.roles.app') as varchar[]) as app_hosts,
     try_cast(json_extract(content, '$.roles.app_traffic') as varchar[]) as app_traffic_hosts,
     try_cast(json_extract(content, '$.roles.nginx') as varchar[]) as nginx_hosts,
@@ -19,11 +18,6 @@ select
     json_extract_string(content, '$.roles.mysql') as mysql_host,
     json_extract(content, '$.roles.additional') as additional_roles,
     try_cast(json_extract_string(content, '$.preflight.collector_clean') as boolean) as collector_clean,
-    json_extract_string(content, '$.comparison.run_id') as compare_run_id,
-    json_extract_string(content, '$.comparison.status') as comparison_status,
-    try_cast(json_extract(content, '$.comparison.reasons') as varchar[]) as comparison_reasons,
-    try_cast(json_extract(content, '$.comparison.card_delta') as varchar[]) as comparison_card_delta,
-    try_cast(json_extract(content, '$.comparison.role_delta') as varchar[]) as comparison_role_delta,
     try_cast(json_extract_string(content, '$.load_window.started_at') as timestamptz) as load_started_at,
     try_cast(json_extract_string(content, '$.load_window.ended_at') as timestamptz) as load_ended_at,
     try_cast(json_extract_string(content, '$.load_window.duration_ms') as bigint) as load_duration_ms,
@@ -32,7 +26,8 @@ select
     json_extract_string(content, '$.load_window.reason') as load_window_reason,
     try_cast(json_extract_string(content, '$.raw_bytes') as bigint) as raw_bytes
 from read_text(getvariable('run_glob') || '/run.json')
-where try_cast(json_extract_string(content, '$.schema_version') as integer) = 4;
+where try_cast(json_extract_string(content, '$.schema_version') as integer) = 4
+  and json_extract_string(content, '$.phase') = 'finalized';
 
 -- 回収物の 1 行 1 件。status が ok 以外の RUN を拾えば、
 -- どの計測が欠けたまま解析していたかが分かる。
@@ -55,7 +50,8 @@ select
     json_extract_string(a.value, '$.quality.reason') as quality_reason
 from read_text(getvariable('run_glob') || '/run.json') r,
      json_each(coalesce(json_extract(r.content, '$.artifacts'), json('[]'))) a
-where try_cast(json_extract_string(r.content, '$.schema_version') as integer) = 4;
+where try_cast(json_extract_string(r.content, '$.schema_version') as integer) = 4
+  and json_extract_string(r.content, '$.phase') = 'finalized';
 
 -- 現行run.jsonのbefore-bench時点でAPPLIEDだったカード。
 create or replace view run_applied_cards as
@@ -72,4 +68,5 @@ select
 from read_text(getvariable('run_glob') || '/run.json') r,
      json_each(coalesce(json_extract(r.content, '$.backlog_snapshot.cards'), json('[]'))) c
 where try_cast(json_extract_string(r.content, '$.schema_version') as integer) = 4
+  and json_extract_string(r.content, '$.phase') = 'finalized'
   and try_cast(json_extract_string(r.content, '$.backlog_snapshot.schema_version') as integer) = 3;

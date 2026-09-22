@@ -8,15 +8,7 @@ import (
 	"time"
 )
 
-func TestStatusQueryContainsAllSelectedMetrics(t *testing.T) {
-	for _, name := range statusNames {
-		if !strings.Contains(statusQuery, "'"+name+"'") {
-			t.Fatalf("status query does not contain %q: %s", name, statusQuery)
-		}
-	}
-}
-
-func TestMySQLMetricsCollectorRowWidth(t *testing.T) {
+func TestMySQLMetricsCollectorRows(t *testing.T) {
 	var output bytes.Buffer
 	writer := csv.NewWriter(&output)
 	writer.Comma = '\t'
@@ -24,15 +16,19 @@ func TestMySQLMetricsCollectorRowWidth(t *testing.T) {
 		interval: time.Second,
 		output:   writer,
 		start:    time.Unix(0, 0),
+		previous: &statusSnapshot{at: time.Unix(1, 0), values: map[string]uint64{"Innodb_buffer_pool_read_requests": 50, "Innodb_buffer_pool_reads": 1, "Created_tmp_tables": 5, "Created_tmp_disk_tables": 1}},
 	}
 	current := statusSnapshot{
-		at: time.Unix(1, 0),
+		at: time.Unix(3, 0),
 		values: map[string]uint64{
-			"Innodb_buffer_pool_read_requests": 100,
-			"Innodb_buffer_pool_reads":         1,
-			"Created_tmp_tables":               10,
-			"Created_tmp_disk_tables":          2,
+			"Innodb_buffer_pool_read_requests":  150,
+			"Innodb_buffer_pool_reads":          5,
+			"Created_tmp_tables":                15,
+			"Created_tmp_disk_tables":           3,
+			"Max_used_connections":              7,
+			"Connection_errors_max_connections": 4,
 		},
+		maxConnections: 100,
 	}
 	if err := collector.write(current); err != nil {
 		t.Fatal(err)
@@ -47,16 +43,21 @@ func TestMySQLMetricsCollectorRowWidth(t *testing.T) {
 	if len(row) != len(header()) {
 		t.Fatalf("row width=%d, header width=%d", len(row), len(header()))
 	}
-}
-
-func TestMySQLMetricRates(t *testing.T) {
-	if got := formatRate(50, 2); got != "25.000" {
-		t.Fatalf("formatRate()=%q, want 25.000", got)
+	values := map[string]string{}
+	for i, name := range header() {
+		values[name] = row[i]
 	}
-	if got := formatHitRate(100, 4, 1); got != "96.000" {
-		t.Fatalf("formatHitRate()=%q, want 96.000", got)
-	}
-	if got := formatRatio(2, 10); got != "20.000" {
-		t.Fatalf("formatRatio()=%q, want 20.000", got)
+	for name, want := range map[string]string{
+		"buffer_pool_read_requests_per_sec":         "50.000",
+		"buffer_pool_hit_pct":                       "96.000",
+		"tmp_disk_ratio_pct":                        "20.000",
+		"max_connections":                           "100",
+		"max_used_connections":                      "7",
+		"connection_errors_max_connections_total":   "4",
+		"connection_errors_max_connections_per_sec": "2.000",
+	} {
+		if values[name] != want {
+			t.Fatalf("%s = %q, want %q", name, values[name], want)
+		}
 	}
 }

@@ -12,6 +12,7 @@ raw/
 webapp/go/default.pgo
 
 # Tool build artifacts
+/tools/bench-output/bench-output
 /tools/analysisctl/analysisctl
 /tools/deployctl/deployctl
 /tools/measurectl/measurectl
@@ -22,6 +23,7 @@ webapp/go/default.pgo
 /tools/nginx-oncpu-profiler/nginx-oncpu-profiler
 /tools/user-transition-metrics/user-transition-metrics
 /tools/dashboard/server/dashboardserver
+/tools/sql-pool-metrics/sql-pool-metrics
 
 # Node dependencies and browser state
 node_modules/
@@ -45,3 +47,6 @@ application_default_credentials.json
 nginx/tls/
 mysql/debian.cnf
 etc/hosts/*/env.sh
+
+# Python bytecode cache
+__pycache__/

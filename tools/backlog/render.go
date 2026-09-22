@@ -136,12 +136,14 @@ type listLayout struct {
 	idWidth       int
 	targetWidth   int
 	ownerWidth    int
+	estimateWidth int
 }
 
 func makeListLayout(cards []Card, targets []Target, wide int, showTargetStatus bool, objectives ...Objective) listLayout {
 	layout := listLayout{idWidth: 5, targetWidth: 1, ownerWidth: 1}
 	maxTitleWidth := 1
 	for _, card := range cards {
+		layout.estimateWidth = max(layout.estimateWidth, width(implementationEstimateLabel(card)))
 		layout.idWidth = max(layout.idWidth, width(card.ID))
 		maxTitleWidth = max(maxTitleWidth, width(card.Title))
 		layout.targetWidth = max(layout.targetWidth, width(cardTargetMarker(card)))
@@ -161,6 +163,9 @@ func makeListLayout(cards []Card, targets []Target, wide int, showTargetStatus b
 		layout.relationWidth = 24
 	}
 	cardMetadataWidth := layout.ownerWidth
+	if layout.estimateWidth > 0 {
+		cardMetadataWidth += width(" │ ") + layout.estimateWidth
+	}
 	fixedWidth := width("   P0  ") + layout.idWidth + layout.targetWidth + 2 + width(" │ ") + cardMetadataWidth
 	if layout.relationWidth > 0 {
 		fixedWidth += layout.relationWidth + width(" │ ")
@@ -215,7 +220,7 @@ func cardLineWithLayout(card Card, wide int, layout listLayout) string {
 	targetMarker := pad(cardTargetMarker(card), layout.targetWidth)
 	prefix := fmt.Sprintf("  %s %s  %s  ", bold(pad(card.ID, layout.idWidth)), paint(priorityColor(card.Priority), pad(orValue(card.Priority, "-"), 2)), dim(targetMarker))
 	title := pad(truncate(card.Title, layout.titleWidth), layout.titleWidth)
-	metadata := dim(owner)
+	metadata := dim(pad(implementationEstimateLabel(card), layout.estimateWidth)) + dim(" │ ") + dim(owner)
 	relationText := cardRelation(card)
 	if relationText == "" {
 		return prefix + title + dim(" │ ") + metadata
@@ -295,8 +300,10 @@ func printCard(card Card) {
 	fmt.Println()
 	metadata := []struct{ name, value string }{
 		{"Card version", fmt.Sprintf("%d", card.Version)},
+		{"Application ID", card.ApplicationID},
 		{"Objectives", strings.Join(card.ObjectiveIDs, ", ")},
 		{"Targets", formatTargetRelations(card.TargetIDs, card.TargetRoles)}, {"Primary target", card.PrimaryTargetID},
+		{"Implementation estimate", implementationEstimateText(card)},
 		{"Priority", card.Priority}, {"Owner", card.Owner}, {"Area", card.Area}, {"Source RUNs", card.SourceRuns},
 		{"Compare RUNs", card.CompareRun}, {"Observed RUNs", card.ObservedRuns},
 		{"Depends on", formatDependencies(card.Dependencies, false)}, {"Unblocks", formatDependencies(card.Unblocks, true)},
@@ -357,7 +364,8 @@ func printObjectiveListWithLayout(objectives []Objective, layout listLayout) {
 	}
 	fmt.Printf("%s %s\n", paint("1;34", "OBJECTIVES"), dim(fmt.Sprintf("(%d)", len(objectives))))
 	for _, objective := range objectives {
-		fmt.Printf("  %s %s  %s\n", bold(pad(objective.ID, layout.idWidth)), strings.Repeat(" ", layout.targetWidth+4), objective.Title)
+		priority := paint(priorityColor(objective.Priority), pad(orValue(objective.Priority, "-"), 2))
+		fmt.Printf("  %s %s  %s  %s\n", bold(pad(objective.ID, layout.idWidth)), priority, strings.Repeat(" ", layout.targetWidth), objective.Title)
 	}
 }
 
@@ -365,6 +373,7 @@ func printObjective(objective Objective) {
 	fmt.Printf("%s %s %s %s\n\n", bold(objective.ID), paint("34", "["+objective.Status+"]"), objective.Mode, bold(objective.Title))
 	metadata := []struct{ name, value string }{
 		{"Objective version", fmt.Sprintf("%d", objective.Version)},
+		{"Priority", objective.Priority},
 		{"Required for valid result", fmt.Sprintf("%t", objective.RequiredForValidResult)},
 		{"Parent objective", objective.ParentObjectiveID},
 		{"Official sources", objective.OfficialSources},

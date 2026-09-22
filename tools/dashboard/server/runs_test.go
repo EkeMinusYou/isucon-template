@@ -12,7 +12,7 @@ func TestListRunsIncludesArchivedRunsAndSkipsContainerDirectories(t *testing.T) 
 	archivedID := "20260828-120000"
 	activeDir := filepath.Join(runsDir, activeID)
 	archivedDir := filepath.Join(runsDir, "archive", archivedID)
-	for _, dir := range []string{activeDir, archivedDir, filepath.Join(runsDir, "not-a-run")} {
+	for _, dir := range []string{activeDir, archivedDir, filepath.Join(runsDir, "archive", activeID), filepath.Join(runsDir, "not-a-run")} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -42,28 +42,14 @@ func TestListRunsIncludesArchivedRunsAndSkipsContainerDirectories(t *testing.T) 
 		t.Fatalf("archived run = %#v, want %s with slow query", runs[1], archivedID)
 	}
 
+	if gotDir, ok := a.resolveRunDir(activeID); !ok || gotDir != activeDir {
+		t.Fatalf("active RUN not preferred: %q, %v", gotDir, ok)
+	}
 	gotDir, ok := a.resolveRunDir(archivedID)
 	if !ok || gotDir != archivedDir {
 		t.Fatalf("resolveRunDir(%q) = %q, %v; want %q, true", archivedID, gotDir, ok, archivedDir)
 	}
 	if _, ok := a.resolveRunDir("archive"); ok {
 		t.Fatal("resolveRunDir(archive) succeeded, want false")
-	}
-}
-
-func TestResolveRunDirPrefersActiveRun(t *testing.T) {
-	runsDir := filepath.Join(t.TempDir(), "runs")
-	runID := "20260829-120000"
-	activeDir := filepath.Join(runsDir, runID)
-	for _, dir := range []string{activeDir, filepath.Join(runsDir, "archive", runID)} {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	a := &app{runsDir: runsDir}
-	gotDir, ok := a.resolveRunDir(runID)
-	if !ok || gotDir != activeDir {
-		t.Fatalf("resolveRunDir(%q) = %q, %v; want %q, true", runID, gotDir, ok, activeDir)
 	}
 }

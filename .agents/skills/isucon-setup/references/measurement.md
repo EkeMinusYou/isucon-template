@@ -4,6 +4,7 @@
 
 | 対象 | 確認する経路と不足 |
 | --- | --- |
+| スコア記録 | 公式の採点仕様と出力形式を確認し、生成元、取得・手動入力の手順、RUNへの紐付け、保存先・形式を整える。最終スコア、成功・失敗判定、公式出力にある内訳・ペナルティが元の結果と一致し、DuckDB・dashboardまで読めることを確認する。未取得・未判定を0点や成功に置き換えない。 |
 | nginx access log | 実際のtrafficを受けるserver/locationの`access_log`と継承・無効化、JSONのescape、出力先・権限、buffer/flush、ローテート後のreopenを確認。共通列とupstream列がToolsの契約を満たし、alp・upstream集計まで読めるかを見る。正常なHTTP応答だけでログ出力を確認済みにしない。 |
 | Go pprof・fgprof | CPU・heap・allocs・goroutine・fgprofの5種類を標準として整備。endpointの実装・handler登録と実際のlistener、collectorの取得URL・実行ホスト、有効宣言と起動経路を確認。`Taskfile.yml`にURLがあるだけでは公開済みとしない。取得ファイルを`go tool pprof -top`等で解析する。 |
 | MySQL | slow logの実効設定・閾値・出力先・ローテートとdigest、performance_schemaの有効性・権限・version、status・接続・lock waitを確認。`MYSQL_HOSTS`と詳細計測先`MYSQL_HOST`の差による未被覆を残す。空のslow logは低負荷・閾値未満・収集失敗を区別する。 |
@@ -13,6 +14,13 @@
 | user-transition | 標準対象。アプリのセッション仕様に合わせた識別列と有限個のAPI分類を整える。実ログに識別列があり、認証済みリクエストを結び付けられ、集計とdashboardの遷移表示に反映されることを確認する。未設定はoptionalではない。 |
 | アプリ内部・追加計測 | DB pool待ち、queue、処理件数などは既存profile・標準計測で説明できない問いがある場合に追加する。高頻度task-state、lock wait、nginx on-CPUも目的・負荷・停止方法を確認して選ぶ。 |
 | RUN全体 | load windowと各計測の開始・終了、ホスト時計、取得遅延・欠落、roles/source、artifact status、rawから集計・分析への対応を確認。ヘッダーだけのfallbackと実測値を区別する。 |
+
+## スコア記録を整えるとき
+
+- 既存のTaskfileと記録経路を優先し、自動取得か手動入力かを含め、ユーザーがベンチ結果を同じRUNへ記録できる手順を明確にする。ベンチ自体は代理実行しない。
+- 競技固有の出力へ対応する場合は保存するmarker形式を先に定め、[Toolsの分析契約](../../../../tools/README.md#分析)に従って保存側と読み手を揃える。既存の`scores.tsv`形式を維持する。
+- `tools/analysis/sources.yaml`と既存schema・意味ビューを確認し、スコアや判定・内訳の意味を既存定義で表せない場合は、取り込みschemaに加えて意味ビューも対応する。必要なquery・dashboardのAPIと表示まで整合させる。
+- 保存済みRUNがあれば元のベンチ結果と保存値・分析結果・表示を照合する。失敗結果やスコア欠損を区別し、実負荷での確認が必要ならユーザーへ次RUNを依頼する。既存RUNは上書きしない。
 
 ## Go profileを整えるとき
 
