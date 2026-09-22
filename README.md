@@ -145,14 +145,15 @@ task bench
 `task bench`が変換ツールを自動ビルドします。当日の出力形式は`tools/contest/bench-patterns.json`の
 正規表現で宣言し、該当行がない場合はスコアや成功を補いません。
 
-profile自動収集とuser-transitionは標準で有効です。[Go profile導入例](docs/special-sources/go-profiling.md)に沿って
-setupで全APP_HOSTSへendpointを導入し、識別列・API分類を整えます。通常の`bench` / `bench-manual`で
+profile自動収集とuser-transitionは標準で有効です。[Go profile導入例](docs/measurement/go-profiling.md)に沿って
+setupで全APP_HOSTSへendpointを導入します。[nginx access logの計測手順](docs/measurement/nginx-access-log.md)に沿って
+識別列・API分類を整えます。通常の`bench` / `bench-manual`で
 CPU・fgprof・heap・allocs・goroutineを自動収集します。CPU・fgprofの開始を確認してから負荷を開始し、
 収集・回収完了後にRUNを確定します。追加のprofile操作は不要です。
 profile対象は`collectors.yaml`の`group: profiles`と`enabled_by_default`から選びます。
 `PROFILES_ENABLED=false`は計測負荷比較等での明示的な停止用です。setupでは分析・dashboardまで確認します。
 
-分割して操作する場合は、[導入例](docs/special-sources/go-profiling.md#時間と開始順序)の開始確認・回収待ちも行ってください。
+分割して操作する場合は、[Go profile導入例](docs/measurement/go-profiling.md#時間と開始順序)の開始確認・回収待ちも行ってください。
 以下はprofileを明示的に停止した場合の例です。
 
 ```shell
@@ -289,6 +290,7 @@ nginxのon-CPU profile、任意JSON endpointのsnapshot、ダッシュボード�
 
 ## 再利用資料
 
+- [`docs/measurement/`](docs/measurement/README.md) — アプリ・MySQL・nginxへの計測の組み込み
 - [`docs/special-sources/`](docs/special-sources/README.md) — nginx、MySQL、systemd、sysctlの設定候補
 - [`docs/solutions/`](docs/solutions/README.md) — N+1、index、bulk upsert、非同期化、in-memory、静的配信、PGO、UDSなど
 

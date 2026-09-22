@@ -44,7 +44,7 @@
 | `setup/` | 取得・構文検査の調整時 | [取得対象の除外、schemaの実体取得、設定構文検査の実装例](setup/README.md) |
 | `template/` | 大会後 | templateへ戻す差分の宣言と抽出。当日は変更しない。[backportの手順](template/README.md) |
 | `proc-metrics/` | service設定 | Linuxの`/proc`、`/sys`、cgroup v2を使う。`-services`へ実際のsystemd unitを渡し、sampling intervalを確認する |
-| `sql-pool-metrics/` | アプリadapter確認 | localhostのSQL pool endpoint、固定ラベル、`database/sql.DBStats`の互換性、sampling intervalを確認する |
+| `sql-pool-metrics/` | アプリadapter確認 | [collector README](sql-pool-metrics/README.md)に沿ってendpoint契約を合わせる |
 | `topology-screen/` | 利用時に引数調整 | 配置候補を調べる場合だけ、key field・regex、route、hash、分割数、対象bucketを当日のデータモデルへ合わせる |
 | `user-transition-metrics/` | adapter設定 | [アプリ固有adapter](#アプリ固有adapter)・[access log](#access-log) |
 
@@ -126,6 +126,7 @@ SSH切断・復元失敗などで残った場合は、表示された退避先�
 - 成果物を追加・削除したときに、fallback headerと分析側のschemaが一致しているか
 
 標準設定ではproc/service/disk、appのSQL接続プール、全MySQL hostのstatus・slow query・performance_schema digest、nginx access log、app/nginx/kernel journal、Go pprof・fgprof、user-transitionを収集する。初期setupでadapterを整え、分析・dashboardまで確認する。journalは`run.json.load_window`と同じ時間窓で回収できることを確認する。
+MySQLのslow log、Performance Schema、socket接続の前提は[MySQLの計測データ](../docs/measurement/mysql.md)を参照する。
 50msのlock waitは各user DBを対象に既定有効で、250msのtask stateは既定無効である。
 lock waitはホスト別の成果物へ保存し、RUNごとにcollector負荷とcapture errorを確認する。
 
@@ -141,7 +142,7 @@ digesterも`enabled_by_default: false`で既定の実行対象から外せます
 
 標準のfgprof・Go CPU・heap・allocs・goroutineは`group: profiles`かつ`enabled_by_default: true`。
 `bench/run.sh`がこの宣言から収集対象を選び、同じ対象を開始確認・必須成果物判定で使う。
-[Go profile導入例](../docs/special-sources/go-profiling.md)に沿ってsetupでendpointを用意する。
+[Go profile導入例](../docs/measurement/go-profiling.md)に沿ってsetupでendpointを用意する。
 CPUとfgprofのRUN別開始確認後にベンチを開始し、設定した時間の収集・回収完了後にfinalizeする。
 開始通知はprofilerの起動成功後に公開する。開始確認後は、CPU profile writerの非同期起動と
 小さなホスト時計差に備えて1秒先行収録し、同じRUNが収録中であることを再確認してからベンチを開始する。
@@ -159,16 +160,8 @@ raw配下の個別ファイルもmanifestに記録し、trafficのないホス�
 
 ### access log
 
-標準集計では、nginxのJSON access logに次の列を用意する。
-
-- 共通: `msec`、`method`、`uri`、`status`、`response_time`、`body_bytes`
-- upstream分析: `upstream_time`、`upstream_addr`、`upstream_status`、`cache_status`
-- ユーザー遷移: Cookie由来の専用識別列。既定名は`session_id`
-
-識別値は個人情報を含めず、認証Cookie等の生値を恒久保存しない。集計成果物には識別値やhashを保存しない。
-user-transitionは標準対象であり、setupで識別列とアプリ固有API分類を整える。
-有効なAPI入力・識別情報がない成果物は検査失敗となる。未設定をoptional扱いにしない。
-仕様上成立しない場合だけ、根拠を残して`enabled_by_default: false`とする。
+nginx側のJSON列、識別情報の扱い、設定反映は[nginx access logの計測手順](../docs/measurement/nginx-access-log.md)を参照する。
+本書ではaccess logを回収するsource・digesterと、分析schemaとの対応を管理する。
 
 ### 分析
 
@@ -268,6 +261,7 @@ scoreには1つのcapture groupを持たせ、該当する行がない項目は�
 
 `tools/sql-pool-metrics`は、アプリのlocalhost debug endpointから`database/sql.DBStats`相当の接続プール状態を
 1秒間隔で収集する汎用collectorである。アプリ側は固定されたpool名・role・shardだけを返し、リクエストやユーザー識別子を返さない。
+実装するendpointの契約は[`tools/sql-pool-metrics/README.md`](sql-pool-metrics/README.md)を参照する。
 `in_use`、`wait_count`、`wait_duration`とその差分レートをMySQL側の`Threads_running`やCPUと同じ時間窓で比較し、
 接続プール待ちとDBサーバー飽和を切り分ける。
 MySQL status collectorはこの比較用に`max_connections`、`Max_used_connections`、
