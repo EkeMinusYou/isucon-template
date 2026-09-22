@@ -11,8 +11,10 @@ INSERT INTO metadata VALUES('next_objective_id','O-001');
 CREATE TABLE cards (
     id TEXT PRIMARY KEY,
     card_version INTEGER NOT NULL DEFAULT 0,
+    application_id TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL CHECK (status IN ('INVESTIGATE', 'READY', 'DOING', 'VERIFY', 'APPLIED', 'BLOCKED', 'VALIDATED', 'REJECTED')),
     title TEXT NOT NULL,
+    implementation_estimate_minutes INTEGER CHECK (implementation_estimate_minutes IS NULL OR (typeof(implementation_estimate_minutes) = 'integer' AND implementation_estimate_minutes > 0)),
     priority TEXT NOT NULL DEFAULT '',
     owner TEXT NOT NULL DEFAULT '',
     area TEXT NOT NULL DEFAULT '',
@@ -45,6 +47,7 @@ CREATE TABLE objectives (
     status TEXT NOT NULL CHECK (status IN ('ACTIVE', 'RETIRED')),
     mode TEXT NOT NULL CHECK (mode IN ('SATISFY', 'MAXIMIZE', 'MINIMIZE')),
     title TEXT NOT NULL,
+    priority TEXT NOT NULL DEFAULT '',
     metric_or_predicate TEXT NOT NULL,
     required_for_valid_result INTEGER NOT NULL DEFAULT 0 CHECK (required_for_valid_result IN (0, 1)),
     parent_objective_id TEXT NOT NULL DEFAULT '',
@@ -162,6 +165,7 @@ CREATE TABLE adoption_event_cards (
     card_id TEXT NOT NULL REFERENCES cards(id),
     origin TEXT NOT NULL DEFAULT '',
     change_boundary_hash TEXT NOT NULL,
+    application_id TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (adoption_event_id, card_id)
 );
 CREATE TABLE change_log (
