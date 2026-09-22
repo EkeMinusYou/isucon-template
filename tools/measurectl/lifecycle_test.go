@@ -17,7 +17,7 @@ func testLifecycleOptions(t *testing.T) lifecycleOptions {
 	root := t.TempDir()
 	return lifecycleOptions{
 		runID: "20260901-120000", resultsDir: filepath.Join(root, "runs"), rawDir: filepath.Join(root, "raw"),
-		runStateFile: filepath.Join(root, "raw", "current-run-id"), snapshotPath: filepath.Join(root, "snapshot.json"),
+		runStateFile: filepath.Join(root, "raw", "current-run-id"),
 		scoresPath: filepath.Join(root, "runs", "scores.tsv"), collectorConfig: "collectors.yaml", digesterConfig: "digesters.yaml",
 		roles: map[string][]string{
 			"all": {"isucon-1"}, "app": {"isucon-1"}, "app_traffic": {"isucon-1"},
@@ -32,9 +32,6 @@ func TestAdditionalRolesSurviveManifestCreation(t *testing.T) {
 	opts := testLifecycleOptions(t)
 	opts.roles["cache"] = []string{"isucon-1", "isucon-2"}
 	opts.roles["worker"] = []string{"isucon-1", "isucon-2"}
-	if err := os.WriteFile(opts.snapshotPath, []byte(`{"schema_version":3,"status":"ok","cards":[]}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	dir := filepath.Join(opts.resultsDir, opts.runID)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
@@ -172,9 +169,6 @@ func TestCollectorModeSurvivesManifestCreation(t *testing.T) {
 		t.Run(tc.flags, func(t *testing.T) {
 			opts := testLifecycleOptions(t)
 			opts.collectorFlags = tc.flags
-			if err := os.WriteFile(opts.snapshotPath, []byte(`{"schema_version":3,"status":"ok","cards":[]}`), 0600); err != nil {
-				t.Fatal(err)
-			}
 			dir := filepath.Join(opts.resultsDir, opts.runID)
 			if err := os.MkdirAll(dir, 0755); err != nil {
 				t.Fatal(err)

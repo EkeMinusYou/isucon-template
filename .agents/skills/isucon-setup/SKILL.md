@@ -23,7 +23,7 @@ description: 競技環境の初期構築と、スコア記録を含む標準計�
 - Go採用、参考実装の参照専用扱い、生成物、クロスコンパイル、正規setup/deployはAGENTS.mdに従う。
 - ベンチはユーザーが実行する。`task bench*`を含め代理実行しない。setup依頼をベンチ実行許可とみなさない。
 - 作業環境・Taskfile・対象ホスト・進行中RUNの所有元を照合し、別環境を含め稼働中RUNへrestart・ローテート・計測条件変更を割り込ませない。
-- 最適化とBacklog更新は行わない。初期Objectiveの作成・整理は[isucon-objective](../isucon-objective/SKILL.md)が担当する。計測整備はBacklogとは独立して扱う。
+- 最適化の実装は行わず、初期構築と計測基盤の整備・補修に集中する。
 - 既存の正規deploy経路を使う。破壊的なスキーマ再作成・初期化は`task deploy-all-reset`へまとめ、データを保持する通常deployと分離する。
 - 計測負荷比較と再起動後のスコア再現性検証は初期setupの完了条件に含めない。明示依頼時は別の検証範囲として扱う。
 

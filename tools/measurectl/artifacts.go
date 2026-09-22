@@ -165,7 +165,6 @@ func loadArtifactSpecs(collectorsPath, digestersPath string) ([]ArtifactSpec, er
 		ArtifactSpec{Pattern: "bench.log", Producer: "bench"},
 		// 走行ディレクトリではなく runs/ 直下に積む履歴。
 		ArtifactSpec{Pattern: "scores.tsv", Producer: "measurectl:manifest", Optional: true},
-		ArtifactSpec{Pattern: "outcomes.tsv", Producer: "task pass", Optional: true},
 	)
 
 	sort.Slice(specs, func(i, j int) bool {

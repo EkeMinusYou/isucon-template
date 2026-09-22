@@ -12,10 +12,11 @@
 | `bench-patterns.json` | `tools/bench-output` | ベンチ出力のscore・合否正規表現。coreは形式を持たない |
 | `user-transition-routes.json` | `tools/user-transition-metrics` | Cookie列と正規化routeの宣言 |
 | `analysis-schema/` | `tools/analysis/sources.yaml` | ベンチログの解釈をDuckDBのviewにするschema。エラー行の意味ビューとscore集計 |
+| `smoke/` | `task setup-smoke` | ベンチを使わず計測経路を確認する、当日のセッションフローのGo実装 |
 | `deployments.yaml` | `tools/deployctl` | 汎用graphをincludeし、解法固有のdeploymentとplanを置き換えるoverlay |
 
 templateに置いてあるのは`bench-patterns.json`、`user-transition-routes.json`、
-`analysis-schema/bench-errors-semantic.sql`のプレースホルダーだけである。setupで当日の形式へ書き換え、
+`analysis-schema/bench-errors-semantic.sql`、`smoke/`のプレースホルダーだけである。setupで当日の形式へ書き換え、
 必要になった解法固有の宣言だけをこのディレクトリへ足す。`Taskfile.contest.yml`のhookタスク
 （`prepare-db-assets`、`gen-contest-routing`）も同じ考え方で、該当する処理がなければ空のままにする。
 

@@ -13,12 +13,6 @@ with artifact_rollup as (
             filter (where artifact_status <> 'ok') as artifact_failures
     from measurement_quality
     group by run_id
-), applied as (
-    select
-        run_id,
-        string_agg(card_id, ',' order by card_id) as applied_cards
-    from run_applied_cards
-    group by run_id
 )
 select
     m.run_id,
@@ -34,7 +28,6 @@ select
     coalesce(a.invalid_periodic_artifacts, 0) as invalid_periodic_artifacts,
     coalesce(a.artifact_failures, '') as artifact_failures,
     m.commit,
-    coalesce(p.applied_cards, '') as applied_cards,
     m.app_hosts,
     m.app_traffic_hosts,
     m.nginx_hosts,
@@ -42,8 +35,7 @@ select
 from manifests m
 join load_windows w using (run_id)
 left join bench_summaries b using (run_id)
-left join artifact_rollup a using (run_id)
-left join applied p using (run_id);
+left join artifact_rollup a using (run_id);
 
 create or replace view bottleneck_bench_summary as
 with scenarios as (

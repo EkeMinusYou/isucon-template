@@ -38,4 +38,4 @@
 6. `task artifacts`と短いログ・profile取得で生成から読み手までを確認する。collectorの起動・停止・timeout・欠損検出も確認する。
 7. ユーザーが実行したbaseline RUNで`task artifacts-run`、内容・ホスト・時間窓、DuckDB・dashboard表示を確認する。
    通常の回収は失敗RUNも`after-bench`でfinalizeする。自動ローカルcommitの副作用を確認し、`abort-run`を通常回収の代用にしない。
-8. 初期Objectiveの整備はisucon-objectiveの担当として案内し、確認した公式採点仕様とbaseline RUNの参照を完了報告へ残す。
+8. 確認した公式採点仕様とbaseline RUNの参照を完了報告へ残す。

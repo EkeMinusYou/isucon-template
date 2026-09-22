@@ -39,7 +39,6 @@ type Manifest struct {
 	Passed             *bool           `json:"passed"`
 	Roles              Roles           `json:"roles"`
 	Source             CodeSource      `json:"source"`
-	BacklogSnapshot    BacklogSnapshot `json:"backlog_snapshot"`
 	Artifacts          []Artifact      `json:"artifacts"`
 	RawBytes           int64           `json:"raw_bytes"`
 	Preflight          Preflight       `json:"preflight"`
@@ -57,24 +56,6 @@ type LoadWindow struct {
 
 type Preflight struct {
 	CollectorClean bool `json:"collector_clean"`
-}
-
-type BacklogSnapshot struct {
-	SchemaVersion int                   `json:"schema_version"`
-	Status        string                `json:"status"`
-	CapturedAt    string                `json:"captured_at"`
-	Revision      int                   `json:"revision"`
-	Cards         []AppliedSnapshotCard `json:"cards"`
-}
-
-type AppliedSnapshotCard struct {
-	ApplicationID      string `json:"application_id"`
-	ID                 string `json:"id"`
-	Status             string `json:"status"`
-	Version            int    `json:"version"`
-	Title              string `json:"title"`
-	ChangeBoundaryHash string `json:"change_boundary_hash"`
-	DecisionHash       string `json:"decision_hash"`
 }
 
 // Roles はその走行時点のホスト役割。構成をまたぐ RUN 比較で必要になる。
@@ -142,7 +123,6 @@ func runManifest(args []string) error {
 func runManifestBegin(args []string) error {
 	fs := flag.NewFlagSet("manifest begin", flag.ExitOnError)
 	dir := fs.String("dir", "", "走行ディレクトリ (runs/<RUN_ID>)")
-	snapshotPath := fs.String("applied-snapshot", "", "before-bench APPLIED snapshot JSON")
 	app := fs.String("app", "", "APP_HOSTS (カンマ区切り)")
 	appTraffic := fs.String("app-traffic", "", "APP_TRAFFIC_HOSTS (カンマ区切り)")
 	nginx := fs.String("nginx", "", "NGINX_HOSTS (カンマ区切り)")
@@ -165,29 +145,6 @@ func runManifestBegin(args []string) error {
 	if _, err := os.Stat(*dir); err != nil {
 		return fmt.Errorf("走行ディレクトリを読めません: %w", err)
 	}
-	if *snapshotPath == "" {
-		return fmt.Errorf("-applied-snapshot は必須です")
-	}
-	body, err := os.ReadFile(*snapshotPath)
-	if err != nil {
-		return fmt.Errorf("APPLIED snapshotを読めません: %w", err)
-	}
-	var snapshot BacklogSnapshot
-	if err := json.Unmarshal(body, &snapshot); err != nil {
-		return fmt.Errorf("APPLIED snapshotが不正です: %w", err)
-	}
-	if snapshot.Status != "ok" || snapshot.SchemaVersion != 3 {
-		return fmt.Errorf("APPLIED snapshotを利用できません: status=%q schema_version=%d", snapshot.Status, snapshot.SchemaVersion)
-	}
-	if snapshot.Cards == nil {
-		snapshot.Cards = []AppliedSnapshotCard{}
-	}
-	for _, card := range snapshot.Cards {
-		if card.ID == "" || card.Status != "APPLIED" || card.ApplicationID == "" || card.ChangeBoundaryHash == "" || card.DecisionHash == "" {
-			return fmt.Errorf("APPLIED snapshotのカードが不正です: id=%q status=%q", card.ID, card.Status)
-		}
-	}
-
 	runID := filepath.Base(strings.TrimSuffix(*dir, string(filepath.Separator)))
 	m := Manifest{
 		ProfilesEnabled:    *profilesEnabled,
@@ -205,12 +162,12 @@ func runManifestBegin(args []string) error {
 			MySQL:      *mysql,
 		},
 		Source:          gitSource(),
-		BacklogSnapshot: snapshot,
 		Artifacts:       []Artifact{},
 		Preflight:       Preflight{CollectorClean: *collectorClean},
 		LoadWindow:      LoadWindow{Status: "pending", Source: "bench.log"},
 	}
 	if *captureContract {
+		var err error
 		m.RequiredArtifacts, err = captureRequirements(m, *collectors, *digesters)
 		if err != nil {
 			return err
@@ -223,7 +180,7 @@ func runManifestBegin(args []string) error {
 	if err := writeManifestAtomic(filepath.Join(*dir, "run.json"), m); err != nil {
 		return err
 	}
-	fmt.Printf("%s/run.json (phase=started, APPLIED %d 件, backlog revision %d)\n", *dir, len(snapshot.Cards), snapshot.Revision)
+	fmt.Printf("%s/run.json (phase=started)\n", *dir)
 	return nil
 }
 
@@ -251,9 +208,6 @@ func runManifestFinalize(args []string) error {
 	}
 	if m.SchemaVersion != 4 || (m.Phase != "started" && m.Phase != "finalized") {
 		return fmt.Errorf("run.jsonはmanifest beginで作成されたものではありません")
-	}
-	if m.BacklogSnapshot.Status != "ok" || m.BacklogSnapshot.SchemaVersion != 3 {
-		return fmt.Errorf("run.jsonに利用可能なAPPLIED snapshotがありません")
 	}
 	if *score != "" {
 		if _, err := strconv.ParseInt(*score, 10, 64); err != nil || strings.HasPrefix(*score, "-") {

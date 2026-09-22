@@ -390,90 +390,6 @@ export type TimelineResponse = {
   hosts: TimelineHost[]
 }
 
-export type BacklogCard = {
-  id: string
-  status: string
-  title: string
-  closed: boolean
-  priority: string
-  owner: string
-  area: string
-  updated: string
-  updated_by: string
-}
-
-export type BacklogResponse = {
-  counts: Record<string, number>
-  cards: BacklogCard[]
-}
-
-export type BacklogSection = {
-  name: string
-  position: number
-  body: string
-}
-
-export type BacklogHistoryEntry = {
-  position: number
-  occurred_at: string
-  actor: string
-  body: string
-}
-
-export type BacklogDependency = {
-  card_id: string
-  depends_on_card_id: string
-  required_status: string
-  mode: string
-  reason: string
-  status: string
-}
-
-export type BacklogObjectiveRelation = {
-  target_id: string
-  is_primary: boolean
-  id: string
-  status: string
-  mode: string
-  title: string
-  rationale: string
-}
-
-export type BacklogTargetRelation = {
-  id: string
-  status: string
-  title: string
-  is_primary: boolean
-  rationale: string
-  scope: string
-  axis: string
-  goal: string
-  evaluation: string
-  evidence: string
-  previous_target_id: string
-}
-
-export type BacklogCardDetail = {
-  id: string
-  status: string
-  title: string
-  closed: boolean
-  priority: string
-  owner: string
-  area: string
-  source_runs: string
-  compare_run: string
-  observed_runs: string
-  updated: string
-  updated_by: string
-  sections: BacklogSection[]
-  history: BacklogHistoryEntry[]
-  dependencies: BacklogDependency[]
-  unblocks: BacklogDependency[]
-  objectives: BacklogObjectiveRelation[]
-  targets: BacklogTargetRelation[]
-}
-
 async function getJSON<T>(path: string): Promise<T> {
   const res = await fetch(path)
   if (!res.ok) {
@@ -506,7 +422,4 @@ export const api = {
     getJSON<UpstreamResponse>(`/api/runs/${encodeURIComponent(runId)}/upstream`),
   userTransitions: (runId: string) =>
     getJSON<UserTransitionsResponse>(`/api/runs/${encodeURIComponent(runId)}/user-transitions`),
-  backlog: (includeClosed = false) =>
-    getJSON<BacklogResponse>(`/api/backlog${includeClosed ? '?all=1' : ''}`),
-  backlogDetail: (id: string) => getJSON<BacklogCardDetail>(`/api/backlog/${encodeURIComponent(id)}`),
 }

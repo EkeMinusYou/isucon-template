@@ -24,6 +24,7 @@ webapp/go/default.pgo
 /tools/user-transition-metrics/user-transition-metrics
 /tools/dashboard/server/dashboardserver
 /tools/sql-pool-metrics/sql-pool-metrics
+/tools/contest/smoke/smoke
 
 # Node dependencies and browser state
 node_modules/
@@ -32,10 +33,6 @@ tools/browser/.playwright-cli/
 # Rebuildable state
 runs/analysis.duckdb
 runs/analysis.duckdb.lock
-tools/backlog/backlog.sqlite3
-tools/backlog/backlog.sqlite3-wal
-tools/backlog/backlog.sqlite3-shm
-tools/backlog/backlog.sql.tmp
 
 # Raw access logs are retained locally for re-digestion but not committed.
 runs/*/raw/

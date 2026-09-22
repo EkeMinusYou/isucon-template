@@ -57,32 +57,14 @@ func TestResolvePassed(t *testing.T) {
 	}
 }
 
-func TestManifestBeginAndFinalizePreserveSnapshotAndSource(t *testing.T) {
+func TestManifestBeginAndFinalizePreserveSourceAndRoles(t *testing.T) {
 	root := t.TempDir()
 	runDir := filepath.Join(root, "20260901-120000")
 	if err := os.MkdirAll(runDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	snapshotPath := filepath.Join(root, "snapshot.json")
-	snapshot := BacklogSnapshot{
-		SchemaVersion: 3,
-		Status:        "ok",
-		CapturedAt:    "2026-09-01T12:00:00+09:00",
-		Revision:      42,
-		Cards: []AppliedSnapshotCard{{
-			ID: "B-001", Status: "APPLIED", Version: 3, ApplicationID: "B-001@3", ChangeBoundaryHash: "sha256:boundary", DecisionHash: "sha256:decision",
-		}},
-	}
-	body, err := json.Marshal(snapshot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(snapshotPath, body, 0o644); err != nil {
-		t.Fatal(err)
-	}
 	if err := runManifestBegin([]string{
 		"-dir", runDir,
-		"-applied-snapshot", snapshotPath,
 		"-app", "isucon-1,isucon-2",
 		"-app-traffic", "isucon-1",
 		"-nginx", "isucon-2",
@@ -101,10 +83,7 @@ func TestManifestBeginAndFinalizePreserveSnapshotAndSource(t *testing.T) {
 		t.Fatalf("manifest contains removed source dirty field: %s", manifestBody)
 	}
 	started := readTestManifest(t, filepath.Join(runDir, "run.json"))
-	if started.BacklogSnapshot.Cards[0].ApplicationID != "B-001@3" {
-		t.Fatalf("application ID lost: %#v", started.BacklogSnapshot)
-	}
-	if started.Phase != "started" || started.BacklogSnapshot.Revision != 42 || len(started.BacklogSnapshot.Cards) != 1 {
+	if started.Phase != "started" {
 		t.Fatalf("started manifest = %#v", started)
 	}
 	benchLog := "2026-09-01T03:00:10.000Z\tBENCHMARK_START\n" +
@@ -127,10 +106,7 @@ func TestManifestBeginAndFinalizePreserveSnapshotAndSource(t *testing.T) {
 	if finalized.LoadWindow.Status != "ok" || finalized.LoadWindow.DurationMS != 60250 {
 		t.Fatalf("load window = %#v", finalized.LoadWindow)
 	}
-	if finalized.BacklogSnapshot.Cards[0].ApplicationID != "B-001@3" {
-		t.Fatalf("application ID lost on finalize: %#v", finalized.BacklogSnapshot)
-	}
-	if finalized.BacklogSnapshot.Revision != started.BacklogSnapshot.Revision || finalized.Source != started.Source || finalized.Roles.MySQL != "isucon-3" {
+	if finalized.Source != started.Source || finalized.Roles.MySQL != "isucon-3" {
 		t.Fatalf("begin fields changed: started=%#v finalized=%#v", started, finalized)
 	}
 	artifactStatuses := map[string]string{}
@@ -156,22 +132,6 @@ func readTestManifest(t *testing.T, path string) Manifest {
 		t.Fatal(err)
 	}
 	return manifest
-}
-
-func TestManifestBeginRejectsOutdatedAppliedSnapshot(t *testing.T) {
-	root := t.TempDir()
-	runDir := filepath.Join(root, "20260901-120000")
-	if err := os.MkdirAll(runDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	snapshotPath := filepath.Join(root, "snapshot.json")
-	if err := os.WriteFile(snapshotPath, []byte(`{"schema_version":2,"status":"ok","cards":[]}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	err := runManifestBegin([]string{"-dir", runDir, "-applied-snapshot", snapshotPath})
-	if err == nil || !strings.Contains(err.Error(), "schema_version=2") {
-		t.Fatalf("outdated snapshot error = %v", err)
-	}
 }
 
 func TestManifestFinalizeRequiresBegin(t *testing.T) {

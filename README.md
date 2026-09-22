@@ -4,7 +4,6 @@ ISUCONの競技サーバーを、ローカルのリポジトリを正本とし�
 ベンチ1回ごとのログ・メトリクス・profileを同じ`RUN_ID`へ回収するためのテンプレートです。
 
 改善活動の最上位目的は、公式ルールと正当性要件を満たしたうえで、最終スコアを最大化することです。
-Backlogの各Objectiveは、この目的への寄与仮説を持つ改善方針です。詳細は[Backlog workflow](tools/backlog/backlog-workflow.md)を参照してください。
 
 競技中の変更は[ISUCONでの変更方針](AGENTS.md#isuconでの変更方針)に従います。
 依頼された改善に必要なDB再作成や不要ファイルの削除などの破壊的変更を許容し、
@@ -244,9 +243,7 @@ heap・allocs・goroutineは`SNAPSHOT_PROFILE_DELAY`後に同時取得します�
 task go-profile-top RUN=runs/<RUN_ID> PROFILE=isucon-1-go-cpu.pprof
 ```
 
-`scores.tsv`の空欄はスコア不明、`0`は実際の0点です。ベンチ後の採用は`isucon-verifier`が`task pass RUN=<RUN_ID> OWNER=<verifier-session> VERSIONS=B-001=<version> -- B-001`で行います。RUN・対象カード・評価担当・確認済みversionを明示します。
-採用条件とFORCEの例外は[Backlog workflow](tools/backlog/backlog-workflow.md#adoption)、
-採用記録と`outcomes.tsv`の関係は[Backlog README](tools/backlog/README.md#adoption-records)を参照してください。
+`scores.tsv`の空欄はスコア不明、`0`は実際の0点です。スコアと計測成果物はRUN単位で保存し、比較時には役割・コード時点・計測窓・負荷条件を確認します。
 
 ## 分析
 
@@ -271,7 +268,7 @@ templateの状態ではプレースホルダーで0行を返すので、setupで
 dashboardでは収集済みのfgprofに加え、GoのCPU・heap・allocs・goroutine profileを
 種別・ホスト別に切り替え、関数ランキングとコールグラフで確認できます。コールグラフ表示にはGraphvizが必要です。
 
-分析では、RUNごとの役割・source・APPLIED snapshot・計測窓を確認します。
+分析では、RUNごとの役割・source・計測窓を確認します。
 CPU実仕事、I/O、lock/queue wait、DB query time、HTTP response timeを分け、変更境界が削減できる量を見積もります。
 
 必要に応じて、保存済みaccess logの配置候補を`task topology-screen`で比較できます。
@@ -280,26 +277,15 @@ nginxのon-CPU profile、任意JSON endpointのsnapshot、ダッシュボード�
 
 ## Agent workflow
 
-`.agents/skills/`では環境整備・改善方針・改善対象・実現方法・検証・実装を分担します。
+`.agents/skills/`では環境整備、対話による調査・実装、資料照合、資料作成を支援します。
 
 - `isucon-setup` — 初期取得と正規deploy/bench経路の準備
-- `isucon-objective` — 得点への寄与仮説となるObjectiveの作成・再評価
-- `isucon-target` — 既存Objectiveに紐付く改善対象・目標の管理
-- `isucon-analyze` — 指定なしなら全ACTIVE Targetの実現方法を詳細探索しInterventionを起票
-- `isucon-rethink` — 既存Targetに限定せずシステム構造を再検討
-- `isucon-investigate` — INVESTIGATEの独立検証とREADY安全ゲート
-- `isucon-worker` — READYの実装・正規deploy、DOINGへ戻された限定修正・不採用の是正
-- `isucon-verifier` — 指定RUNのベンチ後検証・採否判断。採用はVALIDATED、是正はOwnerなしDOINGでworkerへ引き渡す
+- `isucon-special-sauce` — 設定資料を現行環境と照合し、適用できる改善を実装・正規deploy
+- `isucon-use-solution` — 指定されたsolution文書の適用条件を現行環境と照合して報告
+- `isucon-agent` — 対話しながら調査・提案を進め、合意した改善案を実装・正規deployまで行う
+- `isucon-create-solution` — 再利用できる実装パターンを`docs/solutions/`へ文書化
 
-```shell
-task backlog -- objective list
-task backlog -- target list
-task backlog
-task backlog -- validate
-```
-
-台帳の正本は`tools/backlog/backlog.sql`、ローカル生成物は`backlog.sqlite3`です。
-新規台帳は空で開始します。初期Objectiveは当日の公式資料とEvidenceに基づき作成し、他大会の分類や履歴を引き継ぎません。書き込み操作でSQL dumpが更新されます。
+デプロイはTaskfileの正規経路を使い、対象ホストと影響を確認します。ベンチはユーザーが実行します。
 
 ## 再利用資料
 
@@ -308,4 +294,4 @@ task backlog -- validate
 
 これらは自動適用する完成設定ではありません。公式仕様、現行構成、計測値、正当性・評価条件を確認して採用します。
 
-計測結果と判断根拠は`runs/`の成果物とBacklogカードのHistory・各記録へ保存します。作業用の集計ファイルは一時ディレクトリに置きます。
+計測結果は`runs/`へ保存します。調査・実装の判断根拠は完了報告と必要な再利用資料へ記録し、作業用の集計ファイルは一時ディレクトリに置きます。

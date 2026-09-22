@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   api,
   type AlpResponse,
-  type BacklogResponse,
   type MetricsResponse,
   type MysqlResponse,
   type FgprofResponse,
@@ -15,7 +14,6 @@ import {
   type UserTransitionsResponse,
 } from './api'
 import { AlpTop } from './components/AlpTop'
-import { BacklogBoard } from './components/BacklogBoard'
 import { BenchmarkTimeline } from './components/BenchmarkTimeline'
 import { MysqlStatus } from './components/MysqlStatus'
 import { FgprofTop } from './components/PprofTop'
@@ -49,7 +47,6 @@ const SECTIONS: SectionDef[] = [
   { id: 'server-roles', title: 'サーバーの役割', navLabel: 'サーバー構成' },
   { id: 'score-trend', title: 'スコア推移', navLabel: 'スコア' },
   { id: 'benchmark-timeline', title: 'ベンチマーカー挙動タイムライン', navLabel: 'タイムライン' },
-  { id: 'backlog', title: 'バックログボード', navLabel: 'バックログ' },
   { id: 'alp', title: 'alp トップボトルネック', navLabel: 'alp' },
   { id: 'upstream', title: 'nginx upstream/キャッシュ内訳', navLabel: 'upstream' },
   { id: 'user-transitions', title: 'Cookie ユーザー遷移', navLabel: 'ユーザー遷移' },
@@ -127,11 +124,9 @@ function App() {
   const [selectedRun, setSelectedRun] = useState<string | null>(null)
   const [scores, setScores] = useState<ScoreEntry[]>([])
   const [runData, setRunData] = useState<RunData | null>(null)
-  const [backlog, setBacklog] = useState<BacklogResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [lastLoaded, setLastLoaded] = useState<Date | null>(null)
-  const [showClosedBacklog, setShowClosedBacklog] = useState(false)
   const headerRef = useRef<HTMLDivElement>(null)
   const [headerHeight, setHeaderHeight] = useState(0)
   const [theme, setTheme] = useTheme()
@@ -154,14 +149,12 @@ function App() {
     setLoading(true)
     setError(null)
     try {
-      const [runList, scoreList, backlogData] = await Promise.all([
+      const [runList, scoreList] = await Promise.all([
         api.runs(),
         api.scores(),
-        api.backlog(showClosedBacklog),
       ])
       setRuns(runList)
       setScores(scoreList)
-      setBacklog(backlogData)
 
       const runId = runIdOverride ?? selectedRun ?? runList[0]?.run_id ?? null
       setSelectedRun(runId)
@@ -188,22 +181,12 @@ function App() {
     } finally {
       setLoading(false)
     }
-  }, [selectedRun, showClosedBacklog])
+  }, [selectedRun])
 
   useEffect(() => {
     loadAll()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-
-  const handleToggleClosedBacklog = async (checked: boolean) => {
-    setShowClosedBacklog(checked)
-    try {
-      const backlogData = await api.backlog(checked)
-      setBacklog(backlogData)
-    } catch (err) {
-      setError(String((err as Error).message ?? err))
-    }
-  }
 
   const handleRunChange = async (runId: string) => {
     setSelectedRun(runId)
@@ -320,29 +303,6 @@ function App() {
 
             <Section id="benchmark-timeline" title="ベンチマーカー挙動タイムライン">
               {runData ? <BenchmarkTimeline timeline={runData.timeline} /> : <ChartSkeleton />}
-            </Section>
-
-            <Section
-              id="backlog"
-              title="バックログボード"
-              badge={backlog ? `${backlog.cards.length} 件` : undefined}
-              extra={
-                <label className="label ml-auto cursor-pointer gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    className="toggle toggle-sm toggle-primary"
-                    checked={showClosedBacklog}
-                    onChange={(e) => handleToggleClosedBacklog(e.target.checked)}
-                  />
-                  VALIDATED / REJECTED も表示
-                </label>
-              }
-            >
-              {backlog ? (
-                <BacklogBoard backlog={backlog} showClosed={showClosedBacklog} />
-              ) : (
-                <ChartSkeleton height={180} columns={4} />
-              )}
             </Section>
 
             <Section id="alp" title="alp トップボトルネック">

@@ -22,7 +22,7 @@
 
 作業順・service分類・完了判断は[isucon-setup](../.agents/skills/isucon-setup/SKILL.md)を正本とする。本書はツール固有の設定資料であり、下表で対象を選び、詳細節を読む。標準外構成も管理対象に含め、optional機能の詳細は利用時だけ読む。
 
-既存環境の計測不足の調査・修正・検証は[isucon-setup](../.agents/skills/isucon-setup/SKILL.md)の部分補修手順に従う。Backlogから独立した計測基盤作業として扱う。
+既存環境の計測不足の調査・修正・検証は[isucon-setup](../.agents/skills/isucon-setup/SKILL.md)の部分補修手順に従う。
 
 ## ディレクトリ別チェックリスト
 
@@ -30,7 +30,6 @@
 | --- | --- | --- |
 | `analysis/` | 成果物・DB・スコア変更時 | [分析](#分析) |
 | `analysisctl/` | 原則不要 | `analysis/sources.yaml`を読む汎用core。DuckDB CLIとRUNディレクトリが利用できることを確認する |
-| `backlog/` | Objective追加 | coreは変更しない。公式採点仕様からスコア要素、ペナルティ、必須条件をObjectiveへ追加する。採用時点のRUN値はadoption eventへ固定される |
 | `bench/` | 一部確認 | `run.sh`が自動・手動ベンチ共通のload windowとfinalizeを担う。nginx on-CPU profilerを使う場合はOS、package manager、kernel用`perf`、probe URLを確認する |
 | `bench-output/` | ログ形式確認 | ベンチ出力からscore・合否を読む汎用core。形式は`tools/contest/bench-patterns.json`に分離する。[アプリ固有adapter](#アプリ固有adapter) |
 | `browser/` | 原則不要 | ローカルdashboard確認専用。必要な場合だけ`task browser-install`を実行し、競技サーバーへ配布しない |
@@ -253,6 +252,11 @@ scoreには1つのcapture groupを持たせ、該当する行がない項目は�
 （`tools/analysis/schema/access-log.sql`の`# >>> contest values >>>`区画）と`alp.yml`の
 `matching_groups`にも同じ正規化を入れる。
 
+`tools/contest/smoke`のリクエストフローを当日のセッションフロー（登録・ログイン・認証つきの読み取り数本）へ
+合わせる。`task setup-smoke`が`TARGET_OS`/`TARGET_ARCH`へビルドし、ENTRY_HOSTへ配置してloopbackに対して実行する。
+ベンチを使わずにaccess log・slow query・profile・user-transitionが出ることを確認するためのものなので、
+更新は最小限にとどめ、セッション識別子や認証情報を出力しない。
+
 `tools/contest/analysis-schema/bench-errors-semantic.sql`の`bench_errors`・`bench_warning_events`・
 `bench_error_counts`を当日のベンチ出力の書式へ合わせる。bench.logの読み込み自体は汎用の
 `tools/analysis/schema/bench-errors.sql`が行い、ここは行の解釈だけを持つ。view名と列はdashboardと
@@ -271,6 +275,5 @@ MySQL status collectorはこの比較用に`max_connections`、`Max_used_connect
 
 ## 検証コマンドの意味
 
-- `task setup-check`は`task test-tools`、`task artifacts`、`task backlog -- validate`を含む。個別検査と全体検査が重なる場合、通過済みの検査は変更・失敗・未解決の懸念がない限り繰り返さない。
+- `task setup-check`は`task test-tools`、`task artifacts`とdeploy dry-runを含む。個別検査と全体検査が重なる場合、通過済みの検査は変更・失敗・未解決の懸念がない限り繰り返さない。
 - `task deploy-*-dry`はdeployctlの`-dry-run`でrole・転送元/先・activation順を検証する。Go Taskの`task --dry`は表示のみで、代用できない。
-- 採用ゲートは[Backlog workflowのAdoption](backlog/backlog-workflow.md#adoption)に従う。`task pass`が失敗・未判定・スコア不明・不整合controlを拒否することを確認する。

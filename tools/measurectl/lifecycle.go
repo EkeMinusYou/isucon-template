@@ -19,7 +19,6 @@ type lifecycleOptions struct {
 	resultsDir      string
 	rawDir          string
 	runStateFile    string
-	snapshotPath    string
 	scoresPath      string
 	score           string
 	collectorConfig string
@@ -52,7 +51,6 @@ func runLifecycle(args []string) error {
 	fs.StringVar(&opts.resultsDir, "results", "runs", "RUN result directory")
 	fs.StringVar(&opts.rawDir, "raw-dir", "raw", "raw artifact directory")
 	fs.StringVar(&opts.runStateFile, "run-state-file", "raw/current-run-id", "active RUN marker")
-	fs.StringVar(&opts.snapshotPath, "applied-snapshot", "", "before-bench APPLIED snapshot (required for begin)")
 	fs.StringVar(&opts.scoresPath, "scores", "runs/scores.tsv", "derived score history TSV")
 	fs.StringVar(&opts.score, "score", "", "benchmark score for finalize")
 	fs.StringVar(&opts.collectorConfig, "collectors", defaultMeasureConfigPath("collectors.yaml"), "collector declaration")
@@ -86,9 +84,6 @@ func runLifecycle(args []string) error {
 func (r lifecycleRunner) begin(opts lifecycleOptions) error {
 	if opts.runID == "" || filepath.Base(opts.runID) != opts.runID {
 		return fmt.Errorf("-run-id must be one basename: %q", opts.runID)
-	}
-	if opts.snapshotPath == "" {
-		return errors.New("-applied-snapshot is required for run begin")
 	}
 	if _, err := os.Stat(opts.runStateFile); err == nil {
 		return fmt.Errorf("unfinished RUN exists: %s", opts.runStateFile)
@@ -208,7 +203,7 @@ func (o lifecycleOptions) manifestBeginArgs(runDir string) ([]string, error) {
 		return nil, err
 	}
 	args := []string{
-		"-dir", runDir, "-applied-snapshot", o.snapshotPath, "-collector-clean",
+		"-dir", runDir, "-collector-clean",
 		"-capture-contract", "-profiles-enabled=" + strconv.FormatBool(o.profilesEnabled),
 		"-collectors", o.collectorConfig, "-digesters", o.digesterConfig,
 		"-app", strings.Join(o.roles["app"], ","), "-app-traffic", strings.Join(o.roles["app_traffic"], ","),

@@ -119,10 +119,6 @@ sources:
     schema: schema/manifest.sql
     match: run.json
     view: artifacts
-  - table: run_applied_cards
-    schema: schema/manifest.sql
-    match: run.json
-    view: run_applied_cards
   - table: bench_phases
     schema: schema/bench.sql
     match: bench.log

@@ -52,21 +52,3 @@ from read_text(getvariable('run_glob') || '/run.json') r,
      json_each(coalesce(json_extract(r.content, '$.artifacts'), json('[]'))) a
 where try_cast(json_extract_string(r.content, '$.schema_version') as integer) = 4
   and json_extract_string(r.content, '$.phase') = 'finalized';
-
--- 現行run.jsonのbefore-bench時点でAPPLIEDだったカード。
-create or replace view run_applied_cards as
-select
-    json_extract_string(r.content, '$.run_id')                           as run_id,
-    try_cast(json_extract_string(r.content, '$.backlog_snapshot.captured_at') as timestamp) as captured_at,
-    try_cast(json_extract_string(r.content, '$.backlog_snapshot.revision') as bigint)       as backlog_revision,
-    json_extract_string(c.value, '$.id')                                 as card_id,
-    json_extract_string(c.value, '$.status')                             as status,
-    try_cast(json_extract_string(c.value, '$.version') as integer)       as card_version,
-    json_extract_string(c.value, '$.title')                              as title,
-    json_extract_string(c.value, '$.change_boundary_hash')               as change_boundary_hash,
-    json_extract_string(c.value, '$.decision_hash')                      as decision_hash
-from read_text(getvariable('run_glob') || '/run.json') r,
-     json_each(coalesce(json_extract(r.content, '$.backlog_snapshot.cards'), json('[]'))) c
-where try_cast(json_extract_string(r.content, '$.schema_version') as integer) = 4
-  and json_extract_string(r.content, '$.phase') = 'finalized'
-  and try_cast(json_extract_string(r.content, '$.backlog_snapshot.schema_version') as integer) = 3;

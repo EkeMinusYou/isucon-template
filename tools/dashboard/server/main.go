@@ -1,6 +1,5 @@
 // Command dashboardserver is a read-only local API server that aggregates
-// ISUCON measurement results (runs/, tools/backlog) into
-// JSON for the tools/dashboard/web React app.
+// ISUCON measurement results from runs/ into JSON for the dashboard.
 package main
 
 import (
@@ -14,13 +13,11 @@ import (
 type app struct {
 	root       string
 	runsDir    string
-	dbPath     string
 	analysisDB string
 }
 
 func main() {
 	root := flag.String("root", ".", "repository root directory")
-	dbPath := flag.String("db", "", "path to backlog.sqlite3 (default: <root>/tools/backlog/backlog.sqlite3)")
 	analysisDB := flag.String("analysis-db", "", "path to analysis.duckdb")
 	addr := flag.String("addr", "127.0.0.1:8091", "listen address")
 	flag.Parse()
@@ -29,15 +26,10 @@ func main() {
 		root:       *root,
 		analysisDB: *analysisDB,
 		runsDir:    filepath.Join(*root, "runs"),
-		dbPath:     *dbPath,
 	}
 	if a.analysisDB == "" {
 		a.analysisDB = filepath.Join(*root, "runs", "analysis.duckdb")
 	}
-	if a.dbPath == "" {
-		a.dbPath = filepath.Join(*root, "tools", "backlog", "backlog.sqlite3")
-	}
-
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/runs", a.handleRuns)
 	mux.HandleFunc("GET /api/scores", a.handleScores)
@@ -52,8 +44,6 @@ func main() {
 	mux.HandleFunc("GET /api/runs/{run_id}/mysql", a.handleMysql)
 	mux.HandleFunc("GET /api/runs/{run_id}/upstream", a.handleUpstream)
 	mux.HandleFunc("GET /api/runs/{run_id}/user-transitions", a.handleUserTransitions)
-	mux.HandleFunc("GET /api/backlog", a.handleBacklog)
-	mux.HandleFunc("GET /api/backlog/{id}", a.handleBacklogDetail)
 
 	log.Printf("dashboardserver listening on %s (root=%s)", *addr, a.root)
 	if err := http.ListenAndServe(*addr, withLogging(mux)); err != nil {

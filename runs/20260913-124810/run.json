@@ -171,11 +171,6 @@
       "optional": true
     },
     {
-      "pattern": "outcomes.tsv",
-      "producer": "task pass",
-      "optional": true
-    },
-    {
       "pattern": "pt-query-digest.json",
       "producer": "digester:pt-query-digest",
       "optional": false
@@ -333,13 +328,6 @@
   "source": {
     "commit": "1ad20e3728210d03db46232480e45dccf07f920e",
     "dirty": false
-  },
-  "backlog_snapshot": {
-    "schema_version": 3,
-    "status": "ok",
-    "captured_at": "2026-09-13T12:48:11.922212+09:00",
-    "revision": 0,
-    "cards": []
   },
   "artifacts": [
     {
