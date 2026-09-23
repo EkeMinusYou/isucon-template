@@ -1,3 +1,0 @@
-# host=isucon-1 unit=nginx load_window=2026-09-13T03:48:16.639202647Z..2026-09-13T03:48:17.452717923Z
--- No entries --
-# /var/log/nginx/error.log filtered to the same load window

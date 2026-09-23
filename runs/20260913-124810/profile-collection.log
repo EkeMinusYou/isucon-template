@@ -1,7 +1,0 @@
-task: Task "build-measurectl" is up to date
-task: [profiles-collect] tools/measurectl/measurectl collect oneshot -group profiles -run-id 20260913-124810 -run-dir runs/20260913-124810 -ssh-user ubuntu -ssh-opts "-o UpdateHostKeys=no -o BatchMode=yes -o ConnectTimeout=10 -o ControlMaster=auto -o ControlPath=/tmp/.isucon-ssh-%C -o ControlPersist=600" -role all=isucon-1,isucon-2,isucon-3 -role app=isucon-1 -role app_traffic=isucon-1 -role nginx=isucon-1 -role entry=isucon-1 -role nginx_profile=isucon-1 -role mysql=isucon-1 -role mysql_all=isucon-1 -var services=app,nginx,mysql -var app_service=app -var pprof_base_url=http://127.0.0.1:6060/debug/pprof -var profile_status_url=http://127.0.0.1:6060/debug/profiles/status -var profile_ready_timeout_seconds=15 -var fgprof_url=http://127.0.0.1:6060/debug/fgprof?seconds=120 -var profile_delay=0s -var snapshot_profile_delay=40s -var profile_seconds=120 -var profile_timeout_seconds=135
-[isucon-1] runs/20260913-124810/isucon-1-go-goroutine.pprof 取得
-[isucon-1] runs/20260913-124810/isucon-1-go-heap.pprof 取得
-[isucon-1] runs/20260913-124810/isucon-1-go-allocs.pprof 取得
-[isucon-1] runs/20260913-124810/isucon-1-fgprof.pprof 取得
-[isucon-1] runs/20260913-124810/isucon-1-go-cpu.pprof 取得

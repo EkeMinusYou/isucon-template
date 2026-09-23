@@ -1,6 +1,0 @@
-schema_name	digest	count	sum_time_sec	max_time_sec	sum_lock_sec	avg_lock_sec	rows_examined	rows_sent	rows_affected	no_index_used	no_good_index_used	tmp_disk_tables	tmp_tables	sort_merge_passes	errors	digest_text
-	b0a2105f85f781a2af3593f66431f1528f14f14566499839ea27e23911fb9a5a	121	0.117234	0.003817	0.000286	0.000002364	2904	2904	0	121	0	0	121	0	0	SHOW GLOBAL STATUS WHERE `Variable_name` IN (...)
-	5e18b503343466373cc0ce1922b04a77902f0cce5386ce599cb95b682d29415e	1	0.00455	0.00455	0.000015	0.000015	0	0	0	0	0	0	0	0	0	TRUNCATE TABLE `performance_schema` . `events_statements_summary_by_digest`
-	44e35cee979ba420eb49a8471f852bbe15b403c89742704817dfbaace0d99dbb	2	0.000233	0.000142	0	0	2	2	0	0	0	0	0	0	0	SELECT @@`version_comment` LIMIT ?
-	e712d098de33beb827d38f696a5e2505df06432c6f67876487807611e3f3b625	1	0.000082	0.000082	0	0	0	0	0	0	0	0	0	0	0	SET SESSION `long_query_time` = ?
-	48d06d86b583ece1b6a7ac4a0e7f258d15266bea0382ff8de286e65fbf284384	1	0.000064	0.000064	0	0	1	1	0	0	0	0	0	0	0	SELECT @@`performance_schema`
