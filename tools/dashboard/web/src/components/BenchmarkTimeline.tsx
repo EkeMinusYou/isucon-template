@@ -123,6 +123,13 @@ export function BenchmarkTimeline({ timeline }: { timeline: TimelineResponse }) 
   return (
     <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
       {errorChart}
+      {timeline.bench_errors.length > 0 && (
+        <ChartCard title="ベンチ結果メッセージ">
+          <ul className="list-disc space-y-1 pl-5 text-sm">
+            {timeline.bench_errors.map((message, index) => <li key={`${index}-${message}`}>{message}</li>)}
+          </ul>
+        </ChartCard>
+      )}
       <Panel title="リクエスト数（ステータス別）" unit="req/s">
         <AreaChart data={data} margin={{ top: 4, right: 12, bottom: 4, left: 0 }} syncId={SYNC_ID}>
           <CartesianGrid stroke="var(--chart-grid)" vertical={false} />

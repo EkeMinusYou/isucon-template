@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestResetPlanRolesAndFailureBoundaries(t *testing.T) {
+func TestDBRecreatePlanStopsWritersAndFailureBoundaries(t *testing.T) {
 	cfg, err := loadConfig(repositoryConfig(t))
 	if err != nil {
 		t.Fatal(err)
@@ -26,11 +26,11 @@ func TestResetPlanRolesAndFailureBoundaries(t *testing.T) {
 			t.Fatalf("%s: %+v %v", name, jobs, err)
 		}
 	}
-	for _, failure := range []string{"", "sudo systemctl stop app-service", "DROP DATABASE", "/initialize"} {
+	for _, failure := range []string{"", "sudo systemctl stop app-service", "DROP DATABASE", "sudo systemctl start app-service", "/initialize"} {
 		t.Run(failure, func(t *testing.T) {
 			fake := &planExecutor{failScriptPattern: failure}
 			runner.exec = fake
-			err := runner.applyPlan(cfg, cfg.Plans["deploy-all-reset"])
+			err := runner.applyPlan(cfg, cfg.Plans["db-recreate"])
 			if (err != nil) != (failure != "") {
 				t.Fatalf("unexpected result: %v", err)
 			}
@@ -44,7 +44,7 @@ func TestResetPlanRolesAndFailureBoundaries(t *testing.T) {
 			}
 			if failure == "" {
 				previous := -1
-				for _, pattern := range []string{"disable_unit()", "sudo systemctl stop app-service", "DROP DATABASE", "sudo systemctl restart app-service", "/initialize", "enable_unit()"} {
+				for _, pattern := range []string{"sudo systemctl stop app-service", "DROP DATABASE", "sudo systemctl start app-service", "/initialize"} {
 					i := index(pattern)
 					if i <= previous {
 						t.Fatalf("out-of-order or absent %q", pattern)
@@ -73,11 +73,11 @@ func TestResetPlanRolesAndFailureBoundaries(t *testing.T) {
 				if failure == "sudo systemctl stop app-service" && index("DROP DATABASE") != -1 {
 					t.Fatal("reset ran after stop failure")
 				}
-				if failure == "DROP DATABASE" && index("sudo systemctl restart app-service") != -1 {
-					t.Fatal("app restarted after schema failure")
+				if failure == "DROP DATABASE" && index("sudo systemctl start app-service") != -1 {
+					t.Fatal("app started after schema failure")
 				}
-				if failure == "/initialize" && index("sudo systemctl reload nginx") != -1 {
-					t.Fatal("nginx activated after initialization failure")
+				if failure == "sudo systemctl start app-service" && index("/initialize") != -1 {
+					t.Fatal("application initialized after app start failure")
 				}
 			}
 		})

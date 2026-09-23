@@ -38,9 +38,7 @@ vars:
   DB_NAME: app-database
   TARGET_OS: linux
   TARGET_ARCH: amd64
-  SCHEMA_PATHS: webapp/sql
-  # Use SCHEMA_IN_WEBAPP=true instead when initialization assets are confirmed
-  # to be included in webapp but do not have a stable standalone path.
+  RESET_INPUTS: '' # Set 'none' only after confirming there are no additional files.
   CONFIG_CHECK_COMMAND: '' # Set a contest-specific local validation command.
   SETUP_SECRET_ALLOWLIST: ''
   ALL_HOSTS: isucon-1 isucon-2 isucon-3
@@ -89,7 +87,7 @@ task deploy-nginx    # 設定上書き・nginx -t成功後にreload
 task deploy-mysql    # MySQL設定配布 + restart
 task deploy-sysctl   # 全ホストへ配布 + sysctl -p
 task deploy-all      # 上記を依存順に反映。DB初期化はしない
-task deploy-all-reset # アプリDBを破棄・再作成し全体deploy・公式初期化（setup後）
+task db-recreate     # アプリを止め、DBを破棄・再作成して初期化
 task apply-roles     # 役割変更後だけenable/disableを収束
 task check-roles
 task check-network
@@ -101,20 +99,20 @@ deployctlのdry-runを呼ぶ次のTaskを使います。
 ```shell
 task deploy-app-dry
 task deploy-all-dry
-task deploy-all-reset-dry
+task db-recreate-dry
 ```
 
 `tools/deployctl/deployments.yaml`が転送とactivationの差分、`Taskfile.yml`が役割と値を持ちます。
 新しいサービスが必要ならdeploymentを追加し、通常の変更に一時的な迂回Taskを増やさないでください。
 
-`deploy-all-reset`はローカルの生成・buildと全uploadの検査を済ませ、役割外serviceの停止、全APP_HOSTSの
-書込み元停止、MySQL反映、MYSQL_HOSTでDB再作成、アプリ起動、先頭APP_HOSTSで一度だけ初期化、
-nginx反映、役割の有効化、疎通検査の順に進みます。途中のactivation失敗時は依存する後続を実行しません。
-`DB_NAME`のデータを破棄するため、通常の`deploy-all`とは使い分けてください。
-`SQL_DIR`（既定`webapp/sql`）、その配下の`SQL_SCHEMA_FILE`（既定`schema.sql`）、`INITIALIZE_PATH`
-（既定`/initialize`）は例です。公式schema・初期化に合わせ、初期データや追加serviceの資産配布・初期化を
-setupでdeployment graphへ組み込んでください。`SCHEMA_PATHS`は取得確認用で、再作成SQLの選択とは別です。
-`deploy-db-schema`単独は書込み元を停止しません。全体初期化には`deploy-all-reset`を使います。
+`db-recreate`は`setup-preflight`でローカルの役割・schema・追加資材とdry-runを確認してから、
+全APP_HOSTSのアプリ書込み元を停止し、MYSQL_HOST上の`DB_NAME`を再作成します。
+`SQL_DIR`（既定`webapp/sql`）の`SQL_SCHEMA_FILE`（既定`schema.sql`）を適用し、アプリを起動して
+先頭APP_HOSTSで一度だけ`POST /initialize`を実行します。途中で失敗したら後続へ進みません。
+seedや追加serviceが必要な競技では、公式手順に合わせて`tools/contest/deployments.yaml`に
+deploymentを定義します。`RESET_INPUTS`にはschema以外に初期化が読むローカルファイルをすべて列挙し、
+追加資材が無い場合は`none`にします。通常の`task deploy-all`はDBを再作成しません。
+`db-recreate`の前に対象DBの状態を確認してください。`db-recreate-dry`は実行順を表示します。
 
 `task config-check`はnginx/MySQLの正規配布先へ設定を書き込み、構文検査します。reloadは行いませんが、
 成功した設定は配布先に残ります。初期化時の`CONFIG_CHECK_COMMAND`へ設定する前に、検査コマンドと
@@ -133,6 +131,9 @@ unit変更を適用するには通常の`deploy-app`による再起動が必要�
 ```shell
 task bench-manual
 ```
+
+ポータルなどで完了を確認したらEnterを押し、スコアと整合性チェックの結果を入力します。
+スコアが分からない場合は空欄にし、0点と区別します。
 
 ベンチホストから実行できる場合は、`BENCH_COMMAND`を更新して次を使います。
 

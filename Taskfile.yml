@@ -23,8 +23,8 @@ vars:
   LISTEN_PORT: '8080'
   TARGET_OS: linux
   TARGET_ARCH: amd64
-  SCHEMA_PATHS: ''
-  SCHEMA_IN_WEBAPP: 'false'
+  # Additional local files read during DB recreation or initialization; use 'none' if empty.
+  RESET_INPUTS: ''
   # Adapt these reset assets and endpoint to the acquired official implementation.
   SQL_DIR: webapp/sql
   SQL_SCHEMA_FILE: schema.sql
@@ -367,8 +367,9 @@ tasks:
             ps -eo pid,user,comm
           '
 
-  setup-check:
-    desc: 競技固有値・取得物・ローカル検証・deploy dry-runを一括確認
+  setup-preflight:
+    desc: DB再作成前の高速なローカル資材・role・reset plan確認
+    deps: [build-deployctl]
     env:
       ISUCON_ALL_HOSTS: '{{.ALL_HOSTS}}'
       ISUCON_APP_HOSTS: '{{.APP_HOSTS}}'
@@ -379,31 +380,39 @@ tasks:
       ISUCON_HOST_IPS: '{{.ALL_HOST_IPS}}'
       ISUCON_APP_DIR: '{{.APP_DIR}}'
       ISUCON_SERVICE: '{{.SERVICE}}'
-      ISUCON_SCHEMA_PATHS: '{{.SCHEMA_PATHS}}'
-      ISUCON_SCHEMA_IN_WEBAPP: '{{.SCHEMA_IN_WEBAPP}}'
-      ISUCON_CONFIG_CHECK_COMMAND: '{{.CONFIG_CHECK_COMMAND}}'
-      ISUCON_SECRET_ALLOWLIST: '{{.SETUP_SECRET_ALLOWLIST}}'
+      ISUCON_RESET_INPUTS: '{{.RESET_INPUTS}}'
+      ISUCON_SQL_DIR: '{{.SQL_DIR}}'
+      ISUCON_SQL_SCHEMA_FILE: '{{.SQL_SCHEMA_FILE}}'
     cmds:
+      # Contest hook may generate local DB inputs; it must not change remote state.
+      - task: prepare-db-assets
+      - task: gen
       - |
         set -u
         failures=0
-        fail() { echo "setup-check: $*" >&2; failures=$((failures + 1)); }
+        fail() { echo "setup-preflight: $*" >&2; failures=$((failures + 1)); }
         contains_host() { case " $1 " in *" $2 "*) return 0;; *) return 1;; esac; }
 
-        for tool in task go ssh rsync alp pt-query-digest zstd zstdcat duckdb; do
+        for tool in task go ssh rsync; do
           command -v "$tool" >/dev/null 2>&1 || fail "required local tool is missing: $tool"
         done
-        command -v slp >/dev/null 2>&1 || echo "setup-check: optional digester is unavailable: slp" >&2
-
         if ! find docs/official -type f ! -name README.md -print -quit 2>/dev/null | grep -q .; then
           fail "docs/official has no contest manual or application specification"
         fi
 
+        [ -n "$ISUCON_ALL_HOSTS" ] || fail "ALL_HOSTS is empty"
+        [ -n "$ISUCON_APP_HOSTS" ] || fail "APP_HOSTS is empty"
+        [ -n "$ISUCON_APP_TRAFFIC_HOSTS" ] || fail "APP_TRAFFIC_HOSTS is empty"
+        [ -n "$ISUCON_NGINX_HOSTS" ] || fail "NGINX_HOSTS is empty"
+        [ -n "$ISUCON_MYSQL_HOST" ] || fail "MYSQL_HOST is empty"
+        [ -n "$ISUCON_MYSQL_HOSTS" ] || fail "MYSQL_HOSTS is empty"
         for host in $ISUCON_APP_HOSTS $ISUCON_APP_TRAFFIC_HOSTS $ISUCON_NGINX_HOSTS $ISUCON_MYSQL_HOSTS $ISUCON_MYSQL_HOST; do
           contains_host "$ISUCON_ALL_HOSTS" "$host" || fail "role host is not in ALL_HOSTS: $host"
         done
-        [ -n "$ISUCON_MYSQL_HOSTS" ] || fail "MYSQL_HOSTS is empty"
         contains_host "$ISUCON_MYSQL_HOSTS" "$ISUCON_MYSQL_HOST" || fail "MYSQL_HOST must belong to MYSQL_HOSTS"
+        for host in $ISUCON_ALL_HOSTS; do
+          case " $ISUCON_HOST_IPS " in *" $host="*) ;; *) fail "IP is not configured for $host";; esac
+        done
         for pair in $ISUCON_HOST_IPS; do
           host=${pair%%=*}
           ip=${pair#*=}
@@ -416,14 +425,38 @@ tasks:
         [ -d mysql ] || fail "MySQL configuration has not been acquired"
         [ -f "etc/systemd/system/$ISUCON_SERVICE.service" ] || fail "application systemd unit is missing"
         [ -f etc/sysctl.conf ] || fail "sysctl configuration is missing"
+        [ -f "$ISUCON_SQL_DIR/$ISUCON_SQL_SCHEMA_FILE" ] || fail "database schema file is missing: $ISUCON_SQL_DIR/$ISUCON_SQL_SCHEMA_FILE"
 
-        if [ -n "$ISUCON_SCHEMA_PATHS" ]; then
-          for schema_path in $ISUCON_SCHEMA_PATHS; do
-            [ -e "$schema_path" ] || fail "declared schema path is missing: $schema_path"
+        if [ "$ISUCON_RESET_INPUTS" = none ]; then
+          : # Explicitly confirmed: the primary schema is the only local reset input.
+        elif [ -n "$ISUCON_RESET_INPUTS" ]; then
+          for reset_input in $ISUCON_RESET_INPUTS; do
+            [ -f "$reset_input" ] || fail "declared reset input is missing or is not a file: $reset_input"
           done
-        elif [ "$ISUCON_SCHEMA_IN_WEBAPP" != true ]; then
-          fail "set SCHEMA_PATHS, or set SCHEMA_IN_WEBAPP=true after confirming initialization assets are included in webapp"
+        else
+          fail "list every additional local file read during schema creation or initialization in RESET_INPUTS, or set it to 'none' after checking"
         fi
+
+        [ "$failures" -eq 0 ] || exit 1
+      - task: db-recreate-dry
+
+  setup-check:
+    desc: preflight後に設定構文・全tool・成果物を確認
+    deps: [setup-preflight]
+    env:
+      ISUCON_CONFIG_CHECK_COMMAND: '{{.CONFIG_CHECK_COMMAND}}'
+      ISUCON_SECRET_ALLOWLIST: '{{.SETUP_SECRET_ALLOWLIST}}'
+    cmds:
+      - |
+        set -u
+        failures=0
+        fail() { echo "setup-check: $*" >&2; failures=$((failures + 1)); }
+        contains_host() { case " $1 " in *" $2 "*) return 0;; *) return 1;; esac; }
+
+        for tool in alp pt-query-digest zstd zstdcat duckdb; do
+          command -v "$tool" >/dev/null 2>&1 || fail "required local tool is missing: $tool"
+        done
+        command -v slp >/dev/null 2>&1 || echo "setup-check: optional digester is unavailable: slp" >&2
 
         secret_candidates=''
         for root in webapp nginx mysql etc; do
@@ -526,25 +559,13 @@ tasks:
       - task: deploy-plan
         vars: { PLAN: deploy-all }
 
-  deploy-all-reset:
-    desc: アプリDBをスキーマから再作成し全体deploy・初期化（setup時に具体化）
+  db-recreate:
+    desc: MYSQL_HOSTのDBをschemaから再作成しアプリを初期化
     preconditions: *no_active_run
+    deps: [setup-preflight]
     cmds:
-      # Contest hook; a contest without prepared assets defines it as a no-op.
-      - task: prepare-db-assets
-      - task: gen
-      - task: build
       - task: deploy-plan
-        vars: { PLAN: deploy-all-reset }
-      - task: check-roles
-      - task: check-network
-
-  deploy-db-schema:
-    desc: MYSQL_HOSTのアプリDBを破棄してschemaを作成（書込み元停止後に実行）
-    preconditions: *no_active_run
-    deps: [build-deployctl]
-    cmds:
-      - '{{.DEPLOYCTL_DIR}}/deployctl apply db-schema -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
+        vars: { PLAN: db-recreate }
 
   deploy-app-dry:
     desc: app deployの転送先・role・activationを実行せず表示
@@ -899,11 +920,11 @@ tasks:
         {{.SSH}} {{.SSH_USER}}@{{.HOST}} "echo '$expected  /var/log/mysql/mysql-slow.log.1' | sudo sha256sum -c - && sudo rm /var/log/mysql/mysql-slow.log.1"
         echo "Archived: $archive_path SHA-256: $expected"
 
-  deploy-all-reset-dry:
-    desc: roleに基づく破壊的deploy計画を実行せず表示
+  db-recreate-dry:
+    desc: DB再作成の対象とactivationを実行せず表示
     deps: [build-deployctl]
     cmds:
-      - '{{.DEPLOYCTL_DIR}}/deployctl apply-plan deploy-all-reset -dry-run -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
+      - '{{.DEPLOYCTL_DIR}}/deployctl apply-plan db-recreate -dry-run -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
 
 
   deploy-app-unit-dry:

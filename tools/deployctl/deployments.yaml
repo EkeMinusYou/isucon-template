@@ -116,6 +116,15 @@ deployments:
             printf '%s\n' "$state" | grep -qx 'MainPID=0'
           fi
 
+  app-start:
+    activations:
+      - label: start application after DB recreation
+        role: app
+        script: |
+          set -eu
+          sudo systemctl start '{var:service}'
+          sudo systemctl is-active --quiet '{var:service}'
+
   db-schema:
     uploads:
       - label: SQL schema assets
@@ -181,17 +190,12 @@ plans:
       mysql: {}
       app: {needs: [mysql]}
       nginx: {needs: [app]}
-  deploy-all-reset:
+  db-recreate:
     deployments:
-      roles-off: {}
-      app-stop: {needs: [roles-off]}
-      sysctl: {needs: [app-stop]}
-      mysql: {needs: [sysctl]}
-      db-schema: {needs: [mysql]}
-      app: {needs: [db-schema]}
-      app-initialize: {needs: [app]}
-      nginx: {needs: [app-initialize]}
-      roles-on: {needs: [nginx]}
+      app-stop: {}
+      db-schema: {needs: [app-stop]}
+      app-start: {needs: [db-schema]}
+      app-initialize: {needs: [app-start]}
   roles:
     deployments:
       roles-off: {}

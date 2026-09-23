@@ -74,12 +74,18 @@ started_at=$(task --silent bench-timestamp)
 if [ "$mode" = manual ]; then
   printf '%s\tBENCHMARK_START\n' "$started_at" > "$run_dir/bench.log"
   echo '別の端末やポータルから、手動でベンチを実行してください。'
-  printf '完了後にスコアを入力してください（空欄可）: '
-  read -r score || score=''
-  printf '整合性チェックまで成功した場合は y を入力してください: '
-  read -r passed || passed=''
+  printf 'ベンチ完了がポータルに表示されたら Enter を押してください: '
+  read -r benchmark_done || benchmark_done=''
   ended_at=$(task --silent bench-timestamp)
   printf '%s\tBENCHMARK_END\n' "$ended_at" >> "$run_dir/bench.log"
+  printf '完了後にスコアを入力してください（空欄可）: '
+  read -r score || score=''
+  printf 'RESULT_SOURCE: manual\n' >> "$run_dir/bench.log"
+  if [ -n "$score" ]; then
+    printf 'SCORE: %s\n' "$score" >> "$run_dir/bench.log"
+  fi
+  printf '整合性チェックまで成功した場合は y を入力してください: '
+  read -r passed || passed=''
   case "$passed" in
     y|Y|yes|YES) echo 'BENCHMARK_PASS' >> "$run_dir/bench.log" ;;
     *) echo 'BENCHMARK_FAIL' >> "$run_dir/bench.log" ;;

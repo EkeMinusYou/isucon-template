@@ -18,7 +18,7 @@ export function RunSelector({ runs, selected, onChange, className = '' }: Props)
       <select value={selected ?? ''} onChange={(e) => onChange(e.target.value)}>
         {runs.map((run) => (
           <option key={run.run_id} value={run.run_id}>
-            {run.run_id}
+            {run.run_id}{run.passed === true ? ' · PASS' : run.passed === false ? ' · FAIL' : ''}
           </option>
         ))}
       </select>

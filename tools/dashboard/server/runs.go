@@ -11,6 +11,8 @@ import (
 
 type runInfo struct {
 	Roles      *runRoles `json:"roles"`
+	Score      *int64    `json:"score"`
+	Passed     *bool     `json:"passed"`
 	RunID      string    `json:"run_id"`
 	HasAlp     bool      `json:"has_alp"`
 	HasSlow    bool      `json:"has_slowquery"`
@@ -40,6 +42,21 @@ func readRunRoles(dir string) *runRoles {
 		return nil
 	}
 	return manifest.Roles
+}
+
+func readRunResult(dir string) (*int64, *bool) {
+	data, err := os.ReadFile(filepath.Join(dir, "run.json"))
+	if err != nil {
+		return nil, nil
+	}
+	var manifest struct {
+		Score  *int64 `json:"score"`
+		Passed *bool  `json:"passed"`
+	}
+	if json.Unmarshal(data, &manifest) != nil {
+		return nil, nil
+	}
+	return manifest.Score, manifest.Passed
 }
 
 type runDir struct {
@@ -98,8 +115,11 @@ func (a *app) listRuns() ([]runInfo, error) {
 	}
 	runs := make([]runInfo, 0, len(dirs))
 	for _, run := range dirs {
+		score, passed := readRunResult(run.Path)
 		runs = append(runs, runInfo{
 			Roles:      readRunRoles(run.Path),
+			Score:      score,
+			Passed:     passed,
 			RunID:      run.ID,
 			HasAlp:     fileExists(filepath.Join(run.Path, "alp.json")),
 			HasSlow:    len(mustGlob(filepath.Join(run.Path, "*slp.tsv"))) > 0,

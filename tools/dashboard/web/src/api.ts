@@ -9,6 +9,8 @@ export type RunRoles = {
 
 export type RunInfo = {
   roles: RunRoles | null
+  score: number | null
+  passed: boolean | null
   run_id: string
   has_alp: boolean
   has_slowquery: boolean

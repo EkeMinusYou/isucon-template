@@ -2,17 +2,15 @@
 
 初期環境を構築するときに読む。[isucon-setup](../SKILL.md)の作業境界・完了条件と、[標準計測の確認手順](measurement.md)を併用する。
 
-## スキーマ再作成を含むデプロイ
+## DB再作成と通常デプロイ
 
-初回setupの作成対象として、`Taskfile.yml`に`deploy-all-reset`ターゲットを必ず用意する。
-既存ターゲットがあれば、公式の初期化仕様と実配置に合わせて補修する。
+公式資料とアプリの初期化処理を確認し、DBを新規構築する手順と再初期化する手順を整理する。
 
-- MySQL等のアプリ用DBをスキーマから破棄・再作成し、全体のデプロイ、初期データ投入、公式仕様で必要な初期化、疎通確認までを一つのターゲットで実行できるようにする。
-- 対象ホスト・DB・schemaはTaskfileの役割定義と取得済み資産から決める。共有DBは正本ホストで一度だけ再作成し、他用途のDBを一律に破棄しない。
-- build等のローカル準備を先に済ませ、DB再作成前に書込み元のアプリを停止する。スキーマが必要なmigrationやアプリ起動より先に再作成を完了させ、途中で失敗したら後続処理へ進まない。
-- 既存の`task deploy-*`、deploy宣言、公式の初期化処理を再利用する。競技データの保持を前提とする移行・バックアップ・逆移行スクリプトは、このフローのために追加しない。
-- 通常の`deploy-all`はデータを保持する。`deploy-all-reset`にも進行中RUNを保護する既存の制約を適用し、ベンチマーカーは組み込まない。
-- READMEへ実行方法と破棄・再作成の対象を記載し、dry-run等で実行順序・対象を検証する。ターゲットの作成と実機での実行は区別し、実行はユーザーの依頼範囲に従う。
+- 通常の`task deploy-all`はDBを再作成しない。`task db-recreate`は書込み元を止め、DBを正規手順で作り直し、アプリ初期化後に書込み元を戻す。
+- 対象ホスト・DB・schemaはTaskfileの役割定義と取得済み資産から決める。共有DBは正本ホストで一度だけ再作成する。
+- 主schema以外にDB構築や初期化が読むローカル資材は`RESET_INPUTS`へ列挙し、deploy設定のuploadと実行順も揃える。不要と確認した場合だけ`none`にする。
+- build等の準備と`task setup-preflight`を先に済ませる。DB再作成前に書込み元を停止し、途中で失敗したら後続処理へ進まない。
+- READMEに破棄対象と実行方法を記載し、dry-runで対象と順序を確認する。実DBの状態も読み取り専用で確認する。
 
 ## 標準計測
 
@@ -33,7 +31,7 @@
 2. 読み取り専用SSHで全ホストの資源、IP、service・unit・process・listen portと依存経路を確認する。
    管理対象のアプリ・設定・unit・schemaを`task setup-*`で取得し、対象外は理由を残す。
 3. Taskfileの役割・IP・service名・TARGET_OS/ARCH・schema取得先・構文検査を実環境へ合わせ、`task gen`と`task setup-check`を通す。
-4. `task deploy-all-reset`を上記の要件で作成・検証し、全管理対象を正規deploy・role収束・計測・分析・RUNの役割記録へ組み込む。標準計測のadapterと通常ベンチの起動・回収待ちも整える。
+4. `task db-recreate`を上記の要件で作成・dry-run確認し、全管理対象を正規deploy・role収束・計測・分析・RUNの役割記録へ組み込む。標準計測のadapterと通常ベンチの起動・回収待ちも整える。
 5. 対応する`task deploy-*-dry`で転送先とactivationを確認して正規deployし、`task check-roles`・`task check-network`と計測の疎通を確認する。
 6. `task artifacts`と短いログ・profile取得で生成から読み手までを確認する。collectorの起動・停止・timeout・欠損検出も確認する。
 7. ユーザーが実行したbaseline RUNで`task artifacts-run`、内容・ホスト・時間窓、DuckDB・dashboard表示を確認する。

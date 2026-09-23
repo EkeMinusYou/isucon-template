@@ -3,6 +3,14 @@
 通常の入口は`Taskfile.yml`です。このディレクトリには、取得対象を絞る設定と、
 大会ごとの`CONFIG_CHECK_COMMAND`へ組み込める構文検査の例を置きます。
 
+## DB再作成前のpreflight
+
+`task db-recreate`は最初に`task setup-preflight`を実行します。ローカルのrole、取得物、
+主schema、`RESET_INPUTS`に宣言した追加資材を確認し、再作成計画をdry-runします。
+`RESET_INPUTS`にはDB構築や`POST /initialize`が読む追加のローカルファイルを列挙してください。
+追加資材が無い場合は`none`です。主schemaは`SQL_DIR/SQL_SCHEMA_FILE`として別途確認します。
+取得した資材がdeploy対象に入っていることも確認してください。
+
 ## webappの取得対象
 
 `SETUP_WEBAPP_EXCLUDES`はrsyncの`--exclude-from`へ渡すファイルです。
@@ -26,7 +34,7 @@ SQL、初期化スクリプト、画像などの実行時依存は残してく�
 - '{{.RSYNC}} --copy-links {{.SSH_USER}}@{{.MYSQL_HOST}}:/usr/share/example/schema.sql webapp/sql/schema/schema.sql'
 ```
 
-取得先を`SCHEMA_PATHS`へ登録し、`test -f webapp/sql/schema/schema.sql`と
+取得先を`SQL_DIR/SQL_SCHEMA_FILE`に設定し、`test -f webapp/sql/schema/schema.sql`と
 `test ! -L webapp/sql/schema/schema.sql`で実体を確認します。取得だけではdeploy対象になりません。
 アプリの初期化が参照する場合は、`deployments.yaml`にも必要な配置先へのuploadを追加してください。
 これはschemaファイルの取得・配置であり、DBへの適用や初期化は実行しません。
