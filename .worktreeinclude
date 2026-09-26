@@ -1,0 +1,2 @@
+runs/analysis.duckdb
+# contest: add ignored DB seed assets needed for db-recreate in each worktree.

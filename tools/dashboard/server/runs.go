@@ -113,9 +113,21 @@ func (a *app) listRuns() ([]runInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+	results, err := a.readBenchResults()
+	if err != nil {
+		return nil, err
+	}
 	runs := make([]runInfo, 0, len(dirs))
 	for _, run := range dirs {
 		score, passed := readRunResult(run.Path)
+		if result, ok := results[run.ID]; ok {
+			if score == nil {
+				score = result.Score
+			}
+			if passed == nil {
+				passed = result.Passed
+			}
+		}
 		runs = append(runs, runInfo{
 			Roles:      readRunRoles(run.Path),
 			Score:      score,

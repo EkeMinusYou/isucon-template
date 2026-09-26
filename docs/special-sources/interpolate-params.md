@@ -5,7 +5,7 @@ MySQL サーバーの設定ではなく、Go アプリケーション側の接�
 
 ## 設定
 
-`mysql.NewConfig()` で作成した接続設定に、次の値を設定する。
+`mysql.NewConfig()` または `mysql.ParseDSN()` で得た接続設定に、次の値を設定する。
 
 ```go
 config.InterpolateParams = true
@@ -18,7 +18,7 @@ Go実装を採用した場合は、`Taskfile.yml` の `APP_DIR` が指すソー�
 ## 反映
 
 Go バイナリをビルドしてアプリケーションへ反映するため、`task deploy` または `task deploy-app` を使う。
-反映後は `task status` とアプリケーションログを確認し、同じ条件のベンチマークで性能と整合性を比較する。
+反映後は `task status` とアプリケーションログを確認する。
 
-この設定だけを試す場合は `task deploy` または `task deploy-app` を使い、
+この設定だけを反映する場合は `task deploy` または `task deploy-app` を使い、
 初期化処理を別途定義している場合も、この設定の反映には使わない。

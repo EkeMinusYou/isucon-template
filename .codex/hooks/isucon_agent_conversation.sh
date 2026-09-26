@@ -52,6 +52,7 @@ state_dir="${TMPDIR:-/tmp}/codex-isucon-agent-session-markers/$root_key"
 marker="$state_dir/$safe_session_id.marker"
 offset_path="$state_dir/$safe_session_id.offset"
 timestamp_path="$state_dir/$safe_session_id.timestamp"
+started_at_path="$state_dir/$safe_session_id.started_at"
 
 case "$action" in
   mark)
@@ -66,13 +67,18 @@ case "$action" in
     mkdir -p "$state_dir" || exit 0
     if [ ! -f "$timestamp_path" ]; then
       timestamp=$(date '+%Y%m%d-%H%M%S') || exit 0
+      started_at=$(date '+%s') || exit 0
       timestamp_temporary_path="$timestamp_path.tmp"
       if ! printf '%s\n' "$timestamp" > "$timestamp_temporary_path"; then
         rm -f "$timestamp_temporary_path"
         exit 0
       fi
+      if ! printf '%s\n' "$started_at" > "$started_at_path"; then
+        rm -f "$started_at_path" "$timestamp_temporary_path"
+        exit 0
+      fi
       if ! mv -f "$timestamp_temporary_path" "$timestamp_path"; then
-        rm -f "$timestamp_temporary_path"
+        rm -f "$timestamp_temporary_path" "$started_at_path"
         exit 0
       fi
     fi
@@ -163,6 +169,35 @@ case "$action" in
         exit 0
       fi
     fi
+
+    started_at=$(cat "$started_at_path" 2>/dev/null) || started_at=
+    case "$started_at" in
+      ''|*[!0-9]*) ;;
+      *)
+        stopped_at=$(date '+%s') || exit 0
+        if [ "$stopped_at" -ge "$started_at" ]; then
+          elapsed_seconds=$((stopped_at - started_at))
+          elapsed=$(printf '%02d:%02d:%02d' \
+            "$((elapsed_seconds / 3600))" \
+            "$(((elapsed_seconds % 3600) / 60))" \
+            "$((elapsed_seconds % 60))")
+          elapsed_temporary_path="$temporary_path.elapsed"
+          if ! awk -v elapsed="$elapsed" '
+            /^- Session: / {
+              print
+              print "- Elapsed: " elapsed
+              next
+            }
+            /^- Elapsed: / { next }
+            { print }
+          ' "$temporary_path" > "$elapsed_temporary_path"; then
+            rm -f "$temporary_path" "$elapsed_temporary_path"
+            exit 0
+          fi
+          mv -f "$elapsed_temporary_path" "$temporary_path" || exit 0
+        fi
+        ;;
+    esac
 
     rm -f "$delta_path"
     start_line=$((offset + 1))
@@ -405,7 +440,7 @@ case "$action" in
     rm -f "$delta_path"
     ;;
   cleanup)
-    rm -f "$marker" "$offset_path" "$state_dir/$safe_session_id.delta"
+    rm -f "$marker" "$offset_path" "$started_at_path" "$state_dir/$safe_session_id.delta"
     timestamp=$(cat "$timestamp_path" 2>/dev/null) || timestamp=
     timestamp_prefix="$timestamp"_
     rm -f "$repository_root/docs/conversation/.$timestamp_prefix$safe_session_id.md.tmp"

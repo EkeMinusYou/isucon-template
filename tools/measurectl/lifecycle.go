@@ -14,6 +14,7 @@ import (
 type lifecycleOptions struct {
 	profilesEnabled bool
 	autoCommit      bool
+	commitChanges   bool
 	action          string
 	runID           string
 	resultsDir      string
@@ -36,6 +37,7 @@ type lifecycleRunner struct {
 	digest           func([]string) error
 	manifestBegin    func([]string) error
 	manifestFinalize func([]string) error
+	commitChanges    func(string) error
 }
 
 func runLifecycle(args []string) error {
@@ -46,6 +48,7 @@ func runLifecycle(args []string) error {
 	fs := flag.NewFlagSet("run "+action, flag.ContinueOnError)
 	opts := lifecycleOptions{action: action}
 	fs.BoolVar(&opts.autoCommit, "auto-commit", false, "commit RUN directory and score history after finalization")
+	fs.BoolVar(&opts.commitChanges, "commit-changes", false, "commit all working tree changes before the RUN begins")
 	fs.BoolVar(&opts.profilesEnabled, "profiles-enabled", false, "require automatic Go and fgprof captures for this RUN")
 	fs.StringVar(&opts.runID, "run-id", "", "RUN ID (required for begin)")
 	fs.StringVar(&opts.resultsDir, "results", "runs", "RUN result directory")
@@ -74,6 +77,7 @@ func runLifecycle(args []string) error {
 	runner := lifecycleRunner{
 		collect: runCollect, digest: runDigest,
 		manifestBegin: runManifestBegin, manifestFinalize: runManifestFinalize,
+		commitChanges: commitWorkingTree,
 	}
 	if action == "begin" {
 		return runner.begin(opts)
@@ -89,6 +93,11 @@ func (r lifecycleRunner) begin(opts lifecycleOptions) error {
 		return fmt.Errorf("unfinished RUN exists: %s", opts.runStateFile)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
+	}
+	if opts.commitChanges {
+		if err := r.commitChanges(opts.runID); err != nil {
+			return err
+		}
 	}
 	if err := r.collect(append([]string{"check-clean"}, opts.collectArgs(true)...)); err != nil {
 		return err

@@ -1,11 +1,11 @@
 # MySQL（mysqld.cnf）
 
-MySQL の設定例。リポジトリでは `mysql/mysql.conf.d/mysqld.cnf` の `[mysqld]` セクションを管理し、
-`task deploy-mysql` で `MYSQL_HOST` に配布する。この Task は MySQL を restart するため、反映中は一時的に
+MySQL の設定。リポジトリでは `mysql/mysql.conf.d/mysqld.cnf` の `[mysqld]` セクションを管理し、
+`task deploy-mysql` で `MYSQL_HOSTS` に配布する。この Task は MySQL を restart するため、反映中は一時的に
 接続できなくなり、バッファプールも冷える。
 
-ここにある値は候補値であり、ホストのメモリー、データサイズ、書き込み量、レプリケーションの有無を
-確認してから採用する。
+バッファプール、ログ、接続上限は下記の値を設定する。レプリケーションやデータ保持の要件は
+公式資料に従う。
 
 ## InnoDB のバッファと flush
 
@@ -16,8 +16,8 @@ innodb_flush_log_at_trx_commit = 2
 innodb_flush_method = O_DIRECT
 ```
 
-- `innodb_buffer_pool_size` は InnoDB のデータページとインデックスをキャッシュする領域である。`1GB` は
-  例であり、MySQL 以外のサービスが同居する場合も含めて、空きメモリーとワーキングセットに合わせる。
+- `innodb_buffer_pool_size=1GB` は InnoDB のデータページとインデックスをキャッシュする領域を
+  1 GiB 確保する。MySQL 以外のサービスと同居する場合も、この領域を含めたメモリー使用量を確認する。
 - `innodb_flush_log_at_trx_commit=2` はコミット時の flush 回数を減らす代わりに、OS・電源障害時に直近約1秒分の
   コミットを失う可能性がある。公式資料が求める再起動後のデータ保持や、アプリケーションの整合性チェックを
   満たすことを確認してから使う。
@@ -45,19 +45,13 @@ disable-log-bin = 1
 max_connections = 10000
 ```
 
-`max_connections` は MySQL が受け付ける同時クライアント接続数の上限である。大きくしすぎると、接続ごとの
-メモリー使用量によってメモリー不足になる可能性がある。上限を増やすだけでアプリケーションの並列度が増える
-わけではない。
+`max_connections=10000` は MySQL が受け付ける同時クライアント接続数の上限であり、起動時に
+10000接続を作る設定ではない。接続が実際に増えると接続ごとのメモリーを消費するため、メモリー使用量と
+接続エラーを確認する。この上限だけでアプリケーションの並列度は増えない。
 
-アプリケーション側のDB接続プールも別に制御する。Go実装を採用した場合は、`Taskfile.yml` の
-`APP_DIR` が指すソースからDB接続の初期化箇所を探し、たとえば次のように設定する。
-
-```go
-db.SetMaxOpenConns(50)
-```
-
-MySQL の `max_connections`、アプリの `SetMaxOpenConns`、同じ MySQL へ接続する別サービスの
-接続数を合計して、実際の負荷とメモリー使用量に合わせて調整する。
+Go アプリケーションで `SetMaxOpenConns` を設定すると、MySQL の上限とは別にアプリ側の同時接続数を
+制限する。この資料ではアプリ側に固定の接続上限を追加しない。既に上限がある場合は、その値による
+プール待ちが発生することを確認する。
 
 ## 実効値の確認
 
@@ -71,6 +65,6 @@ sudo mysql -e "SHOW VARIABLES WHERE Variable_name IN (
 );"
 ```
 
-MySQL が active であること、期待した値が読み込まれていること、slow query やサービスメトリクスに異常が
-ないことを確認してから、同じ条件のベンチマークと比較する。設定だけを反映する場合は `task deploy-mysql` を使い、
+MySQL が active であること、期待した値が読み込まれていること、サービスメトリクスに異常が
+ないことを確認する。設定だけを反映する場合は `task deploy-mysql` を使い、
 初期化処理を別途定義している場合も、この設定の反映には使わない。

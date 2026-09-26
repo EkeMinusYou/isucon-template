@@ -6,7 +6,7 @@ import (
 )
 
 func TestDBRecreatePlanStopsWritersAndFailureBoundaries(t *testing.T) {
-	cfg, err := loadConfig(repositoryConfig(t))
+	cfg, err := loadConfig(genericConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,7 +26,7 @@ func TestDBRecreatePlanStopsWritersAndFailureBoundaries(t *testing.T) {
 			t.Fatalf("%s: %+v %v", name, jobs, err)
 		}
 	}
-	for _, failure := range []string{"", "sudo systemctl stop app-service", "DROP DATABASE", "sudo systemctl start app-service", "/initialize"} {
+	for _, failure := range []string{"", "sudo systemctl stop app-service", "DROP DATABASE", "sudo systemctl start 'app-service'", "/initialize"} {
 		t.Run(failure, func(t *testing.T) {
 			fake := &planExecutor{failScriptPattern: failure}
 			runner.exec = fake
@@ -44,7 +44,7 @@ func TestDBRecreatePlanStopsWritersAndFailureBoundaries(t *testing.T) {
 			}
 			if failure == "" {
 				previous := -1
-				for _, pattern := range []string{"sudo systemctl stop app-service", "DROP DATABASE", "sudo systemctl start app-service", "/initialize"} {
+				for _, pattern := range []string{"sudo systemctl stop app-service", "DROP DATABASE", "sudo systemctl start 'app-service'", "/initialize"} {
 					i := index(pattern)
 					if i <= previous {
 						t.Fatalf("out-of-order or absent %q", pattern)
@@ -73,10 +73,10 @@ func TestDBRecreatePlanStopsWritersAndFailureBoundaries(t *testing.T) {
 				if failure == "sudo systemctl stop app-service" && index("DROP DATABASE") != -1 {
 					t.Fatal("reset ran after stop failure")
 				}
-				if failure == "DROP DATABASE" && index("sudo systemctl start app-service") != -1 {
+				if failure == "DROP DATABASE" && index("sudo systemctl start 'app-service'") != -1 {
 					t.Fatal("app started after schema failure")
 				}
-				if failure == "sudo systemctl start app-service" && index("/initialize") != -1 {
+				if failure == "sudo systemctl start 'app-service'" && index("/initialize") != -1 {
 					t.Fatal("application initialized after app start failure")
 				}
 			}

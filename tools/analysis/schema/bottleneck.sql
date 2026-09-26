@@ -28,6 +28,7 @@ select
     coalesce(a.invalid_periodic_artifacts, 0) as invalid_periodic_artifacts,
     coalesce(a.artifact_failures, '') as artifact_failures,
     m.commit,
+    m.branch,
     m.app_hosts,
     m.app_traffic_hosts,
     m.nginx_hosts,

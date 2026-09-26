@@ -47,6 +47,28 @@ export function ScoreTrend({ scores }: Props) {
         <div className="stat-value text-2xl tabular-nums">{scores.length}</div>
       </div>
     </div>
+    {(latest.passed != null || latest.addition != null || latest.deduction != null) && (
+      <div className="rounded-lg border border-base-300 bg-base-100 p-4 text-sm">
+        <div className="font-medium">最新RUNのベンチ結果</div>
+        <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1 tabular-nums">
+          <span>整合性: {latest.passed == null ? '不明' : latest.passed ? '合格' : '失敗'}</span>
+          <span>加点: {latest.addition?.toLocaleString() ?? '不明'}</span>
+          <span>減点: {latest.deduction?.toLocaleString() ?? '不明'}</span>
+        </div>
+        {latest.routes && latest.routes.length > 0 && (
+          <details className="mt-3">
+            <summary className="cursor-pointer">操作別のベンチ出力（{latest.routes.length}件）</summary>
+            <ul className="mt-2 grid gap-1 font-mono text-xs sm:grid-cols-2">
+              {latest.routes.map((route) => (
+                <li key={`${route.method} ${route.route}`}>
+                  {route.method} {route.route}: {route.points}
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+      </div>
+    )}
     <ResponsiveContainer width="100%" height={260}>
       <LineChart data={data} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
         <CartesianGrid stroke="var(--chart-grid)" vertical={false} />

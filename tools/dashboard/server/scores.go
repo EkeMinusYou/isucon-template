@@ -2,21 +2,76 @@ package main
 
 import (
 	"bufio"
+	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
+type routePoints struct {
+	Method string `json:"method"`
+	Route  string `json:"route"`
+	Points int64  `json:"points"`
+}
+
+type benchResult struct {
+	RunID     string        `json:"run_id"`
+	Score     *int64        `json:"score"`
+	Passed    *bool         `json:"passed"`
+	Addition  *int64        `json:"addition"`
+	Deduction *int64        `json:"deduction"`
+	Routes    []routePoints `json:"routes"`
+}
+
 type scoreEntry struct {
-	RunID      string `json:"run_id"`
-	Score      *int64 `json:"score"`
-	App        string `json:"app"`
-	Nginx      string `json:"nginx"`
-	Mysql      string `json:"mysql"`
-	AppTraffic string `json:"app_traffic"`
+	RunID      string        `json:"run_id"`
+	Score      *int64        `json:"score"`
+	Passed     *bool         `json:"passed"`
+	Addition   *int64        `json:"addition"`
+	Deduction  *int64        `json:"deduction"`
+	Routes     []routePoints `json:"routes"`
+	App        string        `json:"app"`
+	Nginx      string        `json:"nginx"`
+	Mysql      string        `json:"mysql"`
+	AppTraffic string        `json:"app_traffic"`
+}
+
+// Saved manifests are immutable. The semantic view can recover results that
+// predate the benchmark output pattern declaration.
+func (a *app) readBenchResults() (map[string]benchResult, error) {
+	results := make(map[string]benchResult)
+	if a.analysisDB == "" {
+		return results, nil
+	}
+	if _, err := os.Stat(a.analysisDB); os.IsNotExist(err) {
+		return results, nil
+	} else if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	query := `select r.run_id, r.score, r.passed, r.addition, r.deduction,
+coalesce((select list(struct_pack(method := p.method, route := p.route, points := p.points)
+    order by p.method, p.route) from bench_score_routes p where p.run_id = r.run_id), []) as routes
+from bench_results r`
+	output, err := exec.CommandContext(ctx, "duckdb", "-readonly", "-json", a.analysisDB, "-c", query).Output()
+	if err != nil {
+		return nil, fmt.Errorf("read benchmark result view (run task q-sync to refresh analysis DB): %w", err)
+	}
+	var rows []benchResult
+	if err := json.Unmarshal(output, &rows); err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		results[row.RunID] = row
+	}
+	return results, nil
 }
 
 const scoresHeader = "run_id\tscore\tapp\tnginx\tmysql\tapp_traffic"
@@ -81,6 +136,22 @@ func (a *app) handleScores(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	results, err := a.readBenchResults()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	for i := range entries {
+		if result, ok := results[entries[i].RunID]; ok {
+			if entries[i].Score == nil {
+				entries[i].Score = result.Score
+			}
+			entries[i].Passed = result.Passed
+			entries[i].Addition = result.Addition
+			entries[i].Deduction = result.Deduction
+			entries[i].Routes = result.Routes
+		}
 	}
 	writeJSON(w, entries)
 }

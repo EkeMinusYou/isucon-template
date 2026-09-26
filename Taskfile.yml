@@ -23,6 +23,9 @@ vars:
   LISTEN_PORT: '8080'
   TARGET_OS: linux
   TARGET_ARCH: amd64
+  # Example budget: initialization + checks + load + margin. Tune for the contest.
+  PROFILE_SECONDS: '120'
+  SNAPSHOT_PROFILE_DELAY: 40s
   # Additional local files read during DB recreation or initialization; use 'none' if empty.
   RESET_INPUTS: ''
   # Adapt these reset assets and endpoint to the acquired official implementation.
@@ -72,6 +75,7 @@ vars:
   # >>> contest values >>>
   BENCH_TARGET: http://{{.ENTRY_IP}}
   BENCH_COMMAND: ./bench_linux_amd64 run --target {{.BENCH_TARGET}}
+  BENCH_SSH_OPTIONS: ''
   # <<< contest values <<<
 
   RESULT_DIR: runs
@@ -91,9 +95,6 @@ vars:
   # Standard measurement; setup must install the endpoint adapter before a RUN.
   PROFILES_ENABLED: 'true'
   PROFILE_DELAY: 0s
-  SNAPSHOT_PROFILE_DELAY: 40s
-  # Example budget: initialization + checks + load + margin. Tune for the contest.
-  PROFILE_SECONDS: '120'
   FGPROF_URL: 'http://127.0.0.1:6060/debug/fgprof?seconds={{.PROFILE_SECONDS}}'
   PROFILE_TIMEOUT_SECONDS: '{{add (int .PROFILE_SECONDS) 15}}'
   PROFILE_READY_TIMEOUT_SECONDS: '15'
@@ -502,11 +503,15 @@ tasks:
         {{.MEASURECTL_DIR}}/measurectl collect oneshot -group profiles -run-id '{{.SMOKE_ID}}' -run-dir '{{.SMOKE_DIR}}' {{.MEASURECTL_REMOTE}} {{.SMOKE_PROFILE_VARS}} &
         profiles_pid=$!
         {{.MEASURECTL_DIR}}/measurectl collect ready -group profiles -run-id '{{.SMOKE_ID}}' {{.MEASURECTL_REMOTE}}
+        started_at=$(task --silent bench-timestamp)
+        printf '%s\tBENCHMARK_START\n' "$started_at" > '{{.SMOKE_DIR}}/bench.log'
         {{.SSH}} {{.SSH_USER}}@{{.ENTRY_HOST}} 'mkdir -p {{.SMOKE_REMOTE_DIR}}'
         {{.RSYNC}} '{{.SMOKE_TOOL_DIR}}/smoke' {{.SSH_USER}}@{{.ENTRY_HOST}}:{{.SMOKE_REMOTE_DIR}}/smoke
         {{.SSH}} {{.SSH_USER}}@{{.ENTRY_HOST}} '{{.SMOKE_REMOTE_DIR}}/smoke'
+        ended_at=$(task --silent bench-timestamp)
+        printf '%s\tBENCHMARK_END\n' "$ended_at" >> '{{.SMOKE_DIR}}/bench.log'
         wait "$profiles_pid"
-        {{.MEASURECTL_DIR}}/measurectl digest -only alp,alp-by-ingress,upstream-breakdown,upstream-breakdown-by-ingress,user-transitions,pt-query-digest,slp,mysql-digest -run-dir '{{.SMOKE_DIR}}' -raw-dir '{{.SMOKE_DIR}}/raw' {{.MEASURECTL_REMOTE}}
+        {{.MEASURECTL_DIR}}/measurectl digest -only alp,alp-by-ingress,upstream-breakdown,upstream-breakdown-by-ingress,user-transitions,pt-query-digest,slp,mysql-digest,app-journal,nginx-error,kernel-journal,oom-events -run-dir '{{.SMOKE_DIR}}' -raw-dir '{{.SMOKE_DIR}}/raw' {{.MEASURECTL_REMOTE}}
         echo 'Smoke artifacts: {{.SMOKE_DIR}} (not a benchmark RUN)'
 
   setup-smoke-stop:
@@ -532,7 +537,7 @@ tasks:
           {{range (splitList " " .APP_TRAFFIC_HOSTS)}}
           echo "  server {{index $.IP .}}:{{$.LISTEN_PORT}};"
           {{end}}
-          echo "  keepalive 64;"
+          echo "  keepalive 60;"
           echo "}"
         } > nginx/conf.d/upstream.conf
       # Contest hook; appends solution-specific upstreams and generated per-host files.
@@ -657,7 +662,7 @@ tasks:
       - for: { var: NGINX_HOSTS }
         cmd: '{{.SSH}} {{.SSH_USER}}@{{.ITEM}} "for ip in {{.APP_IPS}}; do timeout 2 bash -c \"</dev/tcp/\$ip/{{.LISTEN_PORT}}\"; done" && echo "[{{.ITEM}}] app OK"'
       - for: { var: APP_HOSTS }
-        cmd: '{{.SSH}} {{.SSH_USER}}@{{.ITEM}} "timeout 2 bash -c \"</dev/tcp/{{if eq .ITEM .MYSQL_HOST}}127.0.0.1{{else}}{{.MYSQL_IP}}{{end}}/3306\"" && echo "[{{.ITEM}}] mysql OK"'
+        cmd: '{{.SSH}} {{.SSH_USER}}@{{.ITEM}} "timeout 2 bash -c \"</dev/tcp/{{if has .ITEM (splitList " " .MYSQL_HOSTS)}}127.0.0.1{{else}}{{.MYSQL_IP}}{{end}}/3306\"" && echo "[{{.ITEM}}] mysql OK"'
 
   check-roles:
     desc: service状態がTaskfileの役割定義と一致することを確認
@@ -668,6 +673,9 @@ tasks:
   bench:
     desc: 計測開始→BENCH_HOSTでベンチ→回収
     deps: [build-bench-output]
+    preconditions:
+      - sh: test -n '{{.BENCH_COMMAND}}'
+        msg: BENCH_COMMAND is empty; use task bench-manual for portal benchmarks
     env: &bench_runner_env
       ISUCON_BENCH_RUN_STATE_FILE: '{{.RUN_STATE_FILE}}'
       ISUCON_BENCH_RESULTS_DIR: '{{.RESULT_DIR}}'
@@ -675,7 +683,7 @@ tasks:
       ISUCON_BENCH_PROFILES_ENABLED: '{{.PROFILES_ENABLED}}'
     cmds:
       - >-
-        sh tools/bench/run.sh auto -- tools/bench-output/bench-output {{.SSH}} {{.SSH_USER}}@{{.BENCH_HOST}}
+        sh tools/bench/run.sh auto -- tools/bench-output/bench-output {{.SSH}} {{.BENCH_SSH_OPTIONS}} {{.SSH_USER}}@{{.BENCH_HOST}}
         "sudo -u {{.ISUCON_USER}} -i bash -lc 'cd {{.REMOTE_HOME}} && {{.BENCH_COMMAND}}'"
 
   bench-no-collectors:
@@ -699,7 +707,7 @@ tasks:
         vars: { MEASURECTL_COLLECT_FLAGS: -no-collectors, PROFILES_ENABLED: 'false' }
 
   before-bench:
-    desc: RUNを採番し、ログローテートとcollector起動を行う
+    desc: 差分をcommitしてRUNを採番し、ログローテートとcollector起動を行う
     silent: true
     deps: [build-measurectl, build-proc-metrics, build-mysql-metrics, build-sql-pool-metrics]
     cmds:
@@ -707,7 +715,7 @@ tasks:
         bash <<'BASH'
         set -eu
         mkdir -p '{{.RAW_DIR}}'
-        {{.MEASURECTL_DIR}}/measurectl run begin -run-id '{{.RUN_ID}}' \
+        {{.MEASURECTL_DIR}}/measurectl run begin -commit-changes -run-id '{{.RUN_ID}}' \
           -profiles-enabled={{.PROFILES_ENABLED}} \
           -results '{{.RESULT_DIR}}' -raw-dir '{{.RAW_DIR}}' -run-state-file '{{.RUN_STATE_FILE}}' \
           -collector-flags '{{.MEASURECTL_FLAGS}} {{default "" .MEASURECTL_COLLECT_FLAGS}}' {{.MEASURECTL_REMOTE}}

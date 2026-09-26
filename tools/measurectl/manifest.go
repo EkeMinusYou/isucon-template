@@ -25,24 +25,24 @@ import (
 // 実ファイルから型を推論するので、RUN によってキーが出たり消えたりすると
 // 横断クエリのスキーマが揺れる。
 type Manifest struct {
-	ArtifactContract   []ArtifactSpec  `json:"artifact_contract,omitempty"`
-	ProfilesEnabled    bool            `json:"profiles_enabled"`
-	RequiredArtifacts  []string        `json:"required_artifacts,omitempty"`
-	CollectorsDisabled bool            `json:"collectors_disabled,omitempty"`
-	SchemaVersion      int             `json:"schema_version"`
-	Phase              string          `json:"phase"`
-	RunID              string          `json:"run_id"`
-	StartedAt          string          `json:"started_at"`
-	WrittenAt          string          `json:"written_at"`
-	FinalizedAt        string          `json:"finalized_at"`
-	Score              *int64          `json:"score"`
-	Passed             *bool           `json:"passed"`
-	Roles              Roles           `json:"roles"`
-	Source             CodeSource      `json:"source"`
-	Artifacts          []Artifact      `json:"artifacts"`
-	RawBytes           int64           `json:"raw_bytes"`
-	Preflight          Preflight       `json:"preflight"`
-	LoadWindow         LoadWindow      `json:"load_window"`
+	ArtifactContract   []ArtifactSpec `json:"artifact_contract,omitempty"`
+	ProfilesEnabled    bool           `json:"profiles_enabled"`
+	RequiredArtifacts  []string       `json:"required_artifacts,omitempty"`
+	CollectorsDisabled bool           `json:"collectors_disabled,omitempty"`
+	SchemaVersion      int            `json:"schema_version"`
+	Phase              string         `json:"phase"`
+	RunID              string         `json:"run_id"`
+	StartedAt          string         `json:"started_at"`
+	WrittenAt          string         `json:"written_at"`
+	FinalizedAt        string         `json:"finalized_at"`
+	Score              *int64         `json:"score"`
+	Passed             *bool          `json:"passed"`
+	Roles              Roles          `json:"roles"`
+	Source             CodeSource     `json:"source"`
+	Artifacts          []Artifact     `json:"artifacts"`
+	RawBytes           int64          `json:"raw_bytes"`
+	Preflight          Preflight      `json:"preflight"`
+	LoadWindow         LoadWindow     `json:"load_window"`
 }
 
 type LoadWindow struct {
@@ -73,6 +73,7 @@ type Roles struct {
 // (JSON のキーは source。digesters.yaml の Source とは別物)
 type CodeSource struct {
 	Commit string `json:"commit"`
+	Branch string `json:"branch"`
 }
 
 // Artifact は回収物 1 件。status は ok / empty / failed / missing のいずれか。
@@ -146,6 +147,10 @@ func runManifestBegin(args []string) error {
 		return fmt.Errorf("走行ディレクトリを読めません: %w", err)
 	}
 	runID := filepath.Base(strings.TrimSuffix(*dir, string(filepath.Separator)))
+	source, err := gitSource()
+	if err != nil {
+		return err
+	}
 	m := Manifest{
 		ProfilesEnabled:    *profilesEnabled,
 		CollectorsDisabled: *collectorsDisabled,
@@ -161,10 +166,10 @@ func runManifestBegin(args []string) error {
 			Entry:      *entry,
 			MySQL:      *mysql,
 		},
-		Source:          gitSource(),
-		Artifacts:       []Artifact{},
-		Preflight:       Preflight{CollectorClean: *collectorClean},
-		LoadWindow:      LoadWindow{Status: "pending", Source: "bench.log"},
+		Source:     source,
+		Artifacts:  []Artifact{},
+		Preflight:  Preflight{CollectorClean: *collectorClean},
+		LoadWindow: LoadWindow{Status: "pending", Source: "bench.log"},
 	}
 	if *captureContract {
 		var err error
@@ -461,19 +466,22 @@ func resolvePassed(benchLog []byte) *bool {
 	return nil
 }
 
-func gitSource() CodeSource {
-	s := CodeSource{}
-	root := ""
-	if out, err := exec.Command("git", "rev-parse", "--show-toplevel").Output(); err == nil {
-		root = strings.TrimSpace(string(out))
+func gitSource() (CodeSource, error) {
+	git := func(args ...string) (string, error) {
+		out, err := runGitWithRetry(func() ([]byte, error) {
+			return exec.Command("git", args...).CombinedOutput()
+		}, args[0])
+		return strings.TrimSpace(string(out)), err
 	}
-	if root == "" {
-		return s
+	commit, err := git("rev-parse", "--verify", "HEAD")
+	if err != nil {
+		return CodeSource{}, err
 	}
-	if out, err := exec.Command("git", "-C", root, "rev-parse", "HEAD").Output(); err == nil {
-		s.Commit = strings.TrimSpace(string(out))
+	branch, err := git("rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return CodeSource{}, err
 	}
-	return s
+	return CodeSource{Commit: commit, Branch: branch}, nil
 }
 
 func parseRunIDTime(runID string) string {

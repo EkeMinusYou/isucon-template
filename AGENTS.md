@@ -9,7 +9,6 @@
 - 時間・処理量・待ち・capacityを同じ単位・母数で比較し、同一RUN・時間窓のEvidenceで判断する。割合だけで律速を決めない
 - 欠損成果物を0扱いせず、`run.json`のartifact statusと`missing`を確認する。失敗RUNもfinalizeし、成果物全体は`task artifacts-run`で確認する
 - 数値集計・時系列結合・RUN横断解析は既存DuckDB（`task q -- "SQL"`）を優先し、`tools/analysis/sources.yaml`・`tools/analysis/schema/`・既存ビューを使う。未対応処理や単純確認は別手段可。DuckDB利用のために計測基盤を変更しない
-- 設定断片は候補値として扱い、元の値と採用理由を残す
 
 ### 現行構成からの追加改善を考える
 

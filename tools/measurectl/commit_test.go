@@ -51,6 +51,79 @@ func TestRunGitWithRetry(t *testing.T) {
 	})
 }
 
+func TestCommitWorkingTreeAndManifestSource(t *testing.T) {
+	tmp := t.TempDir()
+	old, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(tmp); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(old) })
+	git := func(args ...string) string {
+		t.Helper()
+		out, err := exec.Command("git", args...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	write := func(path, body string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	git("init", "-q")
+	git("config", "user.name", "Test")
+	git("config", "user.email", "test@example.com")
+	git("config", "commit.gpgsign", "false")
+	git("checkout", "-qb", "benchmark-work")
+	write(".gitignore", "ignored.txt\n")
+	write("staged.txt", "original\n")
+	write("mixed.txt", "original\n")
+	git("add", ".")
+	git("commit", "-qm", "Initial")
+	write("staged.txt", "staged\n")
+	git("add", "staged.txt")
+	write("mixed.txt", "staged\n")
+	git("add", "mixed.txt")
+	write("mixed.txt", "final\n")
+	write("new.txt", "untracked\n")
+	write("ignored.txt", "ignored\n")
+	if err := commitWorkingTree("20260901-120000"); err != nil {
+		t.Fatal(err)
+	}
+	commit := git("rev-parse", "HEAD")
+	if got := git("show", "HEAD:mixed.txt"); got != "final" {
+		t.Fatalf("committed mixed.txt = %q", got)
+	}
+	if got := git("show", "--pretty=format:", "--name-only", "HEAD"); got != "mixed.txt\nnew.txt\nstaged.txt" {
+		t.Fatalf("committed files = %q", got)
+	}
+	if got := git("status", "--porcelain=v1", "--untracked-files=all"); got != "" {
+		t.Fatalf("working tree is dirty: %q", got)
+	}
+	if err := commitWorkingTree("20260901-120001"); err != nil {
+		t.Fatal(err)
+	}
+	if got := git("rev-parse", "HEAD"); got != commit {
+		t.Fatalf("clean tree created a commit: %s -> %s", commit, got)
+	}
+	runDir := "20260901-120000"
+	if err := os.Mkdir(runDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := runManifestBegin([]string{"-dir", runDir}); err != nil {
+		t.Fatal(err)
+	}
+	manifest := readTestManifest(t, filepath.Join(runDir, "run.json"))
+	if manifest.Source.Commit != commit || manifest.Source.Branch != "benchmark-work" {
+		t.Fatalf("source = %#v", manifest.Source)
+	}
+}
+
 func TestCommitRunArtifactsIsolation(t *testing.T) {
 	for _, stagedArtifact := range []bool{false, true} {
 		t.Run(map[bool]string{false: "isolated", true: "reject_staged_artifact"}[stagedArtifact], func(t *testing.T) {

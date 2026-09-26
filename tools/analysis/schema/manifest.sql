@@ -11,6 +11,7 @@ select
     try_cast(json_extract_string(content, '$.passed') as boolean) as passed,
     try_cast(json_extract_string(content, '$.started_at') as timestamp) as started_at,
     json_extract_string(content, '$.source.commit') as commit,
+    json_extract_string(content, '$.source.branch') as branch,
     try_cast(json_extract(content, '$.roles.app') as varchar[]) as app_hosts,
     try_cast(json_extract(content, '$.roles.app_traffic') as varchar[]) as app_traffic_hosts,
     try_cast(json_extract(content, '$.roles.nginx') as varchar[]) as nginx_hosts,

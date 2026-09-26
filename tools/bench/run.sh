@@ -78,6 +78,16 @@ if [ "$mode" = manual ]; then
   read -r benchmark_done || benchmark_done=''
   ended_at=$(task --silent bench-timestamp)
   printf '%s\tBENCHMARK_END\n' "$ended_at" >> "$run_dir/bench.log"
+  printf 'ベンチ結果の原文を保存したファイル（空欄可）: '
+  read -r result_file || result_file=''
+  if [ -n "$result_file" ]; then
+    if [ ! -f "$result_file" ]; then
+      echo "result file does not exist: $result_file" >&2
+    else
+      cp "$result_file" "$run_dir/benchmark-result.txt"
+      printf 'RESULT_ARTIFACT: benchmark-result.txt\n' >> "$run_dir/bench.log"
+    fi
+  fi
   printf '完了後にスコアを入力してください（空欄可）: '
   read -r score || score=''
   printf 'RESULT_SOURCE: manual\n' >> "$run_dir/bench.log"

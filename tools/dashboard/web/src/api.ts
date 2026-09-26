@@ -22,6 +22,10 @@ export type RunInfo = {
 export type ScoreEntry = {
   run_id: string
   score: number | null
+  passed: boolean | null
+  addition: number | null
+  deduction: number | null
+  routes: { method: string; route: string; points: number }[] | null
   app: string
   nginx: string
   mysql: string

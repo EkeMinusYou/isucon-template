@@ -2,14 +2,35 @@
 -- 生テキストの取り込みは汎用側（tools/analysis/schema/bench-errors.sql が
 -- bench_error_logs へ入れる）が担当し、ここは行の解釈だけを持つ。
 --
--- プレースホルダー。setupで当日の出力を見てから、下の3ビューの本体を書き換える。
--- ビュー名と列はdashboard（tools/dashboard/server/bench_errors.go）とREADMEの契約なので
+-- プレースホルダー。setupで当日の出力を見てから、下の5ビューの本体を書き換える。
+-- ビュー名と列はdashboard（tools/dashboard/server/bench_errors.go、scores.go）とREADMEの契約なので
 -- 変えない。書き換えるまでは、いずれも0行を返す。
 -- 書式に依存するテストは tools/dashboard/server/<contest>_test.go へ置き、
 -- tools/template/paths.txt の [contest] へ加える。
 create table if not exists bench_error_logs (
     run_id varchar, content varchar, source_artifact varchar
 );
+
+-- 1RUNにつき1行のベンチ結果。manifestにscore/passedが無いRUNをdashboardが補う。
+create or replace view bench_results as
+select
+    cast(null as varchar) as run_id,
+    cast(null as bigint) as score,
+    cast(null as boolean) as passed,
+    cast(null as bigint) as addition,
+    cast(null as bigint) as deduction,
+    cast(null as varchar) as source_artifact
+where false;
+
+-- ベンチマーカーが操作別に出す得点。
+create or replace view bench_score_routes as
+select
+    cast(null as varchar) as run_id,
+    cast(null as varchar) as method,
+    cast(null as varchar) as route,
+    cast(null as bigint) as points,
+    cast(null as varchar) as source_artifact
+where false;
 
 -- 報告された1エラーにつき1行。発生した全エラーではない場合があるので、
 -- time_semantics にその行の時刻の意味を入れる（例: 完了時のまとめなら 'completion_summary'）。

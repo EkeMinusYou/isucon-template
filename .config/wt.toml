@@ -1,0 +1,2 @@
+[post-merge]
+qsync = "task q-sync"

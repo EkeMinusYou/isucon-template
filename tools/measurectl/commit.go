@@ -30,6 +30,56 @@ func runGitWithRetry(run func() ([]byte, error), command string) ([]byte, error)
 	return out, fmt.Errorf("git %s: %w: %s", command, err, out)
 }
 
+// commitWorkingTree records all tracked and untracked changes before a RUN starts.
+func commitWorkingTree(runID string) error {
+	git := func(root string, args ...string) ([]byte, error) {
+		command := args[0]
+		if command == "-c" && len(args) > 2 {
+			command = args[2]
+		}
+		gitArgs := []string{}
+		if root != "" {
+			gitArgs = append(gitArgs, "-C", root)
+		}
+		gitArgs = append(gitArgs, args...)
+		return runGitWithRetry(func() ([]byte, error) {
+			return exec.Command("git", gitArgs...).CombinedOutput()
+		}, command)
+	}
+	rootOut, err := git("", "rev-parse", "--show-toplevel")
+	if err != nil {
+		return err
+	}
+	root := strings.TrimSpace(string(rootOut))
+	status, err := git(root, "status", "--porcelain=v1", "--untracked-files=all")
+	if err != nil || len(status) == 0 {
+		return err
+	}
+	if _, err := git(root, "add", "-A", "--", "."); err != nil {
+		return err
+	}
+	staged, err := git(root, "diff", "--cached", "--name-only")
+	if err != nil {
+		return err
+	}
+	if len(staged) == 0 {
+		return fmt.Errorf("working tree has changes that git add could not stage: %s", status)
+	}
+	out, err := git(root, "-c", "core.hooksPath=/dev/null", "commit", "-m", "Snapshot changes before benchmark "+runID)
+	fmt.Print(string(out))
+	if err != nil {
+		return err
+	}
+	status, err = git(root, "status", "--porcelain=v1", "--untracked-files=all")
+	if err != nil {
+		return err
+	}
+	if len(status) != 0 {
+		return fmt.Errorf("working tree still has changes after snapshot: %s", status)
+	}
+	return nil
+}
+
 func commitRunArtifacts(runDir, scores string) error {
 	git := func(args ...string) ([]byte, error) {
 		command := args[0]
