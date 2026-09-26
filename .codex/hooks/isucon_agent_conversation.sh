@@ -137,8 +137,8 @@ case "$action" in
       ''|*[!0-9]*) offset=0 ;;
     esac
 
-    # Rebuild files created by older versions of the tool-call exporter.
-    if [ -f "$output_path" ] && ! grep -q '^<!-- codex-hook-format: 5; tool results omitted -->$' "$output_path"; then
+    # Rebuild files created by older exporter formats.
+    if [ -f "$output_path" ] && ! grep -q '^<!-- codex-hook-format: 6; tool results omitted -->$' "$output_path"; then
       offset=0
     fi
 
@@ -160,8 +160,8 @@ case "$action" in
       {
         printf '%s\n\n' "# Codex conversation"
         printf '%s\n\n' "- Session: $safe_session_id"
-        printf '%s\n\n' '<!-- codex-hook-format: 5; tool results omitted -->'
-        printf '%s\n' "---"
+        printf '%s\n\n' '<!-- codex-hook-format: 6; tool results omitted -->'
+        printf '%s\n\n' "---"
       } > "$temporary_path" || exit 0
     else
       if ! cp "$output_path" "$temporary_path"; then
@@ -201,7 +201,25 @@ case "$action" in
 
     rm -f "$delta_path"
     start_line=$((offset + 1))
-    if [ "$start_line" -le "$line_count" ] && ! tail -n +"$start_line" "$transcript_path" | jq -r '
+    # Read earlier records to carry the latest user timestamp into new messages.
+    if [ "$start_line" -le "$line_count" ] && ! jq -nr --argjson offset "$offset" '
+      def event_time:
+        (.timestamp? // .payload.timestamp? // null) as $value
+        | if ($value | type) == "number" then $value
+          elif ($value | type) == "string" then
+            try ($value | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) catch null
+          else null
+          end;
+
+      def response_elapsed($user_at; $time):
+        if $user_at == null or $time == null or $time < $user_at then
+          null
+        else
+          ($time - $user_at | floor) as $seconds
+          | def pad2: tostring | if length < 2 then "0" + . else . end;
+          "\(($seconds / 3600 | floor) | pad2):\((($seconds % 3600) / 60 | floor) | pad2):\(($seconds % 60) | pad2)"
+        end;
+
       def text_from_content:
         if type == "string" then .
         elif type == "array" then
@@ -230,18 +248,27 @@ case "$action" in
       def body:
         (. // "") | text_from_content;
 
+      def trim_outer_newlines:
+        sub("^\\n+"; "") | sub("\\n+$"; "");
+
       def is_internal_user_context:
         startswith("# AGENTS.md instructions for ")
         or startswith("<environment_context>")
         or startswith("<skill>")
         or startswith("<skills_instructions>");
 
-      def section($heading; $value):
-        ($value | body) as $text
+      def user_body:
+        if .type? == "user_message" then .message? // .text? // ""
+        elif .role? == "user" then .content? // .text? // ""
+        else null
+        end;
+
+      def section($heading; $value; $elapsed):
+        ($value | body | trim_outer_newlines) as $text
         | if ($heading == "USER" and ($text | is_internal_user_context)) then
             empty
           elif ($text | length) > 0 then
-            "## \($heading)\n\n\($text)\n"
+            "## \($heading)\(if $heading == "ASSISTANT" and $elapsed != null then " (Elapsed: \($elapsed))" else "" end)\n\n\($text)\n"
           else
             empty
           end;
@@ -257,7 +284,7 @@ case "$action" in
         end;
 
       def command_section($command):
-        "## TOOL\n\n```sh\n\($command)\n```\n";
+        "## TOOL\n\n```sh\n\($command | trim_outer_newlines)\n```\n";
 
       def command_from_arguments:
         if type != "object" then
@@ -349,10 +376,10 @@ case "$action" in
             | if $command != null then
                 command_section($command)
               else
-                "## TOOL\n\n### `exec_command`\n\n```javascript\n\($call.source)\n```\n"
+                "## TOOL\n\n### `exec_command`\n\n```javascript\n\($call.source | trim_outer_newlines)\n```\n"
               end
           else
-            "## TOOL\n\n### `\($call.name)`\n\n```javascript\n\($call.source)\n```\n"
+            "## TOOL\n\n### `\($call.name)`\n\n```javascript\n\($call.source | trim_outer_newlines)\n```\n"
           end;
 
       def code_mode_tool_section:
@@ -365,7 +392,7 @@ case "$action" in
               | if ($calls | length) > 0 then
                   $calls
                   | map(nested_tool_section)
-                  | join("")
+                  | join("\n")
                 else
                   ($tool | tool_section)
                 end
@@ -376,27 +403,44 @@ case "$action" in
             ($tool | tool_section)
           end;
 
-      . as $record
-      | ($record.payload // $record) as $payload
-      | if ($payload.type? == "message"
+      def render($user_at; $time):
+        . as $payload
+        | response_elapsed($user_at; $time) as $elapsed
+        | if ($payload.type? == "message"
             and ($payload.role? == "user"
               or $payload.role? == "assistant")) then
-          section(($payload.role | ascii_upcase); ($payload.content? // $payload.text? // ""))
+          section(($payload.role | ascii_upcase); ($payload.content? // $payload.text? // ""); $elapsed)
         elif ($payload.type? == "user_message") then
-          section("USER"; ($payload.message? // $payload.text? // ""))
+          section("USER"; ($payload.message? // $payload.text? // ""); null)
         elif ($payload.type? == "agent_message") then
-          section("ASSISTANT"; ($payload.message? // $payload.text? // ""))
+          section("ASSISTANT"; ($payload.message? // $payload.text? // ""); $elapsed)
         elif ($payload.type? == "function_call"
               or $payload.type? == "custom_tool_call"
               or $payload.type? == "tool_call"
               or $payload.type? == "tool_use") then
           ($payload | code_mode_tool_section)
         elif ($payload.role? == "user" or $payload.role? == "assistant") then
-          section(($payload.role | ascii_upcase); ($payload.content? // $payload.text? // ""))
+          section(($payload.role | ascii_upcase); ($payload.content? // $payload.text? // ""); $elapsed)
         else
           empty
-        end
-    ' > "$delta_path"; then
+        end;
+
+      foreach inputs as $record (
+        {line: 0, user_at: null, output: ""};
+        .line += 1
+        | ($record.payload // $record) as $payload
+        | ($record | event_time) as $time
+        | ($payload | user_body) as $user_text
+        | if $user_text != null and (($user_text | body | is_internal_user_context) | not) then
+            .user_at = $time
+          else . end
+        | .user_at as $user_at
+        | .output = if .line > $offset then
+            ([$payload | render($user_at; $time)] | join(""))
+          else "" end;
+        .output | select(length > 0)
+      )
+    ' "$transcript_path" > "$delta_path"; then
       rm -f "$temporary_path"
       rm -f "$delta_path"
       exit 0
