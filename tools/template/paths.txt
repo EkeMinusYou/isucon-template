@@ -18,7 +18,6 @@
 .codex/hooks
 .agents
 .claude
-.envrc
 .gitattributes
 .gitignore
 AGENTS.md
