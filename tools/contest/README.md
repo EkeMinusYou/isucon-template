@@ -10,6 +10,7 @@
 | ファイル | 読む側 | 内容 |
 | --- | --- | --- |
 | `bench-patterns.json` | `tools/bench-output` | ベンチ出力のscore・合否正規表現。coreは形式を持たない |
+| `load-phase.yaml` | `tools/analysisctl` | 任意。ベンチログの実負荷開始・停止行の正規表現。`tools/analysis/sources.yaml`の`load_phase`で参照する |
 | `user-transition-routes.json` | `tools/user-transition-metrics` | Cookie列と正規化routeの宣言 |
 | `analysis-schema/` | `tools/analysis/sources.yaml` | ベンチログの解釈をDuckDBのviewにするschema。エラー行の意味ビューとscore集計 |
 | `smoke/` | `task setup-smoke` | ベンチを使わず計測経路を確認する、当日のセッションフローのGo実装 |
@@ -18,7 +19,7 @@
 templateに置いてあるのは`bench-patterns.json`、`user-transition-routes.json`、
 `analysis-schema/bench-errors-semantic.sql`、`smoke/`のプレースホルダーだけである。setupで当日の形式へ書き換え、
 必要になった解法固有の宣言だけをこのディレクトリへ足す。`Taskfile.contest.yml`のhookタスク
-（`prepare-db-assets`、`gen-contest-routing`）も同じ考え方で、該当する処理がなければ空のままにする。
+（`prepare-db-assets`、`gen-contest-routing`、`setup-contest-assets`、`setup-smoke-probes`）も同じ考え方で、該当する処理がなければ空のままにする。
 
 `analysis-schema/`のviewは、dashboardとREADMEが名前と列で参照する契約である。書式に合わせて
 本体を書き換えるときも、view名と列は変えない。書き換えなければ0行を返す。

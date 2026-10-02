@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -43,6 +44,63 @@ type collectionWindow struct {
 	EndedAt   time.Time
 }
 
+// Patterns belong to the contest config; timestamps use the log's ISO prefix.
+type loadPhaseConfig struct {
+	StartPattern string `yaml:"start_pattern"`
+	EndPattern   string `yaml:"end_pattern"`
+	start        *regexp.Regexp
+	end          *regexp.Regexp
+}
+
+func (p *loadPhaseConfig) compile() error {
+	if p.StartPattern == "" && p.EndPattern == "" {
+		return nil
+	}
+	if p.StartPattern == "" || p.EndPattern == "" {
+		return fmt.Errorf("load_phase requires both start_pattern and end_pattern")
+	}
+	var err error
+	if p.start, err = regexp.Compile(p.StartPattern); err != nil {
+		return fmt.Errorf("load_phase.start_pattern: %w", err)
+	}
+	if p.end, err = regexp.Compile(p.EndPattern); err != nil {
+		return fmt.Errorf("load_phase.end_pattern: %w", err)
+	}
+	return nil
+}
+
+func (p loadPhaseConfig) resolve(runDir string, collection collectionWindow) (collectionWindow, bool) {
+	if p.start == nil || p.end == nil {
+		return collectionWindow{}, false
+	}
+	body, err := os.ReadFile(filepath.Join(runDir, "bench.log"))
+	if err != nil {
+		return collectionWindow{}, false
+	}
+	var start, end time.Time
+	var starts, ends int
+	for _, line := range strings.Split(string(body), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		at, err := time.Parse(time.RFC3339Nano, fields[0])
+		if err != nil {
+			continue
+		}
+		if p.start.MatchString(line) {
+			start, starts = at, starts+1
+		}
+		if p.end.MatchString(line) {
+			end, ends = at, ends+1
+		}
+	}
+	if starts != 1 || ends != 1 || !end.After(start) || start.Before(collection.StartedAt) || end.After(collection.EndedAt) {
+		return collectionWindow{}, false
+	}
+	return collectionWindow{StartedAt: start.UTC(), EndedAt: end.UTC()}, true
+}
+
 type manifestWindow struct {
 	LoadWindow struct {
 		StartedAt string `json:"started_at"`
@@ -55,7 +113,7 @@ type accessLogSample struct {
 	ResponseTime json.RawMessage `json:"response_time"`
 }
 
-func resolveAnalysisWindows(dirs, runIDs []string) map[string]analysisWindow {
+func resolveAnalysisWindows(dirs, runIDs []string, phase loadPhaseConfig) map[string]analysisWindow {
 	windows := make(map[string]analysisWindow, len(runIDs))
 	for index, runID := range runIDs {
 		dir := ""
@@ -65,12 +123,12 @@ func resolveAnalysisWindows(dirs, runIDs []string) map[string]analysisWindow {
 		if dir == "" {
 			dir = filepath.Join("runs", runID)
 		}
-		windows[runID] = resolveAnalysisWindow(dir)
+		windows[runID] = resolveAnalysisWindow(dir, phase)
 	}
 	return windows
 }
 
-func resolveAnalysisWindow(runDir string) analysisWindow {
+func resolveAnalysisWindow(runDir string, phase loadPhaseConfig) analysisWindow {
 	base := analysisWindow{
 		Source:           "traffic-threshold",
 		Status:           "unavailable",
@@ -86,14 +144,39 @@ func resolveAnalysisWindow(runDir string) analysisWindow {
 		base.Reason = reason
 		return base
 	}
+	declared, explicit := phase.resolve(runDir, collection)
+	if explicit {
+		base = analysisWindow{
+			StartedAt: declared.StartedAt, EndedAt: declared.EndedAt,
+			Source: "bench.log-load-phase", Status: "ok",
+		}
+	}
 
 	paths := accessLogFilesForWindow(runDir)
 	if len(paths) == 0 {
+		if explicit {
+			base.Reason = "load phase declared; access logs are unavailable"
+			return base
+		}
 		return fallbackAnalysisWindow(base, collection, "access logs are unavailable")
 	}
-	buckets, err := requestStartBuckets(paths, collection)
+	statsWindow := collection
+	if explicit {
+		statsWindow = declared
+	}
+	buckets, err := requestStartBuckets(paths, statsWindow)
 	if err != nil {
+		if explicit {
+			base.Reason = "load phase declared; access log parsing failed: " + err.Error()
+			return base
+		}
 		return fallbackAnalysisWindow(base, collection, "access log parsing failed: "+err.Error())
+	}
+	if explicit {
+		// Records were filtered before bucketing, so a fractional first second
+		// contains only load requests and must still contribute to the count.
+		base.RequestCount, base.ActiveSeconds = windowRequestStats(buckets, declared.StartedAt.Truncate(time.Second), declared.EndedAt)
+		return base
 	}
 	start, end, ok, reason := detectTrafficWindow(collection, buckets)
 	if !ok {

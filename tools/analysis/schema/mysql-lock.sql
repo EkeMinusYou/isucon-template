@@ -6,6 +6,8 @@ select
     coalesce(nullif(regexp_extract(m.filename, '/([^/]+)-mysql-lock-waits\.tsv$', 1), ''), r.mysql_host) as host,
     m.* exclude (filename)
 from read_csv(getvariable('run_glob') || '/*mysql-lock-waits.tsv', delim = '\t',
-              header = true, filename = true, union_by_name = true) m
+              header = true, filename = true, union_by_name = true,
+              -- LOCK_DATA also contains composite keys and pseudo-record names.
+              types = {'request_lock_data': 'VARCHAR', 'blocking_lock_data': 'VARCHAR'}) m
 left join runs r
   on r.run_id = regexp_extract(m.filename, 'runs/([^/]+)/', 1);

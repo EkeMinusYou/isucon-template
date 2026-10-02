@@ -95,7 +95,7 @@ func TestResolveAnalysisWindowCountsRequestStartTimes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	window := resolveAnalysisWindow(runDir)
+	window := resolveAnalysisWindow(runDir, loadPhaseConfig{})
 	if window.Status != "ok" || window.Source != "traffic-threshold" {
 		t.Fatalf("window=%+v", window)
 	}
@@ -107,5 +107,47 @@ func TestResolveAnalysisWindowCountsRequestStartTimes(t *testing.T) {
 	}
 	if window.RequestCount != 20 || window.ActiveSeconds != 2 {
 		t.Fatalf("request stats=%d/%d, want 20/2", window.RequestCount, window.ActiveSeconds)
+	}
+}
+
+func TestConfiguredLoadPhaseExcludesCheckTraffic(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "raw"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Unix(1_800_000_000, 0).UTC()
+	line := func(seconds int, message string) string {
+		return start.Add(time.Duration(seconds)*time.Second+500*time.Millisecond).Format(time.RFC3339Nano) + "\t" + message + "\n"
+	}
+	log := line(0, "BENCHMARK_START") + line(10, "load begins") + line(13, "load stops") + line(20, "BENCHMARK_END")
+	if err := os.WriteFile(filepath.Join(dir, "bench.log"), []byte(log), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var requests []string
+	// Check traffic crosses the old threshold before the actual load starts.
+	for _, second := range []int{5, 6, 10, 11, 12, 13} {
+		for i := 0; i < 10; i++ {
+			requests = append(requests, `{"msec":"`+strconv.FormatInt(start.Unix()+int64(second), 10)+`.750","response_time":0}`)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "raw", "access-host.log"), []byte(strings.Join(requests, "\n")), 0600); err != nil {
+		t.Fatal(err)
+	}
+	phase := loadPhaseConfig{StartPattern: `\tload begins$`, EndPattern: `\tload stops$`}
+	if err := phase.compile(); err != nil {
+		t.Fatal(err)
+	}
+	window := resolveAnalysisWindow(dir, phase)
+	if window.Source != "bench.log-load-phase" || !window.StartedAt.Equal(start.Add(10500*time.Millisecond)) ||
+		!window.EndedAt.Equal(start.Add(13500*time.Millisecond)) || window.RequestCount != 30 {
+		t.Fatalf("configured window: %+v", window)
+	}
+	// A missing stop marker must not turn an incomplete phase into a full load.
+	phase.EndPattern = `\tmissing stop$`
+	if err := phase.compile(); err != nil {
+		t.Fatal(err)
+	}
+	if fallback := resolveAnalysisWindow(dir, phase); fallback.Source != "traffic-threshold" {
+		t.Fatalf("missing phase end did not fall back: %+v", fallback)
 	}
 }

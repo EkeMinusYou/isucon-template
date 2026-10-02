@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/csv"
+	"math"
 	"strings"
 	"testing"
 )
@@ -40,6 +41,30 @@ func TestValidateSnapshot(t *testing.T) {
 	invalid.Pools[0].InUse = 4
 	if err := validateSnapshot(invalid, 128, 10); err == nil {
 		t.Fatal("accepted usage above open connections")
+	}
+}
+
+func TestSnapshotMetricsAreBoundedAndRetained(t *testing.T) {
+	s := testSnapshot(1000, 0, 0)
+	s.Metrics = map[string]float64{"events_total": 12, "pending_bytes": 34}
+	if err := validateSnapshot(s, 128, 100); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	w := csv.NewWriter(&output)
+	w.Comma = '\t'
+	c := &collector{output: w, previous: make(map[string]previousPool)}
+	if err := c.write(s); err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range []string{"local\tsnapshot\tmetrics\t0\tevents_total\t12.000000", "local\tsnapshot\tmetrics\t0\tpending_bytes\t34.000000"} {
+		if !strings.Contains(output.String(), row) {
+			t.Fatal("snapshot metric was dropped")
+		}
+	}
+	s.Metrics["bad"] = math.Inf(1)
+	if err := validateSnapshot(s, 128, 100); err == nil {
+		t.Fatal("nonfinite metric accepted")
 	}
 }
 

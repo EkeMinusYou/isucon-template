@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"os/signal"
@@ -31,10 +32,11 @@ var (
 )
 
 type snapshot struct {
-	Version        int    `json:"version"`
-	StartedUnixMS  int64  `json:"started_unix_ms"`
-	CapturedUnixMS int64  `json:"captured_unix_ms"`
-	Pools          []pool `json:"pools"`
+	Version        int                `json:"version"`
+	StartedUnixMS  int64              `json:"started_unix_ms"`
+	CapturedUnixMS int64              `json:"captured_unix_ms"`
+	Pools          []pool             `json:"pools"`
+	Metrics        map[string]float64 `json:"metrics,omitempty"`
 }
 
 type pool struct {
@@ -211,6 +213,14 @@ func validateSnapshot(current snapshot, maxPools int, contentLength int64) error
 		return fmt.Errorf("invalid pool count %d", len(current.Pools))
 	}
 	seen := make(map[string]struct{}, len(current.Pools))
+	if len(current.Metrics) > maxPools {
+		return errors.New("too many snapshot metrics")
+	}
+	for name, value := range current.Metrics {
+		if !labelPattern.MatchString(name) || math.IsNaN(value) || math.IsInf(value, 0) {
+			return errors.New("invalid snapshot metric")
+		}
+	}
 	for _, value := range current.Pools {
 		if !labelPattern.MatchString(value.Name) || !labelPattern.MatchString(value.Role) || value.Shard < -1 {
 			return fmt.Errorf("invalid pool label: %+v", value)
@@ -294,6 +304,11 @@ func (c *collector) write(current snapshot) error {
 			}
 		}
 		c.previous[key] = previousPool{capturedUnixMS: currentAt, value: value}
+	}
+	for name, value := range current.Metrics {
+		if err := c.output.Write([]string{strconv.FormatUint(c.sample, 10), timestamp, strconv.FormatInt(elapsedMS, 10), "local", "snapshot", "metrics", "0", name, strconv.FormatFloat(value, 'f', 6, 64)}); err != nil {
+			return err
+		}
 	}
 	c.output.Flush()
 	if err := c.output.Error(); err != nil {

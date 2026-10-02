@@ -4,7 +4,8 @@
 # without a namespace and read the generic file's vars. Task names must not
 # collide with the generic file: Go Task rejects duplicates instead of
 # overriding them. The generic side reaches this file only through hook tasks
-# it declares (currently prepare-db-assets and gen-contest-routing); a contest
+# it declares (currently prepare-db-assets, gen-contest-routing,
+# setup-contest-assets and setup-smoke-probes); a contest
 # that has nothing to do defines the hook here with no commands.
 version: '3'
 
@@ -14,3 +15,9 @@ tasks:
 
   gen-contest-routing:
     desc: 解法固有のupstreamとホスト別生成物を追加する（genのhook、既定は何もしない）
+
+  setup-contest-assets:
+    desc: 標準の取得対象外にある競技固有の資材を取得する（setupのhook、既定は何もしない）
+
+  setup-smoke-probes:
+    desc: smoke実行中に競技固有の経路を追加で確認する（setup-smokeのhook、既定は何もしない）

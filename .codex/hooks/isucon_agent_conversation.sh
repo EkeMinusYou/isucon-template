@@ -50,9 +50,7 @@ fi
 
 state_dir="${TMPDIR:-/tmp}/codex-isucon-agent-session-markers/$root_key"
 marker="$state_dir/$safe_session_id.marker"
-offset_path="$state_dir/$safe_session_id.offset"
 timestamp_path="$state_dir/$safe_session_id.timestamp"
-started_at_path="$state_dir/$safe_session_id.started_at"
 
 case "$action" in
   mark)
@@ -67,18 +65,13 @@ case "$action" in
     mkdir -p "$state_dir" || exit 0
     if [ ! -f "$timestamp_path" ]; then
       timestamp=$(date '+%Y%m%d-%H%M%S') || exit 0
-      started_at=$(date '+%s') || exit 0
       timestamp_temporary_path="$timestamp_path.tmp"
       if ! printf '%s\n' "$timestamp" > "$timestamp_temporary_path"; then
         rm -f "$timestamp_temporary_path"
         exit 0
       fi
-      if ! printf '%s\n' "$started_at" > "$started_at_path"; then
-        rm -f "$started_at_path" "$timestamp_temporary_path"
-        exit 0
-      fi
       if ! mv -f "$timestamp_temporary_path" "$timestamp_path"; then
-        rm -f "$timestamp_temporary_path" "$started_at_path"
+        rm -f "$timestamp_temporary_path"
         exit 0
       fi
     fi
@@ -104,6 +97,35 @@ case "$action" in
       exit 0
     fi
 
+    # Serialize background exports that share a session output file.
+    mkdir -p "$state_dir" || exit 0
+    export_lock="$state_dir/$safe_session_id.export.lock"
+    export_attempt=0
+    while ! mkdir "$export_lock" 2>/dev/null; do
+      if [ "$export_attempt" -ge 200 ]; then
+        exit 0
+      fi
+      export_attempt=$((export_attempt + 1))
+      sleep 0.1
+    done
+    trap 'rmdir "$export_lock" 2>/dev/null || true' 0
+    trap 'exit 0' HUP INT TERM
+
+    # Stop runs before task_complete is written; the hook runs asynchronously.
+    turn_id=$(event_value '.turn_id // empty') || turn_id=
+    if [ -n "$turn_id" ]; then
+      completion_attempt=0
+      while ! tail -n 50 "$transcript_path" | jq -e --arg turn_id "$turn_id" '
+        select(.payload.type? == "task_complete" and .payload.turn_id? == $turn_id)
+      ' >/dev/null 2>&1; do
+        if [ "$completion_attempt" -ge 50 ]; then
+          break
+        fi
+        completion_attempt=$((completion_attempt + 1))
+        sleep 0.1
+      done
+    fi
+
     timestamp=$(cat "$timestamp_path" 2>/dev/null) || timestamp=
     case "$timestamp" in
       [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]) ;;
@@ -125,84 +147,17 @@ case "$action" in
     output_dir="$repository_root/docs/conversation"
     output_path="$output_dir/$timestamp_prefix$safe_session_id.md"
     temporary_path="$output_dir/.$timestamp_prefix$safe_session_id.md.tmp"
-    delta_path="$state_dir/$safe_session_id.delta"
+    mkdir -p "$output_dir" || exit 0
 
-    mkdir -p "$output_dir" "$state_dir" || exit 0
+    {
+      printf '%s\n\n' "# Codex conversation"
+      printf '%s\n\n' "- Session: $safe_session_id"
+      printf '%s\n\n' '<!-- codex-hook-format: 7; tool results omitted -->'
+      printf '%s\n\n' "---"
+    } > "$temporary_path" || exit 0
 
-    offset=0
-    if [ -f "$offset_path" ]; then
-      offset=$(cat "$offset_path" 2>/dev/null) || offset=
-    fi
-    case "$offset" in
-      ''|*[!0-9]*) offset=0 ;;
-    esac
-
-    # Rebuild files created by older exporter formats.
-    if [ -f "$output_path" ] && ! grep -q '^<!-- codex-hook-format: 6; tool results omitted -->$' "$output_path"; then
-      offset=0
-    fi
-
-    # Rebuild files created by older versions that exported internal context.
-    if [ -f "$output_path" ] && grep -Eq '^## (DEVELOPER|SYSTEM)$|^# AGENTS\.md instructions for |^<environment_context>$|^<skill>$|^<skills_instructions>$' "$output_path"; then
-      offset=0
-    fi
-
-    line_count=$(awk 'END { print NR }' "$transcript_path" 2>/dev/null) || exit 0
-    case "$line_count" in
-      ''|*[!0-9]*) exit 0 ;;
-    esac
-
-    if [ "$offset" -gt "$line_count" ] || [ ! -f "$output_path" ]; then
-      offset=0
-    fi
-
-    if [ "$offset" -eq 0 ]; then
-      {
-        printf '%s\n\n' "# Codex conversation"
-        printf '%s\n\n' "- Session: $safe_session_id"
-        printf '%s\n\n' '<!-- codex-hook-format: 6; tool results omitted -->'
-        printf '%s\n\n' "---"
-      } > "$temporary_path" || exit 0
-    else
-      if ! cp "$output_path" "$temporary_path"; then
-        rm -f "$temporary_path"
-        exit 0
-      fi
-    fi
-
-    started_at=$(cat "$started_at_path" 2>/dev/null) || started_at=
-    case "$started_at" in
-      ''|*[!0-9]*) ;;
-      *)
-        stopped_at=$(date '+%s') || exit 0
-        if [ "$stopped_at" -ge "$started_at" ]; then
-          elapsed_seconds=$((stopped_at - started_at))
-          elapsed=$(printf '%02d:%02d:%02d' \
-            "$((elapsed_seconds / 3600))" \
-            "$(((elapsed_seconds % 3600) / 60))" \
-            "$((elapsed_seconds % 60))")
-          elapsed_temporary_path="$temporary_path.elapsed"
-          if ! awk -v elapsed="$elapsed" '
-            /^- Session: / {
-              print
-              print "- Elapsed: " elapsed
-              next
-            }
-            /^- Elapsed: / { next }
-            { print }
-          ' "$temporary_path" > "$elapsed_temporary_path"; then
-            rm -f "$temporary_path" "$elapsed_temporary_path"
-            exit 0
-          fi
-          mv -f "$elapsed_temporary_path" "$temporary_path" || exit 0
-        fi
-        ;;
-    esac
-
-    rm -f "$delta_path"
-    start_line=$((offset + 1))
-    # Read earlier records to carry the latest user timestamp into new messages.
-    if [ "$start_line" -le "$line_count" ] && ! jq -nr --argjson offset "$offset" '
+    # Rebuild to include completion records appended after an earlier export.
+    if ! jq -sr '
       def event_time:
         (.timestamp? // .payload.timestamp? // null) as $value
         | if ($value | type) == "number" then $value
@@ -215,10 +170,20 @@ case "$action" in
         if $user_at == null or $time == null or $time < $user_at then
           null
         else
-          ($time - $user_at | floor) as $seconds
-          | def pad2: tostring | if length < 2 then "0" + . else . end;
-          "\(($seconds / 3600 | floor) | pad2):\((($seconds % 3600) / 60 | floor) | pad2):\(($seconds % 60) | pad2)"
+          ($time - $user_at | floor)
         end;
+
+      def worked_for:
+        . as $seconds
+        | [
+            if $seconds >= 3600 then "\($seconds / 3600 | floor)h" else empty end,
+            if $seconds >= 60 then "\(($seconds % 3600) / 60 | floor)m" else empty end,
+            "\($seconds % 60)s"
+          ] | join(" ");
+
+      def is_final_response:
+        (.phase? // .channel? // null) as $phase
+        | $phase == "final_answer" or $phase == "final" or $phase == null;
 
       def text_from_content:
         if type == "string" then .
@@ -268,7 +233,7 @@ case "$action" in
         | if ($heading == "USER" and ($text | is_internal_user_context)) then
             empty
           elif ($text | length) > 0 then
-            "## \($heading)\(if $heading == "ASSISTANT" and $elapsed != null then " (Elapsed: \($elapsed))" else "" end)\n\n\($text)\n"
+            "## \($heading)\(if $heading == "ASSISTANT" and $elapsed != null then " (Worked for \($elapsed | worked_for))" else "" end)\n\n\($text)\n"
           else
             empty
           end;
@@ -403,9 +368,8 @@ case "$action" in
             ($tool | tool_section)
           end;
 
-      def render($user_at; $time):
+      def render($elapsed):
         . as $payload
-        | response_elapsed($user_at; $time) as $elapsed
         | if ($payload.type? == "message"
             and ($payload.role? == "user"
               or $payload.role? == "assistant")) then
@@ -425,29 +389,40 @@ case "$action" in
           empty
         end;
 
-      foreach inputs as $record (
-        {line: 0, user_at: null, output: ""};
-        .line += 1
-        | ($record.payload // $record) as $payload
+      . as $records
+      | (reduce $records[] as $record (
+          {};
+          ($record.payload // $record) as $payload
+          | if $payload.type? == "task_complete"
+               and ($payload.turn_id? | type) == "string"
+               and ($payload.duration_ms? | type) == "number"
+               and $payload.duration_ms >= 0 then
+              .[$payload.turn_id] = ($payload.duration_ms / 1000 | floor)
+            else . end
+        )) as $completed_turns
+      | foreach $records[] as $record (
+        {user_at: null, turn_id: null, output: ""};
+        ($record.payload // $record) as $payload
         | ($record | event_time) as $time
+        | if $payload.type? == "task_started" then
+            .turn_id = $payload.turn_id
+          else . end
         | ($payload | user_body) as $user_text
         | if $user_text != null and (($user_text | body | is_internal_user_context) | not) then
             .user_at = $time
           else . end
         | .user_at as $user_at
-        | .output = if .line > $offset then
-            ([$payload | render($user_at; $time)] | join(""))
-          else "" end;
+        | ($payload.internal_chat_message_metadata_passthrough.turn_id?
+           // $payload.turn_id? // .turn_id) as $response_turn
+        | (if ($payload | is_final_response) then
+            (if $response_turn != null then $completed_turns[$response_turn] else null end)
+            // response_elapsed($user_at; $time)
+          else null end) as $elapsed
+        | .output = ([$payload | render($elapsed)] | join(""));
         .output | select(length > 0)
       )
-    ' "$transcript_path" > "$delta_path"; then
+    ' "$transcript_path" >> "$temporary_path"; then
       rm -f "$temporary_path"
-      rm -f "$delta_path"
-      exit 0
-    fi
-
-    if [ -s "$delta_path" ] && ! cat "$delta_path" >> "$temporary_path"; then
-      rm -f "$temporary_path" "$delta_path"
       exit 0
     fi
 
@@ -458,17 +433,6 @@ case "$action" in
 
     if ! mv -f "$temporary_path" "$output_path"; then
       rm -f "$temporary_path"
-      rm -f "$delta_path"
-      exit 0
-    fi
-
-    offset_temporary_path="$offset_path.tmp"
-    if ! printf '%s\n' "$line_count" > "$offset_temporary_path"; then
-      rm -f "$delta_path" "$offset_temporary_path"
-      exit 0
-    fi
-    if ! mv -f "$offset_temporary_path" "$offset_path"; then
-      rm -f "$delta_path" "$offset_temporary_path"
       exit 0
     fi
 
@@ -481,10 +445,10 @@ case "$action" in
       fi
     fi
 
-    rm -f "$delta_path"
     ;;
   cleanup)
-    rm -f "$marker" "$offset_path" "$started_at_path" "$state_dir/$safe_session_id.delta"
+    rm -f "$marker"
+    rmdir "$state_dir/$safe_session_id.export.lock" 2>/dev/null || true
     timestamp=$(cat "$timestamp_path" 2>/dev/null) || timestamp=
     timestamp_prefix="$timestamp"_
     rm -f "$repository_root/docs/conversation/.$timestamp_prefix$safe_session_id.md.tmp"

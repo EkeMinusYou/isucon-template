@@ -16,12 +16,12 @@
 
 以下は初回setupの必須対象である。未実装・未設定を理由にoptionalへ落とさない。
 
-- スコアの記録方法（生成元、取得・入力手順、RUNへの紐付け、保存形式）と、成功・失敗判定、公式出力にある内訳・ペナルティの保存・分析・表示。必要に応じたDuckDBの取り込みschema・意味ビューの対応。
+- スコアの記録方法（生成元、取得・入力手順、RUNへの紐付け、保存形式）と、成功・失敗判定、公式出力にある内訳・ペナルティの保存・分析。必要に応じたDuckDBの取り込みschema・意味ビューの対応。
 - Go CPU・heap・allocs・goroutineのpprof、fgprof、採取開始確認endpoint。
 - nginxアクセスログの必要列、ローテート、全NGINX_HOSTSの回収、alp・upstream集計。
 - user-transitionの識別方法・ログ列・アプリ固有API分類・集計。
 - DB・ホスト・全管理対象serviceと依存サービスの標準メトリクス、app/nginx・kernel/OOM等の障害ログ。
-- 通常ベンチへの自動収集接続、ホスト別の必須成果物・内容・時間窓の検査、対応するDuckDB・dashboardの読み手。
+- 通常ベンチへの自動収集接続、ホスト別の必須成果物・内容・時間窓の検査、対応するDuckDB・dashboardのAPI・parser。
 
 有効宣言と対象外判断は[標準計測の確認手順](measurement.md#有効宣言と対象外判断)に従う。
 
@@ -30,10 +30,18 @@
 1. 公式資料から構成・変更可能範囲・初期化・採点・追試条件を確認する。
 2. 読み取り専用SSHで全ホストの資源、IP、service・unit・process・listen portと依存経路を確認する。
    管理対象のアプリ・設定・unit・schemaを`task setup-*`で取得し、対象外は理由を残す。
-3. Taskfileの役割・IP・service名・TARGET_OS/ARCH・schema取得先・構文検査を実環境へ合わせ、`task gen`と`task setup-check`を通す。
-4. `task db-recreate`を上記の要件で作成・dry-run確認し、全管理対象を正規deploy・role収束・計測・分析・RUNの役割記録へ組み込む。標準計測のadapterと通常ベンチの起動・回収待ちも整える。
-5. 対応する`task deploy-*-dry`で転送先とactivationを確認して正規deployし、`task check-roles`・`task check-network`と計測の疎通を確認する。
-6. `task artifacts`と短いログ・profile取得で生成から読み手までを確認する。collectorの起動・停止・timeout・欠損検出も確認する。
-7. ユーザーが実行したbaseline RUNで`task artifacts-run`、内容・ホスト・時間窓、DuckDB・dashboard表示を確認する。
+3. Taskfileの役割・IP・service名・TARGET_OS/ARCH・schema取得先・構文検査を実環境へ合わせる。
+4. `task db-recreate`を上記の要件で整備し、全管理対象を正規deploy・role収束・計測・分析・RUNの役割記録へ組み込む。標準計測のadapterと通常ベンチの起動・回収待ちも揃える。
+5. 必要な修正を揃えてから`task setup-check`を通す。生成、DB再作成・deployのdry-run、build・テスト・成果物契約の確認はTaskfileの依存タスクに従い、含まれている検査は重ねて実行しない。転送先とactivationを確認して正規deployする。
+6. `task check-roles`・`task check-network`と短いログ・profile取得で疎通を確認する。同じsmoke成果物で生成からDuckDB・dashboardのAPI・parserまでを確認し、collectorの起動・停止・timeout・欠損検出も確認する。
+7. 確認した公式採点仕様、標準計測全件の状態・根拠、DB再作成のdry-runと実機実行の有無・結果を報告して初回setupを完了する。実負荷の確認はベンチ待ちとする。
+
+確認後の再実行は、追加変更・失敗・未解決の懸念がある範囲に絞る。
+
+## ベンチ後の計測確認
+
+ユーザーがベンチを実行し、計測確認を依頼したときに行う。
+
+1. 対象RUNで`task artifacts-run`、内容・ホスト・時間窓、DuckDB・dashboardのAPI・parserでの分析結果を確認する。
    通常の回収は失敗RUNも`after-bench`でfinalizeする。自動ローカルcommitの副作用を確認し、`abort-run`を通常回収の代用にしない。
-8. 確認した公式採点仕様とbaseline RUNの参照を完了報告へ残す。
+2. 対象RUNの参照と実負荷で確認した項目・未検証範囲を報告する。

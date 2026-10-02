@@ -154,6 +154,7 @@ collectors:
     remote_root: /tmp/isucon-mysql-locks
     stdout: /dev/null
     args: >-
+      -dsn 'root@unix(/var/run/mysqld/mysqld.sock)/'
       -interval 10s
       -output /dev/null
       -lock-output {remote_dir}/lock-waits.tsv

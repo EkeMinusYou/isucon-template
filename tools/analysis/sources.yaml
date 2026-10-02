@@ -1,5 +1,8 @@
 version: 1
 
+# Optional: declare the scored load phase from bench.log lines, e.g.
+# load_phase: ../contest/load-phase.yaml
+
 base_schema: schema/00-base.sql
 semantic_schemas:
   - schema/semantic.sql
@@ -138,3 +141,7 @@ sources:
     schema: schema/bench-errors.sql
     match: bench.log
     view: bench_error_logs_raw
+  - table: runtime_logs
+    schema: schema/runtime-logs.sql
+    match: '*-*.log'
+    view: runtime_logs_raw

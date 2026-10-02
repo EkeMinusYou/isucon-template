@@ -42,3 +42,5 @@ poolごとに固定の`database_host`、`name`、`role`、`shard`を返し、リ
 collectorはsnapshotをlong-form TSVにし、`in_use`、`wait_count`、`wait_duration`などの現在値と差分レートを出力する。
 `in_use`を`max_open_connections`と比べ、waitの増加をMySQL側の`Threads_running`やCPUと同じRUN・時間窓で見ると、
 アプリ接続プールの待ちとDBサーバーの飽和を切り分けやすい。
+
+JSON snapshotの任意の`metrics` objectにある数値も、`pool=snapshot`、`role=metrics`で保存する。名前はpool labelと同じ形式で、項目数・有限値を検査する。アプリ固有の指標名と値の意味はアプリ側が所有する。

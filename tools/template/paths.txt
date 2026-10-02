@@ -15,6 +15,8 @@
 
 [template]
 .codex/hooks.json
+.config/wt.toml
+.worktreeinclude
 .codex/hooks
 .agents
 .claude
@@ -25,6 +27,7 @@ CLAUDE.md
 README.md
 Taskfile.yml
 alp.yml
+docs/measurement
 docs/official/README.md
 docs/solutions
 docs/special-sources

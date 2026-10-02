@@ -34,6 +34,8 @@ vars:
   INITIALIZE_PATH: /initialize
   CONFIG_CHECK_COMMAND: ''
   SETUP_SECRET_ALLOWLIST: ''
+  # Services whose metrics and journals measurectl collects on every host.
+  MANAGED_SERVICES: '{{.SERVICE}},nginx,mysql'
   # <<< contest values <<<
 
   SSH_USER: ubuntu
@@ -64,6 +66,10 @@ vars:
   # Deployment and service enable/disable targets; preserve the single-host default.
   MYSQL_HOSTS: '{{.MYSQL_HOST}}'
   CONF_SRC: isucon-1
+  # Extra deployctl roles and vars for contest-specific deployments.
+  DEPLOYCTL_FLAGS: ''
+  # Arguments passed to the contest smoke binary on ENTRY_HOST.
+  SMOKE_ARGS: ''
   # <<< contest values <<<
 
   ENTRY_HOST: '{{splitList " " .NGINX_HOSTS | first}}'
@@ -83,7 +89,9 @@ vars:
   RUN_STATE_FILE: '{{.RAW_DIR}}/current-run-id'
   ANALYSIS_DB: runs/analysis.duckdb
   ANALYSIS_CONFIG: tools/analysis/sources.yaml
+  # >>> contest values >>>
   DEPLOYCTL_CONFIG: tools/deployctl/deployments.yaml
+  # <<< contest values <<<
 
   PROC_METRICS_DIR: tools/proc-metrics
   MYSQL_METRICS_DIR: tools/mysql-metrics
@@ -123,7 +131,7 @@ vars:
     -role mysql={{.MYSQL_HOST}}
     -role mysql_all={{splitList " " .MYSQL_HOSTS | join ","}}
   MEASURECTL_VARS: >-
-    -var services={{.SERVICE}},nginx,mysql
+    -var services={{.MANAGED_SERVICES}}
     -var app_service={{.SERVICE}}
     -var pprof_base_url={{.PPROF_BASE_URL}}
     -var sql_pool_metrics_url=http://127.0.0.1:6060/debug/sql-pools
@@ -137,7 +145,6 @@ vars:
   MEASURECTL_REMOTE: '{{.MEASURECTL_SSH}} {{.MEASURECTL_ROLES}} {{.MEASURECTL_VARS}}'
   MEASURECTL_COMMON: '{{.MEASURECTL_FLAGS}} {{.MEASURECTL_REMOTE}}'
 
-  DEPLOYCTL_FLAGS: ''
   DEPLOYCTL_COMMON: >-
     {{.DEPLOYCTL_FLAGS}}
     -ssh-user {{.SSH_USER}}
@@ -192,6 +199,7 @@ tasks:
       - task: setup-mysql
       - task: setup-systemd
       - task: setup-sysctl
+      - task: setup-contest-assets
       - echo "取得完了。ベースラインを git commit してください"
 
   setup-webapp:
@@ -507,11 +515,12 @@ tasks:
         printf '%s\tBENCHMARK_START\n' "$started_at" > '{{.SMOKE_DIR}}/bench.log'
         {{.SSH}} {{.SSH_USER}}@{{.ENTRY_HOST}} 'mkdir -p {{.SMOKE_REMOTE_DIR}}'
         {{.RSYNC}} '{{.SMOKE_TOOL_DIR}}/smoke' {{.SSH_USER}}@{{.ENTRY_HOST}}:{{.SMOKE_REMOTE_DIR}}/smoke
-        {{.SSH}} {{.SSH_USER}}@{{.ENTRY_HOST}} '{{.SMOKE_REMOTE_DIR}}/smoke'
+        {{.SSH}} {{.SSH_USER}}@{{.ENTRY_HOST}} '{{.SMOKE_REMOTE_DIR}}/smoke {{.SMOKE_ARGS}}'
+        task setup-smoke-probes
         ended_at=$(task --silent bench-timestamp)
         printf '%s\tBENCHMARK_END\n' "$ended_at" >> '{{.SMOKE_DIR}}/bench.log'
         wait "$profiles_pid"
-        {{.MEASURECTL_DIR}}/measurectl digest -only alp,alp-by-ingress,upstream-breakdown,upstream-breakdown-by-ingress,user-transitions,pt-query-digest,slp,mysql-digest,app-journal,nginx-error,kernel-journal,oom-events -run-dir '{{.SMOKE_DIR}}' -raw-dir '{{.SMOKE_DIR}}/raw' {{.MEASURECTL_REMOTE}}
+        {{.MEASURECTL_DIR}}/measurectl digest -run-dir '{{.SMOKE_DIR}}' -raw-dir '{{.SMOKE_DIR}}/raw' {{.MEASURECTL_REMOTE}}
         echo 'Smoke artifacts: {{.SMOKE_DIR}} (not a benchmark RUN)'
 
   setup-smoke-stop:
@@ -565,7 +574,7 @@ tasks:
         vars: { PLAN: deploy-all }
 
   db-recreate:
-    desc: MYSQL_HOSTのDBをschemaから再作成しアプリを初期化
+    desc: 競技DBをschemaから再作成してアプリを初期化
     preconditions: *no_active_run
     deps: [setup-preflight]
     cmds:

@@ -45,9 +45,11 @@ type config struct {
 	BaseSchema      string         `yaml:"base_schema"`
 	SemanticSchemas []string       `yaml:"semantic_schemas"`
 	Reports         reportConfig   `yaml:"reports"`
+	LoadPhaseFile   string         `yaml:"load_phase"`
 	Profiles        profileConfig  `yaml:"profiles"`
 	Sources         []sourceConfig `yaml:"sources"`
 	baseDir         string
+	loadPhase       loadPhaseConfig
 }
 
 type options struct {
@@ -73,8 +75,8 @@ var (
 	hostPattern  = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 )
 
-// Increment when a persisted source view changes columns or column types.
-const importSchemaVersion = "11"
+// Increment when persisted sources or analysis-window semantics change.
+const importSchemaVersion = "13"
 
 func main() {
 	if err := runCLI(os.Args[1:], os.Stdout, os.Stderr); err != nil {
@@ -150,6 +152,20 @@ func loadConfig(path string) (config, error) {
 	cfg.baseDir = filepath.Dir(path)
 	if cfg.Version != 1 {
 		return config{}, fmt.Errorf("unsupported config version %d", cfg.Version)
+	}
+	if cfg.LoadPhaseFile != "" {
+		body, err := os.ReadFile(cfg.path(cfg.LoadPhaseFile))
+		if err != nil {
+			return config{}, fmt.Errorf("read load_phase: %w", err)
+		}
+		phaseDecoder := yaml.NewDecoder(strings.NewReader(string(body)))
+		phaseDecoder.KnownFields(true)
+		if err := phaseDecoder.Decode(&cfg.loadPhase); err != nil {
+			return config{}, fmt.Errorf("decode load_phase: %w", err)
+		}
+	}
+	if err := cfg.loadPhase.compile(); err != nil {
+		return config{}, err
 	}
 	if cfg.BaseSchema == "" || len(cfg.Sources) == 0 {
 		return config{}, errors.New("base_schema and sources are required")
@@ -383,7 +399,7 @@ func (r runner) syncSelection(runGlob string, dirs, runIDs []string) error {
 	if err != nil {
 		return err
 	}
-	windows := resolveAnalysisWindows(dirs, runIDs)
+	windows := resolveAnalysisWindows(dirs, runIDs, r.config.loadPhase)
 	tempDir, err := os.MkdirTemp("", "isucon-analysis-")
 	if err != nil {
 		return err

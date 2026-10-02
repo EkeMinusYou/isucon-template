@@ -30,6 +30,38 @@ sources:
     compress: false
 
 digesters:
+  - name: mysql-error
+    label: MySQL error log for benchmark window
+    remote:
+      role: mysql_all
+      per_host: true
+      script: |
+        set -eu
+        printf '# host={host} mysql error log load_window={load_start}..{load_end}\n'
+        start=$(date -u -d '{load_start}' '+%Y-%m-%dT%H:%M:%S')
+        end=$(date -u -d '{load_end}' '+%Y-%m-%dT%H:%M:%S')
+        sudo test -r /var/log/mysql/error.log
+        sudo awk -v start="$start" -v end="$end" 'length($0) >= 19 { timestamp = substr($0, 1, 19); if (timestamp >= start && timestamp <= end) print }' /var/log/mysql/error.log
+    stderr: '{host}-mysql-error.stderr'
+    outputs:
+      - file: '{host}-mysql-error.log'
+
+  - name: service-journal
+    label: all managed service journals for benchmark window
+    remote:
+      role: all
+      per_host: true
+      script: |
+        set -eu
+        printf '# host={host} services={var:services} load_window={load_start}..{load_end}\n'
+        for unit in $(printf '%s' '{var:services}' | tr ',' ' '); do
+          printf '# unit=%s\n' "$unit"
+          sudo journalctl -u "$unit" --since "$(date -u -d '{load_start}' '+%Y-%m-%d %H:%M:%S.%6N UTC')" --until "$(date -u -d '{load_end}' '+%Y-%m-%d %H:%M:%S.%6N UTC')" --no-pager -o short-iso-precise
+        done
+    stderr: '{host}-service-journal.stderr'
+    outputs:
+      - file: '{host}-service-journal.log'
+
   - name: app-journal
     label: application journal for benchmark window
     remote:
