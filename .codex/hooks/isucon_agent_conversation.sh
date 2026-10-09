@@ -152,7 +152,8 @@ case "$action" in
     {
       printf '%s\n\n' "# Codex conversation"
       printf '%s\n\n' "- Session: $safe_session_id"
-      printf '%s\n\n' '<!-- codex-hook-format: 7; tool results omitted -->'
+      printf '%s\n\n' '<!-- codex-hook-format: 10; tool results and reasoning content omitted -->'
+      printf '%s\n\n' '- REASONING durations are estimates from the preceding message or tool event to reasoning completion and may include model/network waits.'
       printf '%s\n\n' "---"
     } > "$temporary_path" || exit 0
 
@@ -228,15 +229,38 @@ case "$action" in
         else null
         end;
 
-      def section($heading; $value; $elapsed):
+      def section($heading; $value; $elapsed; $time):
         ($value | body | trim_outer_newlines) as $text
         | if ($heading == "USER" and ($text | is_internal_user_context)) then
             empty
           elif ($text | length) > 0 then
-            "## \($heading)\(if $heading == "ASSISTANT" and $elapsed != null then " (Worked for \($elapsed | worked_for))" else "" end)\n\n\($text)\n"
+            [
+              if $heading == "ASSISTANT" and $elapsed != null then "Worked for \($elapsed | worked_for)" else empty end,
+              if $time != null and ($heading == "USER" or ($heading == "ASSISTANT" and $elapsed != null)) then
+                ($time | strflocaltime("%Y-%m-%d %H:%M:%S %z"))
+              else empty end
+            ] as $timing
+            | "## \($heading)\(if ($timing | length) > 0 then " (\($timing | join("; ")))" else "" end)\n\n\($text)\n"
           else
             empty
           end;
+
+      def is_timed_activity:
+        .type? as $type
+        | if (.role? == "user" or $type == "user_message") then
+            (user_body | body | is_internal_user_context | not)
+          else
+            .role? == "assistant"
+            or (["agent_message", "reasoning", "function_call", "custom_tool_call",
+                 "tool_call", "tool_use", "function_call_output", "custom_tool_call_output",
+                 "tool_result"] | index($type)) != null
+          end;
+
+      def reasoning_section($elapsed; $time):
+        [
+          if $elapsed != null then "Estimated \($elapsed | worked_for)" else "Duration unknown" end,
+          if $time != null then ($time | strflocaltime("%Y-%m-%d %H:%M:%S %z")) else empty end
+        ] | "## REASONING (\(join("; ")))\n";
 
       def normalized_tool_arguments:
         if . == null then
@@ -368,23 +392,25 @@ case "$action" in
             ($tool | tool_section)
           end;
 
-      def render($elapsed):
+      def render($elapsed; $time; $activity_elapsed):
         . as $payload
-        | if ($payload.type? == "message"
+        | if $payload.type? == "reasoning" then
+          reasoning_section($activity_elapsed; $time)
+        elif ($payload.type? == "message"
             and ($payload.role? == "user"
               or $payload.role? == "assistant")) then
-          section(($payload.role | ascii_upcase); ($payload.content? // $payload.text? // ""); $elapsed)
+          section(($payload.role | ascii_upcase); ($payload.content? // $payload.text? // ""); $elapsed; $time)
         elif ($payload.type? == "user_message") then
-          section("USER"; ($payload.message? // $payload.text? // ""); null)
+          section("USER"; ($payload.message? // $payload.text? // ""); null; $time)
         elif ($payload.type? == "agent_message") then
-          section("ASSISTANT"; ($payload.message? // $payload.text? // ""); $elapsed)
+          section("ASSISTANT"; ($payload.message? // $payload.text? // ""); $elapsed; $time)
         elif ($payload.type? == "function_call"
               or $payload.type? == "custom_tool_call"
               or $payload.type? == "tool_call"
               or $payload.type? == "tool_use") then
           ($payload | code_mode_tool_section)
         elif ($payload.role? == "user" or $payload.role? == "assistant") then
-          section(($payload.role | ascii_upcase); ($payload.content? // $payload.text? // ""); $elapsed)
+          section(($payload.role | ascii_upcase); ($payload.content? // $payload.text? // ""); $elapsed; $time)
         else
           empty
         end;
@@ -401,11 +427,14 @@ case "$action" in
             else . end
         )) as $completed_turns
       | foreach $records[] as $record (
-        {user_at: null, turn_id: null, output: ""};
+        {user_at: null, activity_at: null, turn_id: null, output: ""};
         ($record.payload // $record) as $payload
         | ($record | event_time) as $time
         | if $payload.type? == "task_started" then
             .turn_id = $payload.turn_id
+            | .activity_at = $time
+          elif $payload.type? == "task_complete" then
+            .activity_at = null
           else . end
         | ($payload | user_body) as $user_text
         | if $user_text != null and (($user_text | body | is_internal_user_context) | not) then
@@ -418,7 +447,11 @@ case "$action" in
             (if $response_turn != null then $completed_turns[$response_turn] else null end)
             // response_elapsed($user_at; $time)
           else null end) as $elapsed
-        | .output = ([$payload | render($elapsed)] | join(""));
+        | response_elapsed(.activity_at; $time) as $activity_elapsed
+        | .output = ([$payload | render($elapsed; $time; $activity_elapsed)] | join(""))
+        | if ($payload | is_timed_activity) then
+            .activity_at = $time
+          else . end;
         .output | select(length > 0)
       )
     ' "$transcript_path" >> "$temporary_path"; then
