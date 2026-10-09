@@ -221,6 +221,7 @@ func TestValidateRemotePath(t *testing.T) {
 		"/etc/systemd/system/app.service",
 		"/etc/nginx/",
 		"/etc/mysql/",
+		"/etc/isupipe-dns/", // contest: authoritative DNS configuration.
 		"/etc/sysctl.conf",
 	} {
 		if err := validateRemotePath(remote, false); err != nil {

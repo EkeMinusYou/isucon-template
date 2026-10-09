@@ -33,6 +33,84 @@ func TestOneshotGroupsUseEnabledDefaults(t *testing.T) {
 	}
 }
 
+func TestOneshotStopReachesAllHostsAndPreservesOtherCaptures(t *testing.T) {
+	tmp := t.TempDir()
+	script := `#!/bin/sh
+printf '%s\n' "$*" >> "$ISUCON_TEST_STOP_CALLS"
+case "$*" in *host-a*kind=cpu*) exit 7 ;; esac
+`
+	if err := os.WriteFile(filepath.Join(tmp, "ssh"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", tmp+string(os.PathListSeparator)+os.Getenv("PATH"))
+	callsPath := filepath.Join(tmp, "calls")
+	t.Setenv("ISUCON_TEST_STOP_CALLS", callsPath)
+	config := filepath.Join(tmp, "collectors.yaml")
+	body := `oneshots:
+  - name: cpu
+    group: profiles
+    hosts: app
+    run: collect
+    stop: "curl -X POST '{var:profile_stop_url}?kind=cpu&run_id={run_id}'"
+    remote_out: /tmp/cpu
+    output: '{host}-cpu'
+  - name: fgprof
+    group: profiles
+    hosts: app
+    run: collect
+    stop: "curl -X POST '{var:profile_stop_url}?kind=fgprof&run_id={run_id}'"
+    remote_out: /tmp/fgprof
+    output: '{host}-fgprof'
+  - name: disabled
+    group: profiles
+    enabled_by_default: false
+    hosts: app
+    run: collect
+    stop: must-not-run
+    remote_out: /tmp/disabled
+    output: disabled
+  - name: heap
+    group: profiles
+    hosts: app
+    run: collect
+    remote_out: /tmp/heap
+    output: heap
+`
+	if err := os.WriteFile(config, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	args := []string{"oneshot-stop", "-config", config, "-group", "profiles", "-run-id", "run-a", "-role", "app=host-a,host-b"}
+	if err := runCollect(args); err == nil || !strings.Contains(err.Error(), "profile_stop_url") {
+		t.Fatalf("missing stop URL was accepted: %v", err)
+	}
+	if _, err := os.Stat(callsPath); !os.IsNotExist(err) {
+		t.Fatal("SSH ran before all stop placeholders were validated")
+	}
+	err := runCollect(append(args, "-var", "profile_stop_url=http://127.0.0.1:6060/debug/profiles/stop"))
+	if err == nil {
+		t.Fatal("failed host stop was ignored")
+	}
+	calls, readErr := os.ReadFile(callsPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	lines := strings.Split(strings.TrimSpace(string(calls)), "\n")
+	if len(lines) != 4 {
+		t.Fatalf("stop calls=%s", calls)
+	}
+	for _, host := range []string{"host-a", "host-b"} {
+		for _, kind := range []string{"cpu", "fgprof"} {
+			found := false
+			for _, line := range lines {
+				found = found || strings.Contains(line, "ubuntu@"+host) && strings.Contains(line, "kind="+kind+"&run_id=run-a")
+			}
+			if !found {
+				t.Errorf("missing %s %s stop: %s", host, kind, calls)
+			}
+		}
+	}
+}
+
 func TestSweepScriptTerminatesVerifiedCollectorProcessGroup(t *testing.T) {
 	script := sweepScript([]string{"'/tmp/collector-root'"})
 	for _, want := range []string{

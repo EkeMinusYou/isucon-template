@@ -1,7 +1,8 @@
 # SQL接続プールの計測
 
-`tools/sql-pool-metrics`はアプリのlocalhost debug endpointから接続プール状態を1秒間隔で収集する汎用collectorで、標準計測として有効。
-アプリ側に`database/sql.DBStats`相当の情報を返す`GET /debug/sql-pools`を用意する。既定のURLは
+`tools/measurement/cmd/sql-pool-metrics`はアプリのlocalhost debug endpointから接続プール状態を1秒間隔で収集する汎用collectorで、標準計測として有効。
+アプリ側では[共通moduleの`app.Start`](../README.md)へ`Pools`を渡し、
+`database/sql.DBStats`相当の情報を返す`GET /debug/sql-pools`を公開する。既定のURLは
 `http://127.0.0.1:6060/debug/sql-pools`で、Taskfileの`sql_pool_metrics_url`から変更できる。
 
 ## endpointの応答

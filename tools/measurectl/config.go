@@ -43,6 +43,7 @@ type Prepare struct {
 type Oneshot struct {
 	Group            string `yaml:"group"` // Automatic collection group; members follow enabled_by_default.
 	Ready            string `yaml:"ready"` // Optional RUN-specific capture readiness command.
+	Stop             string `yaml:"stop"`  // Optional RUN-specific early completion command.
 	Name             string `yaml:"name"`
 	Label            string `yaml:"label"`
 	EnabledByDefault *bool  `yaml:"enabled_by_default"` // Defaults to true; false makes its artifact optional.

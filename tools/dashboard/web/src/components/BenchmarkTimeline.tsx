@@ -14,6 +14,7 @@ import {
 } from 'recharts'
 import type { TimelineResponse } from '../api'
 import { buildColorMap } from '../colors'
+import { BenchmarkMessages } from './BenchmarkMessages'
 import { ChartCard } from './ChartCard'
 import { EmptyState } from './EmptyState'
 import { LegendRow } from './LegendRow'
@@ -112,6 +113,7 @@ export function BenchmarkTimeline({ timeline }: { timeline: TimelineResponse }) 
     return (
       <div className="space-y-4">
         {errorChart}
+        <BenchmarkMessages key={timeline.run_id} messages={timeline.bench_errors} />
         <EmptyState
           title="表示できるアクセス記録がありません"
           detail="このRUNのログが未取得・空、または有効な時刻を読み取れませんでした"
@@ -123,13 +125,7 @@ export function BenchmarkTimeline({ timeline }: { timeline: TimelineResponse }) 
   return (
     <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
       {errorChart}
-      {timeline.bench_errors.length > 0 && (
-        <ChartCard title="ベンチ結果メッセージ">
-          <ul className="list-disc space-y-1 pl-5 text-sm">
-            {timeline.bench_errors.map((message, index) => <li key={`${index}-${message}`}>{message}</li>)}
-          </ul>
-        </ChartCard>
-      )}
+      <BenchmarkMessages key={timeline.run_id} messages={timeline.bench_errors} />
       <Panel title="リクエスト数（ステータス別）" unit="req/s">
         <AreaChart data={data} margin={{ top: 4, right: 12, bottom: 4, left: 0 }} syncId={SYNC_ID}>
           <CartesianGrid stroke="var(--chart-grid)" vertical={false} />

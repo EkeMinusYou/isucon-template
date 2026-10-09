@@ -19,8 +19,6 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
-const defaultDSN = "isucon:isucon@tcp(127.0.0.1:3306)/"
-
 var statusNames = []string{
 	"Threads_connected",
 	"Threads_running",
@@ -70,7 +68,7 @@ type collector struct {
 }
 
 func main() {
-	dsn := flag.String("dsn", defaultDSN, "MySQL DSN")
+	dsn := flag.String("dsn", "", "MySQL DSN (required)")
 	interval := flag.Duration("interval", time.Second, "sampling interval")
 	queryTimeout := flag.Duration("query-timeout", 500*time.Millisecond, "status query timeout")
 	outputPath := flag.String("output", "-", "TSV output path, or - for stdout")
@@ -79,6 +77,10 @@ func main() {
 	lockQueryTimeout := flag.Duration("lock-query-timeout", 40*time.Millisecond, "data lock wait query timeout")
 	flag.Parse()
 
+	if strings.TrimSpace(*dsn) == "" {
+		fmt.Fprintln(os.Stderr, "dsn is required")
+		os.Exit(2)
+	}
 	if *interval <= 0 {
 		fmt.Fprintln(os.Stderr, "interval must be greater than zero")
 		os.Exit(2)

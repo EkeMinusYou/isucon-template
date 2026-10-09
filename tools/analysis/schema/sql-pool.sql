@@ -8,6 +8,12 @@ select
     * exclude (filename)
 from read_csv(getvariable('run_glob') || '/*-sql-pool-metrics.tsv', delim = '\t',
               header = true, filename = true, union_by_name = true,
+              -- Failed collectors can leave header-only files. Preserve the
+              -- declared timestamp and numeric types even without samples.
+              types = {'sample': 'UBIGINT', 'timestamp': 'TIMESTAMPTZ',
+                       'elapsed_ms': 'BIGINT', 'database_host': 'VARCHAR',
+                       'pool': 'VARCHAR', 'role': 'VARCHAR', 'shard': 'INTEGER',
+                       'metric': 'VARCHAR', 'value': 'DOUBLE'},
               ignore_errors = true);
 
 create or replace view metrics_sql_pool as

@@ -31,7 +31,7 @@
 2. 読み取り専用SSHで全ホストの資源、IP、service・unit・process・listen portと依存経路を確認する。
    管理対象のアプリ・設定・unit・schemaを`task setup-*`で取得し、対象外は理由を残す。
 3. Taskfileの役割・IP・service名・TARGET_OS/ARCH・schema取得先・構文検査を実環境へ合わせる。
-4. `task db-recreate`を上記の要件で整備し、全管理対象を正規deploy・role収束・計測・分析・RUNの役割記録へ組み込む。標準計測のadapterと通常ベンチの起動・回収待ちも揃える。
+4. `task db-recreate`を上記の要件で整備し、全管理対象を正規deploy・role収束・計測・分析・RUNの役割記録へ組み込む。Go計測は`tools/measurement`の共通moduleを接続し、DB pool・service・接続先と競技固有の指標だけを設定する。標準計測のadapterと通常ベンチの起動・回収待ちも揃える。
 5. 必要な修正を揃えてから`task setup-check`を通す。生成、DB再作成・deployのdry-run、build・テスト・成果物契約の確認はTaskfileの依存タスクに従い、含まれている検査は重ねて実行しない。転送先とactivationを確認して正規deployする。
 6. `task check-roles`・`task check-network`と短いログ・profile取得で疎通を確認する。同じsmoke成果物で生成からDuckDB・dashboardのAPI・parserまでを確認し、collectorの起動・停止・timeout・欠損検出も確認する。
 7. 確認した公式採点仕様、標準計測全件の状態・根拠、DB再作成のdry-runと実機実行の有無・結果を報告して初回setupを完了する。実負荷の確認はベンチ待ちとする。

@@ -54,6 +54,8 @@ usage:
   measurectl collect start  [flags]            collectors.yaml の collector を全ホストで起動する
   measurectl collect stop   [flags]            collector を止めて runs/<RUN_ID>/ へ回収する
   measurectl collect oneshot [flags]           走行中に 1 回だけ実行するもの (fgprofなど) を回収する
+  measurectl collect ready [flags]             RUNごとのoneshot採取開始を確認する
+  measurectl collect oneshot-stop [flags]      RUNごとのoneshot停止を通知する（回収はoneshot側で完了）
   measurectl collect check-clean [flags]       全ホストの collector プロセスと残骸がゼロか確認する
   measurectl collect sweep  [flags]            残った collector と作業ディレクトリを掃除する
   measurectl digest         [flags]            生ログを回収し、digesters.yaml の集計をかけて畳む

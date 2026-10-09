@@ -26,6 +26,9 @@
 
 [Go profile導入例](../../../../docs/measurement/go-profiling.md)のadapterと開始確認の契約を参照する。
 
+- Goアプリには[共通計測module](../../../../tools/measurement/README.md)の`app.Start`を接続する。profile handlerやSQL pool exporterを競技アプリへコピーして再実装しない。DB poolの固定ラベルと競技固有の内部指標callbackだけをアプリ側で設定する。
+- proc・MySQL・SQL pool・JSON collectorとoptional nginx on-CPU profilerは同moduleの`cmd/`を既存Taskfileでビルド・配布する。分析ツールをアプリの依存へ追加しない。
+
 - 計測用listenerはloopbackなど必要な範囲へ限定し、公開traffic用routerへ無条件に登録しない。remote curlがどのホストで動くかとbind先を照合する。
 - 標準pprofとfgprofは別のendpoint・実装として確認する。handler未登録、timeout、HTTPエラー本文の保存を取得成功に数えない。
 - `PROFILE_DELAY`、`SNAPSHOT_PROFILE_DELAY`、取得秒数、timeoutと実際の起動時刻を照合する。負荷終了後に手動タスクを呼んでも負荷中のprofileにはならない。

@@ -26,20 +26,32 @@ score=''
 finalized=0
 bench_output=''
 profile_pid=''
+profile_stop_requested=0
+profile_stop_status=0
 
 task before-bench MEASURECTL_COLLECT_FLAGS="$collect_flags" PROFILES_ENABLED="$profiles_enabled"
 active_run_id=$(sh tools/bench/active-run-id.sh "$state_file")
 run_dir=$results_dir/$active_run_id
 
+stop_profiles() {
+  [ -n "$profile_pid" ] && [ "$profile_stop_requested" -eq 0 ] || return 0
+  profile_stop_requested=1
+  task profiles-stop >> "$run_dir/profile-collection.log" 2>&1 || profile_stop_status=$?
+  if [ "$profile_stop_status" -ne 0 ]; then
+    echo "profile stop notification failed (exit $profile_stop_status); waiting for capture upper bound; see $run_dir/profile-collection.log" >&2
+  fi
+}
+
 finalize() {
   [ "$finalized" -eq 0 ] || return 0
   finalized=1
-  # Once finalization begins, preserve the bounded captures even on interruption.
+  # Complete captures through their HTTP responses, including interrupted runs.
   trap '' INT HUP TERM
   if [ -n "$bench_output" ] && [ -f "$bench_output" ]; then
     tee -a "$run_dir/bench.log" < "$bench_output"
     rm -f "$bench_output"
   fi
+  stop_profiles
   profile_status=0
   if [ -n "$profile_pid" ]; then
     wait "$profile_pid" || profile_status=$?
@@ -50,6 +62,7 @@ finalize() {
   finalize_status=0
   task after-bench SCORE="$score" MEASURECTL_COLLECT_FLAGS="$collect_flags" || finalize_status=$?
   [ "$profile_status" -eq 0 ] || return "$profile_status"
+  [ "$profile_stop_status" -eq 0 ] || return "$profile_stop_status"
   return "$finalize_status"
 }
 
@@ -58,7 +71,9 @@ trap 'exit 130' INT
 trap 'exit 143' HUP TERM
 
 if [ "$profiles_enabled" = true ]; then
-  task profiles-collect > "$run_dir/profile-collection.log" 2>&1 &
+  : > "$run_dir/profile-collection.log"
+  # Both collection and stop notification append so neither overwrites output.
+  task profiles-collect >> "$run_dir/profile-collection.log" 2>&1 &
   profile_pid=$!
   # Do not launch a benchmark until every app is sampling for this RUN.
   task profiles-ready
@@ -78,6 +93,7 @@ if [ "$mode" = manual ]; then
   read -r benchmark_done || benchmark_done=''
   ended_at=$(task --silent bench-timestamp)
   printf '%s\tBENCHMARK_END\n' "$ended_at" >> "$run_dir/bench.log"
+  stop_profiles
   printf 'ベンチ結果の原文を保存したファイル（空欄可）: '
   read -r result_file || result_file=''
   if [ -n "$result_file" ]; then
@@ -115,6 +131,7 @@ rm -f "$bench_output"
 bench_output=''
 ended_at=$(task --silent bench-timestamp)
 printf '%s\tBENCHMARK_END\n' "$ended_at" | tee -a "$run_dir/bench.log"
+stop_profiles
 [ "$bench_status" -eq 0 ] || printf 'BENCHMARK_FAIL\texit_status=%s\n' "$bench_status" | tee -a "$run_dir/bench.log"
 
 finalize_status=0

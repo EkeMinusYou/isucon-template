@@ -50,7 +50,7 @@ func runCollect(args []string) error {
 	sshUser := fs.String("ssh-user", "ubuntu", "SSH ユーザー")
 	sshOpts := fs.String("ssh-opts", "", "ssh へ渡す追加オプション (空白区切り)")
 	only := fs.String("only", "", "この collector だけを対象にする (カンマ区切り)")
-	group := fs.String("group", "", "enabled oneshots in this declaration group (oneshot/ready only)")
+	group := fs.String("group", "", "enabled oneshots in this declaration group (oneshot/ready/oneshot-stop only)")
 	include := fs.String("include", "", "既定無効の collector を追加で有効にする (カンマ区切り)")
 	noCollectors := fs.Bool("no-collectors", false, "prepare/digestは維持し、常駐collectorだけを無効にする")
 	dryRun := fs.Bool("dry-run", false, "実行せず、流すコマンドだけを表示する")
@@ -69,8 +69,8 @@ func runCollect(args []string) error {
 	onlyNames := parseNames(*only)
 	includeNames := parseNames(*include)
 	if *group != "" {
-		if (action != "oneshot" && action != "ready") || onlyNames != nil || includeNames != nil || *noCollectors {
-			return errors.New("-group requires oneshot/ready and cannot be combined with -only, -include or -no-collectors")
+		if (action != "oneshot" && action != "ready" && action != "oneshot-stop") || onlyNames != nil || includeNames != nil || *noCollectors {
+			return errors.New("-group requires oneshot/ready/oneshot-stop and cannot be combined with -only, -include or -no-collectors")
 		}
 		cfg.Oneshots, err = enabledOneshotsInGroup(cfg.Oneshots, *group)
 		if err != nil {
@@ -90,14 +90,14 @@ func runCollect(args []string) error {
 				cfg.Collectors, err = filterCollectors(cfg.Collectors, onlyNames)
 			case "prepare":
 				err = validateOnlyNames("prepare", onlyNames, prepareNames(cfg.Prepare))
-			case "oneshot", "ready":
+			case "oneshot", "ready", "oneshot-stop":
 				err = validateOnlyNames("oneshot", onlyNames, oneshotNames(cfg.Oneshots))
 			}
 			if err != nil {
 				return err
 			}
 		} else {
-			if action == "oneshot" || action == "ready" {
+			if action == "oneshot" || action == "ready" || action == "oneshot-stop" {
 				cfg.Oneshots, err = enabledOneshots(cfg.Oneshots, includeNames)
 			} else {
 				cfg.Collectors, err = enabledCollectors(cfg.Collectors, includeNames)
@@ -143,23 +143,36 @@ func runCollect(args []string) error {
 			return errors.New("-run-id is required for readiness")
 		}
 		return r.readyAll()
+	case "oneshot-stop":
+		if r.runID == "" {
+			return errors.New("-run-id is required for stopping oneshots")
+		}
+		return r.oneshotControlAll("stop")
 	case "check-clean":
 		return r.checkCleanAll()
 	case "sweep":
 		return r.sweepAll()
 	default:
-		return fmt.Errorf("不明な操作: %s (prepare / start / stop / oneshot / check-clean / sweep)", action)
+		return fmt.Errorf("不明な操作: %s (prepare / start / stop / oneshot / ready / oneshot-stop / check-clean / sweep)", action)
 	}
 }
 
 func (r *runner) readyAll() error {
-	type job struct{ script, host string }
+	return r.oneshotControlAll("ready")
+}
+
+func (r *runner) oneshotControlAll(action string) error {
+	type job struct{ script, host, name string }
 	var jobs []job
 	for _, o := range r.cfg.Oneshots {
 		if r.only != nil && !r.only[o.Name] {
 			continue
 		}
-		if o.Ready == "" {
+		command := o.Ready
+		if action == "stop" {
+			command = o.Stop
+		}
+		if command == "" {
 			continue
 		}
 		if len(r.roles[o.Hosts]) == 0 {
@@ -167,15 +180,20 @@ func (r *runner) readyAll() error {
 		}
 		for _, host := range r.roles[o.Hosts] {
 			exp := expander{host: host, runID: r.runID, vars: r.vars}
-			script := exp.expand(o.Ready)
+			script := exp.expand(command)
 			if missing := unresolved(script); len(missing) > 0 {
-				return fmt.Errorf("unresolved readiness placeholders: %v", missing)
+				return fmt.Errorf("unresolved %s placeholders: %v", action, missing)
 			}
-			jobs = append(jobs, job{script, host})
+			jobs = append(jobs, job{script, host, o.Name})
 		}
 	}
-	// Snapshot-only or explicitly disabled groups need no readiness gate.
-	return parallel(jobs, func(j job) error { return r.ssh(j.host, j.script) })
+	// Snapshot-only or explicitly disabled groups need no control commands.
+	return parallel(jobs, func(j job) error {
+		if err := r.ssh(j.host, j.script); err != nil {
+			return fmt.Errorf("[%s] %s %s: %w", j.host, j.name, action, err)
+		}
+		return nil
+	})
 }
 
 func enabledOneshotsInGroup(all []Oneshot, group string) ([]Oneshot, error) {

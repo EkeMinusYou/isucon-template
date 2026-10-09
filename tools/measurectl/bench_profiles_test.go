@@ -2,11 +2,13 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestBenchProfilesStartBeforeLoadAndFinishBeforeFinalize(t *testing.T) {
@@ -15,14 +17,15 @@ func TestBenchProfilesStartBeforeLoadAndFinishBeforeFinalize(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct {
-		name, mode                                  string
-		benchExit, profileExit, readyExit, wantExit int
+		name, mode                                            string
+		benchExit, profileExit, readyExit, stopExit, wantExit int
 	}{
-		{"success", "auto", 0, 0, 0, 0},
-		{"benchmark failure", "auto", 7, 0, 0, 7},
-		{"profile failure", "auto", 0, 9, 0, 9},
-		{"readiness failure", "auto", 0, 0, 6, 6},
-		{"manual", "manual", 0, 0, 0, 0},
+		{"success", "auto", 0, 0, 0, 0, 0},
+		{"benchmark failure", "auto", 7, 0, 0, 0, 7},
+		{"profile failure", "auto", 0, 9, 0, 0, 9},
+		{"readiness failure", "auto", 0, 0, 6, 0, 6},
+		{"stop failure", "auto", 0, 0, 0, 8, 8},
+		{"manual", "manual", 0, 0, 0, 0, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tmp := t.TempDir()
@@ -37,17 +40,25 @@ before-bench)
   echo 20260901-120000 > "$ISUCON_BENCH_RUN_STATE_FILE"
   ;;
 profiles-collect)
+  echo PROFILE_CAPTURE_STARTED
   touch "$ISUCON_TEST_DIR/sampling"
-  if [ "$ISUCON_TEST_READY_EXIT" = 0 ]; then
-    i=0
-    until test -f "$run/bench.log" && grep -q BENCHMARK_END "$run/bench.log"; do
-      i=$((i+1)); [ "$i" -lt 200 ] || exit 99
-      sleep 0.01
-    done
-  fi
+  i=0
+  until test -f "$ISUCON_TEST_DIR/stop-requested"; do
+    i=$((i+1)); [ "$i" -lt 400 ] || exit 99
+    sleep 0.01
+  done
   sleep 0.05
   touch "$ISUCON_TEST_DIR/profile-done"
+  echo PROFILE_CAPTURE_COMPLETED
   exit "$ISUCON_TEST_PROFILE_EXIT"
+  ;;
+profiles-stop)
+  echo PROFILE_STOP_REQUESTED
+  if [ "$ISUCON_TEST_READY_EXIT" = 0 ]; then
+    grep -q BENCHMARK_END "$run/bench.log" || exit 93
+  fi
+  touch "$ISUCON_TEST_DIR/stop-requested"
+  exit "$ISUCON_TEST_STOP_EXIT"
   ;;
 profiles-ready)
   i=0
@@ -89,13 +100,45 @@ esac
 			}
 			cmd := exec.Command("sh", args...)
 			cmd.Dir = root
-			cmd.Stdin = strings.NewReader("12\ny\n")
+			cmd.Stdin = strings.NewReader("\n\n12\ny\n")
+			var manualInput chan error
+			if tc.mode == "manual" {
+				reader, writer := io.Pipe()
+				cmd.Stdin = reader
+				defer reader.Close()
+				manualInput = make(chan error, 1)
+				go func() {
+					defer writer.Close()
+					if _, err := io.WriteString(writer, "\n"); err != nil {
+						manualInput <- err
+						return
+					}
+					deadline := time.Now().Add(5 * time.Second)
+					for {
+						if _, err := os.Stat(filepath.Join(tmp, "stop-requested")); err == nil {
+							break
+						}
+						if time.Now().After(deadline) {
+							manualInput <- fmt.Errorf("stop notification waited for result input")
+							return
+						}
+						time.Sleep(5 * time.Millisecond)
+					}
+					_, err := io.WriteString(writer, "\n12\ny\n")
+					manualInput <- err
+				}()
+			}
 			cmd.Env = append(os.Environ(), "PATH="+tmp+string(os.PathListSeparator)+os.Getenv("PATH"),
 				"ISUCON_TEST_DIR="+tmp, "ISUCON_BENCH_RESULTS_DIR="+filepath.Join(tmp, "runs"),
 				"ISUCON_BENCH_RUN_STATE_FILE="+filepath.Join(tmp, "raw", "current-run-id"),
 				"ISUCON_BENCH_PROFILES_ENABLED=true", "ISUCON_BENCH_COLLECT_FLAGS=",
-				fmt.Sprintf("ISUCON_TEST_PROFILE_EXIT=%d", tc.profileExit), fmt.Sprintf("ISUCON_TEST_READY_EXIT=%d", tc.readyExit))
+				fmt.Sprintf("ISUCON_TEST_PROFILE_EXIT=%d", tc.profileExit), fmt.Sprintf("ISUCON_TEST_READY_EXIT=%d", tc.readyExit), fmt.Sprintf("ISUCON_TEST_STOP_EXIT=%d", tc.stopExit))
 			out, err := cmd.CombinedOutput()
+			if manualInput != nil {
+				if err := <-manualInput; err != nil {
+					t.Fatal(err)
+				}
+			}
 			code := 0
 			if err != nil {
 				if e, ok := err.(*exec.ExitError); ok {
@@ -113,6 +156,18 @@ esac
 			}
 			if strings.Count(string(calls), "after-bench") != 1 {
 				t.Fatalf("calls=%s", calls)
+			}
+			if strings.Count(string(calls), "profiles-stop") != 1 {
+				t.Fatalf("stop notification must happen once: %s", calls)
+			}
+			profileLog, err := os.ReadFile(filepath.Join(tmp, "runs", "20260901-120000", "profile-collection.log"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, marker := range []string{"PROFILE_CAPTURE_STARTED", "PROFILE_STOP_REQUESTED", "PROFILE_CAPTURE_COMPLETED"} {
+				if !strings.Contains(string(profileLog), marker) {
+					t.Fatalf("concurrent profile output lost %s: %s", marker, profileLog)
+				}
 			}
 			if tc.readyExit == 0 && strings.Count(string(calls), "profiles-ready") != 2 {
 				t.Fatalf("readiness was not checked again after the lead-in: %s", calls)
@@ -150,7 +205,7 @@ func TestProfileTasksResolveConfiguredDuration(t *testing.T) {
 	if err := os.WriteFile(state, []byte("20000101-000000\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"profiles-collect", "profiles-ready"} {
+	for _, name := range []string{"profiles-collect", "profiles-ready", "profiles-stop"} {
 		// Task dry mode expands variables without running collectors or SSH.
 		cmd := exec.Command(task, "--dry", name, "RUN_STATE_FILE="+state, "PROFILE_SECONDS=210")
 		cmd.Dir = root
@@ -158,7 +213,7 @@ func TestProfileTasksResolveConfiguredDuration(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v: %s", name, err, out)
 		}
-		for _, want := range []string{"/debug/fgprof?seconds=210", "-var profile_seconds=210", "-var profile_timeout_seconds=225"} {
+		for _, want := range []string{"/debug/fgprof?seconds=210", "-var profile_seconds=210", "-var profile_timeout_seconds=225", "-var profile_stop_url=http://127.0.0.1:6060/debug/profiles/stop"} {
 			if !strings.Contains(string(out), want) {
 				t.Errorf("%s is missing %q: %s", name, want, out)
 			}

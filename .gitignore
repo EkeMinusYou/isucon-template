@@ -16,14 +16,14 @@ webapp/go/default.pgo
 /tools/analysisctl/analysisctl
 /tools/deployctl/deployctl
 /tools/measurectl/measurectl
-/tools/proc-metrics/proc-metrics
-/tools/json-metrics-collector/json-metrics-collector
-/tools/mysql-metrics/mysql-metrics
+/tools/measurement/cmd/proc-metrics/proc-metrics
+/tools/measurement/cmd/json-metrics-collector/json-metrics-collector
+/tools/measurement/cmd/mysql-metrics/mysql-metrics
 /tools/nginx-backend-report/nginx-backend-report
-/tools/nginx-oncpu-profiler/nginx-oncpu-profiler
+/tools/measurement/cmd/nginx-oncpu-profiler/nginx-oncpu-profiler
 /tools/user-transition-metrics/user-transition-metrics
 /tools/dashboard/server/dashboardserver
-/tools/sql-pool-metrics/sql-pool-metrics
+/tools/measurement/cmd/sql-pool-metrics/sql-pool-metrics
 /tools/contest/smoke/smoke
 
 # Node dependencies and browser state
