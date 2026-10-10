@@ -195,7 +195,7 @@ func checkRunDir(dir string, specs []ArtifactSpec) error {
 		return nil
 	}
 	fmt.Printf("%s に無い成果物:\n%s\n", dir, strings.Join(missing, "\n"))
-	fmt.Println("\nベンチが途中で落ちた走行では欠けるのが正常です。run.json の artifacts で理由を確認してください。")
+	fmt.Println("\nrun.json の artifacts で欠損理由を確認してください。")
 	return errors.New("必須成果物が欠けています")
 }
 

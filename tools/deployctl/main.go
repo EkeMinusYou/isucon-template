@@ -25,9 +25,12 @@ func run(args []string) error {
 	if args[0] == "check-roles" {
 		return runCheckRoles(args[1:])
 	}
+	if args[0] == "verify" {
+		return runVerify(args[1:])
+	}
 	if len(args) < 2 || (args[0] != "apply" && args[0] != "apply-plan") {
 		usage()
-		return errors.New("usage: deployctl apply <deployment> [flags] | deployctl apply-plan <plan> [flags] | deployctl check-roles [flags]")
+		return errors.New("usage: deployctl apply <deployment> [flags] | deployctl apply-plan <plan> [flags] | deployctl check-roles [flags] | deployctl verify [flags]")
 	}
 	command := args[0]
 	name := args[1]
@@ -139,6 +142,7 @@ usage:
   deployctl apply <deployment> [flags]
   deployctl apply-plan <plan> [flags]
   deployctl check-roles [flags]
+  deployctl verify [flags]
 
 The Taskfile is the public entrypoint and passes role and variable values.
 Use -dry-run to inspect all rsync and SSH operations without changing servers.

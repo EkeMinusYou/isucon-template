@@ -35,6 +35,8 @@ type deployRunner struct {
 	dryRun   bool
 	parallel int
 	exec     commandExecutor
+	// provenance identifies the worktree and commit recorded in deploy stamps.
+	provenance provenance
 }
 
 type uploadJob struct {
@@ -224,6 +226,11 @@ func (r *deployRunner) runUpload(j uploadJob) jobResult {
 			return result(fmt.Errorf("backup failed; upload was not started (inspect %s): %w", backup, err))
 		}
 	}
+	// Fingerprint before the transfer so the stamp describes what rsync sent.
+	fingerprint, err := localFingerprint(j.local, j.u.Excludes)
+	if err != nil {
+		return result(fmt.Errorf("fingerprint local source: %w", err))
+	}
 	out, err := r.exec.Run("rsync", r.rsyncArgs(j), "")
 	output = append(output, strings.TrimSpace(string(out)))
 	if err != nil {
@@ -231,6 +238,15 @@ func (r *deployRunner) runUpload(j uploadJob) jobResult {
 	} else if j.u.Validate != "" {
 		if checkErr := runRemote("set -eu\n" + j.u.Validate + "\n"); checkErr != nil {
 			err = fmt.Errorf("configuration validation failed: %w", checkErr)
+		}
+	}
+	if err == nil {
+		script, stampErr := r.stampScript(j, fingerprint)
+		if stampErr == nil {
+			stampErr = runRemote(script)
+		}
+		if stampErr != nil {
+			err = fmt.Errorf("deploy stamp: %w", stampErr)
 		}
 	}
 	if backup != "" {

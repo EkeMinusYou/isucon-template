@@ -149,6 +149,9 @@ vars:
   MEASURECTL_REMOTE: '{{.MEASURECTL_SSH}} {{.MEASURECTL_ROLES}} {{.MEASURECTL_VARS}}'
   MEASURECTL_COMMON: '{{.MEASURECTL_FLAGS}} {{.MEASURECTL_REMOTE}}'
 
+  # Server-changing commands and benchmark runs share one lock across all worktrees.
+  OPERATION_LOCK: sh tools/bench/operation-lock.sh
+
   DEPLOYCTL_COMMON: >-
     {{.DEPLOYCTL_FLAGS}}
     -ssh-user {{.SSH_USER}}
@@ -525,6 +528,7 @@ tasks:
       SMOKE_DIR: '{{.ROOT_DIR}}/.task/{{.SMOKE_ID}}'
     cmds:
       - |
+        {{.OPERATION_LOCK}} bash <<'BASH'
         set -eu
         mkdir -p '{{.SMOKE_DIR}}'
         {{.MEASURECTL_DIR}}/measurectl collect check-clean {{.MEASURECTL_REMOTE}}
@@ -545,6 +549,7 @@ tasks:
         wait "$profiles_pid"
         {{.MEASURECTL_DIR}}/measurectl digest -run-dir '{{.SMOKE_DIR}}' -raw-dir '{{.SMOKE_DIR}}/raw' {{.MEASURECTL_REMOTE}}
         echo 'Smoke artifacts: {{.SMOKE_DIR}} (not a benchmark RUN)'
+        BASH
 
   setup-smoke-stop:
     desc: 指定したsetup疎通確認のcollectorだけを停止・回収
@@ -555,7 +560,7 @@ tasks:
         msg: SMOKE_ID must identify a setup smoke session
     deps: [build-measurectl]
     cmds:
-      - '{{.MEASURECTL_DIR}}/measurectl collect stop -run-id "{{.SMOKE_ID}}" -run-dir "{{.ROOT_DIR}}/.task/{{.SMOKE_ID}}" {{.MEASURECTL_REMOTE}}'
+      - '{{.OPERATION_LOCK}} {{.MEASURECTL_DIR}}/measurectl collect stop -run-id "{{.SMOKE_ID}}" -run-dir "{{.ROOT_DIR}}/.task/{{.SMOKE_ID}}" {{.MEASURECTL_REMOTE}}'
 
   gen:
     desc: 役割定義からnginx upstreamを生成
@@ -629,7 +634,7 @@ tasks:
     cmds:
       # Contest hook; the app initialize script consumes these generated files.
       - task: prepare-db-assets
-      - '{{.DEPLOYCTL_DIR}}/deployctl apply app -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
+      - '{{.OPERATION_LOCK}} {{.DEPLOYCTL_DIR}}/deployctl apply app -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
 
   deploy-nginx:
     desc: nginx設定をNGINX_HOSTSへ配布・reload
@@ -637,41 +642,41 @@ tasks:
     deps: [build-deployctl]
     cmds:
       - task: gen
-      - '{{.DEPLOYCTL_DIR}}/deployctl apply nginx -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
+      - '{{.OPERATION_LOCK}} {{.DEPLOYCTL_DIR}}/deployctl apply nginx -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
 
   deploy-mysql:
     desc: MySQL設定をMYSQL_HOSTSへ配布・restart
     preconditions: *no_active_run
     deps: [build-deployctl]
     cmds:
-      - '{{.DEPLOYCTL_DIR}}/deployctl apply mysql -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
+      - '{{.OPERATION_LOCK}} {{.DEPLOYCTL_DIR}}/deployctl apply mysql -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
 
   deploy-sysctl:
     desc: sysctl設定を全ホストへ配布・反映
     preconditions: *no_active_run
     deps: [build-deployctl]
     cmds:
-      - '{{.DEPLOYCTL_DIR}}/deployctl apply sysctl -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
+      - '{{.OPERATION_LOCK}} {{.DEPLOYCTL_DIR}}/deployctl apply sysctl -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
 
   deploy-plan:
     internal: true
     deps: [build-deployctl]
     requires: { vars: [PLAN] }
     cmds:
-      - '{{.DEPLOYCTL_DIR}}/deployctl apply-plan {{.PLAN}} -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
+      - '{{.OPERATION_LOCK}} {{.DEPLOYCTL_DIR}}/deployctl apply-plan {{.PLAN}} -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
 
   apply-roles:
     desc: 役割外サービスを停止し、役割内サービスを起動
     preconditions: *no_active_run
     deps: [build-deployctl]
     cmds:
-      - '{{.DEPLOYCTL_DIR}}/deployctl apply-plan roles -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
+      - '{{.OPERATION_LOCK}} {{.DEPLOYCTL_DIR}}/deployctl apply-plan roles -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
 
   deploy-nginx-oncpu-prereqs:
     desc: optional profiler用perf packageをNGINX_ONCPU_HOSTへ一時導入
     preconditions: *no_active_run
     cmds:
-      - '{{.SSH}} {{.SSH_USER}}@{{.NGINX_ONCPU_HOST}} "bash -s -- install {{.NGINX_ONCPU_HOST}}" < tools/bench/nginx-oncpu-prereqs.sh'
+      - '{{.OPERATION_LOCK}} {{.SSH}} {{.SSH_USER}}@{{.NGINX_ONCPU_HOST}} "bash -s -- install {{.NGINX_ONCPU_HOST}}" < tools/bench/nginx-oncpu-prereqs.sh'
 
   deploy-nginx-oncpu-prereqs-check:
     desc: optional profilerをNGINX_ONCPU_HOSTでpreflight
@@ -685,7 +690,7 @@ tasks:
     desc: optional profiler用に追加したperf packageだけを撤去
     preconditions: *no_active_run
     cmds:
-      - '{{.SSH}} {{.SSH_USER}}@{{.NGINX_ONCPU_HOST}} "bash -s -- cleanup {{.NGINX_ONCPU_HOST}}" < tools/bench/nginx-oncpu-prereqs.sh'
+      - '{{.OPERATION_LOCK}} {{.SSH}} {{.SSH_USER}}@{{.NGINX_ONCPU_HOST}} "bash -s -- cleanup {{.NGINX_ONCPU_HOST}}" < tools/bench/nginx-oncpu-prereqs.sh'
 
   check-network:
     desc: nginx→appとapp→MySQLのTCP疎通を確認
@@ -715,7 +720,7 @@ tasks:
       ISUCON_BENCH_PROFILES_ENABLED: '{{.PROFILES_ENABLED}}'
     cmds:
       - >-
-        sh tools/bench/run.sh auto -- tools/bench-output/bench-output {{.SSH}} {{.BENCH_SSH_OPTIONS}} {{.SSH_USER}}@{{.BENCH_HOST}}
+        {{.OPERATION_LOCK}} sh tools/bench/run.sh auto -- tools/bench-output/bench-output {{.SSH}} {{.BENCH_SSH_OPTIONS}} {{.SSH_USER}}@{{.BENCH_HOST}}
         "sudo -u {{.ISUCON_USER}} -i bash -lc 'cd {{.REMOTE_HOME}} && {{.BENCH_COMMAND}}'"
 
   bench-no-collectors:
@@ -729,7 +734,7 @@ tasks:
     interactive: true
     env: *bench_runner_env
     cmds:
-      - sh tools/bench/run.sh manual
+      - '{{.OPERATION_LOCK}} sh tools/bench/run.sh manual'
 
   bench-manual-no-collectors:
     desc: ポータルベンチでcollector負荷を比較するため標準collectorを無効化
@@ -741,10 +746,13 @@ tasks:
   before-bench:
     desc: 差分をcommitしてRUNを採番し、ログローテートとcollector起動を行う
     silent: true
-    deps: [build-measurectl, build-proc-metrics, build-mysql-metrics, build-sql-pool-metrics]
+    deps: [build-measurectl, build-proc-metrics, build-mysql-metrics, build-sql-pool-metrics, build-deployctl]
     cmds:
+      # Measure only what this worktree deployed: other worktrees share the servers.
+      - '{{.DEPLOYCTL_DIR}}/deployctl verify -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
+      - '{{.DEPLOYCTL_DIR}}/deployctl check-roles {{.DEPLOYCTL_COMMON}}'
       - |
-        bash <<'BASH'
+        {{.OPERATION_LOCK}} bash <<'BASH'
         set -eu
         mkdir -p '{{.RAW_DIR}}'
         {{.MEASURECTL_DIR}}/measurectl run begin -commit-changes -run-id '{{.RUN_ID}}' \
@@ -761,12 +769,12 @@ tasks:
         sh: sh tools/bench/active-run-id.sh '{{.RUN_STATE_FILE}}'
     cmds:
       - >-
-        {{.MEASURECTL_DIR}}/measurectl run finalize -auto-commit -results '{{.RESULT_DIR}}' -raw-dir '{{.RAW_DIR}}'
+        {{.OPERATION_LOCK}} {{.MEASURECTL_DIR}}/measurectl run finalize -auto-commit -results '{{.RESULT_DIR}}' -raw-dir '{{.RAW_DIR}}'
         -run-state-file '{{.RUN_STATE_FILE}}' -scores '{{.RESULT_DIR}}/scores.tsv' -score '{{.SCORE}}'
         -collector-flags '{{.MEASURECTL_FLAGS}} {{default "" .MEASURECTL_COLLECT_FLAGS}}'
         -digester-flags '{{.MEASURECTL_DIGEST_FLAGS}}' {{.MEASURECTL_REMOTE}}
-      - '{{.MEASURECTL_DIR}}/measurectl artifacts -run-dir {{.RESULT_DIR}}/{{.FINISH_RUN_ID}}'
       - task: q-sync
+      - '{{.MEASURECTL_DIR}}/measurectl artifacts -run-dir {{.RESULT_DIR}}/{{.FINISH_RUN_ID}}'
 
   profiles-collect:
     desc: 進行中RUNへ標準Go profileとfgprofを収集
@@ -820,7 +828,7 @@ tasks:
     desc: 進行中RUNを破棄しcollectorを掃除（破壊的）
     deps: [build-measurectl]
     cmds:
-      - '{{.MEASURECTL_DIR}}/measurectl collect sweep {{.MEASURECTL_COMMON}}'
+      - '{{.OPERATION_LOCK}} {{.MEASURECTL_DIR}}/measurectl collect sweep {{.MEASURECTL_COMMON}}'
       - |
         if [ -f '{{.RUN_STATE_FILE}}' ]; then
           mv -f '{{.RUN_STATE_FILE}}' '{{.RAW_DIR}}/aborted-run-id'
@@ -933,7 +941,7 @@ tasks:
     desc: 古いログとAPTキャッシュを削除（破壊的。明示指示時のみ）
     cmds:
       - for: { var: ALL_HOSTS }
-        cmd: '{{.SSH}} {{.SSH_USER}}@{{.ITEM}} "sudo journalctl --vacuum-size=10M && sudo apt-get clean"'
+        cmd: '{{.OPERATION_LOCK}} {{.SSH}} {{.SSH_USER}}@{{.ITEM}} "sudo journalctl --vacuum-size=10M && sudo apt-get clean"'
 
   rotate-mysql-logs:
     desc: 全ホストの既存logrotate設定でMySQLログをローテート・圧縮
@@ -941,7 +949,7 @@ tasks:
     cmds:
       - for: { var: ALL_HOSTS }
         cmd: |
-          {{.SSH}} {{.SSH_USER}}@{{.ITEM}} 'sudo bash -se' <<'REMOTE'
+          {{.OPERATION_LOCK}} {{.SSH}} {{.SSH_USER}}@{{.ITEM}} 'sudo bash -se' <<'REMOTE'
           rotation_config=$(mktemp /tmp/isucon-logrotate.XXXXXX)
           trap 'rm -f "$rotation_config"' EXIT
           printf '%s\n' 'su root adm' 'include /etc/logrotate.d/mysql-server' > "$rotation_config"
@@ -955,6 +963,7 @@ tasks:
     preconditions: *no_active_run
     cmds:
       - |
+        {{.OPERATION_LOCK}} bash <<'BASH'
         set -eu
         set -o pipefail
         mkdir -p '{{.RAW_DIR}}'
@@ -967,6 +976,7 @@ tasks:
         mv "$archive_path.partial" "$archive_path"
         {{.SSH}} {{.SSH_USER}}@{{.HOST}} "echo '$expected  /var/log/mysql/mysql-slow.log.1' | sudo sha256sum -c - && sudo rm /var/log/mysql/mysql-slow.log.1"
         echo "Archived: $archive_path SHA-256: $expected"
+        BASH
 
   db-recreate-dry:
     desc: DB再作成の対象とactivationを実行せず表示
@@ -987,7 +997,7 @@ tasks:
     preconditions: *no_active_run
     deps: [gen, build-deployctl]
     cmds:
-      - '{{.DEPLOYCTL_DIR}}/deployctl apply app-unit -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
+      - '{{.OPERATION_LOCK}} {{.DEPLOYCTL_DIR}}/deployctl apply app-unit -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
 
 
   bench-timestamp:

@@ -110,11 +110,12 @@ if [ "$mode" = manual ]; then
   if [ -n "$score" ]; then
     printf 'SCORE: %s\n' "$score" >> "$run_dir/bench.log"
   fi
-  printf '整合性チェックまで成功した場合は y を入力してください: '
+  printf '合否を入力してください（成功 y / 失敗 n / 未判定は空欄）: '
   read -r passed || passed=''
   case "$passed" in
     y|Y|yes|YES) echo 'BENCHMARK_PASS' >> "$run_dir/bench.log" ;;
-    *) echo 'BENCHMARK_FAIL' >> "$run_dir/bench.log" ;;
+    n|N|no|NO) echo 'BENCHMARK_FAIL' >> "$run_dir/bench.log" ;;
+    *) : ;;
   esac
   finalize_status=0
   finalize || finalize_status=$?

@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -116,6 +117,8 @@ type Source struct {
 	Remote   string `yaml:"remote"`
 	Local    string `yaml:"local"`
 	Compress bool   `yaml:"compress"` // 集計が済んでから zstd で畳むか
+	// Wait before copying so the producer can flush buffered records.
+	FetchDelay time.Duration `yaml:"fetch_delay,omitempty"`
 }
 
 // Digester は集計 1 件。ベンチ後の集計は「入力を確かめる → 外部ツールを確かめる →
@@ -130,18 +133,17 @@ type Remote struct {
 }
 
 type Digester struct {
-	PerHost           bool     `yaml:"per_host"` // run source-based aggregation separately for every source host
-	EnabledByDefault  *bool    `yaml:"enabled_by_default"`
-	Name              string   `yaml:"name"`
-	Label             string   `yaml:"label"`
-	Source            string   `yaml:"source"`
-	Remote            *Remote  `yaml:"remote"`
-	Stderr            string   `yaml:"stderr"`               // 失敗理由・スキップ理由の保存名
-	Stdin             string   `yaml:"stdin"`                // 入力を stdin へ流すときの読み取りコマンド
-	Timeout           string   `yaml:"timeout"`              // 空なら無制限
-	SkipIfBenchFailed bool     `yaml:"skip_if_bench_failed"` // preflight 失敗時に集計しない
-	InstallHint       string   `yaml:"install_hint"`         // ツールが無いときに添える導入方法
-	Outputs           []Output `yaml:"outputs"`
+	PerHost          bool     `yaml:"per_host"` // run source-based aggregation separately for every source host
+	EnabledByDefault *bool    `yaml:"enabled_by_default"`
+	Name             string   `yaml:"name"`
+	Label            string   `yaml:"label"`
+	Source           string   `yaml:"source"`
+	Remote           *Remote  `yaml:"remote"`
+	Stderr           string   `yaml:"stderr"`       // 失敗理由・スキップ理由の保存名
+	Stdin            string   `yaml:"stdin"`        // 入力を stdin へ流すときの読み取りコマンド
+	Timeout          string   `yaml:"timeout"`      // 空なら無制限
+	InstallHint      string   `yaml:"install_hint"` // ツールが無いときに添える導入方法
+	Outputs          []Output `yaml:"outputs"`
 }
 
 func (d Digester) enabledByDefault() bool {
@@ -156,7 +158,7 @@ type Output struct {
 	Header string `yaml:"header"`
 	// 実行に失敗したときに書き込む内容。空なら集計全体を失敗にする。
 	OnError string `yaml:"on_error"`
-	// スキップしたときに書き込む内容。空ならファイルを作らない。
+	// Contents written on skip; empty creates an empty artifact with a stderr reason.
 	OnSkip string `yaml:"on_skip"`
 }
 
@@ -189,6 +191,9 @@ func loadDigestConfig(path string) (*DigestConfig, error) {
 	for _, s := range cfg.Sources {
 		if s.Name == "" || s.Role == "" || s.Remote == "" || s.Local == "" {
 			return nil, fmt.Errorf("source %q に name / role / remote / local のいずれかが足りません", s.Name)
+		}
+		if s.FetchDelay < 0 {
+			return nil, fmt.Errorf("source %q: fetch_delay must not be negative", s.Name)
 		}
 	}
 	for _, d := range cfg.Digesters {

@@ -57,8 +57,8 @@ git ls-files --cached --others --exclude-standard | sort -u | comm -23 - "$tmp/d
 comm -13 "$tmp/template" "$tmp/theirs" > "$tmp/removed"
 
 strip_regions() {
-  awk '/# >>> contest values >>>/ { skip = 1; print "  # <contest values omitted>"; next }
-       /# <<< contest values <<</ { skip = 0; next }
+  awk '/^[[:space:]]*(--[[:space:]]*)?# >>> contest values >>>/ { skip = 1; print "  # <contest values omitted>"; next }
+       /^[[:space:]]*(--[[:space:]]*)?# <<< contest values <<</ { skip = 0; next }
        !skip' "$1"
 }
 

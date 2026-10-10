@@ -10,7 +10,159 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
+
+func TestFetchSourceIncludesBufferedTail(t *testing.T) {
+	dir := t.TempDir()
+	source := Source{Name: "access", Remote: "/remote/access.log", Local: "{run_dir}/access.log", FetchDelay: 10 * time.Millisecond}
+	flushedAt := time.Now().Add(source.FetchDelay)
+	complete := "first request\nlast request\n"
+	runner := &digestRunner{
+		runDir: dir,
+		fetchFn: func(_, _, local string) error {
+			// Model a producer whose last request remains buffered until its timer fires.
+			body := "first request\n"
+			if !time.Now().Before(flushedAt) {
+				body = complete
+			}
+			return os.WriteFile(local, []byte(body), 0o600)
+		},
+	}
+	if err := runner.fetchSource(source, "nginx-1"); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(dir, "access.log"))
+	if err != nil || string(body) != complete {
+		t.Fatalf("buffered tail missing: body=%q err=%v", body, err)
+	}
+}
+
+func TestDigestAggregatesFailedBenchmarkSlowLogs(t *testing.T) {
+	// Use the production declarations so failure-dependent skips cannot return
+	// unnoticed. Replace only the external tools with a deterministic command.
+	cfg, err := loadDigestConfig("digesters.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Digesters = filterDigesters(cfg.Digesters, []string{"pt-query-digest", "slp"})
+	if len(cfg.Digesters) != 2 {
+		t.Fatal("slow-log digesters are missing from the production config")
+	}
+	cfg.Sources = []Source{{Name: "slow", Role: "mysql_all", Remote: "/tmp/slow.log", Local: "{raw_dir}/slow-{host}.log"}}
+	for i := range cfg.Digesters {
+		for j := range cfg.Digesters[i].Outputs {
+			cfg.Digesters[i].Outputs[j].Run = "printf aggregated"
+		}
+	}
+	body, err := yaml.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, failure := range []string{
+		"BENCHMARK_FAIL\n",
+		"最終チェックに失敗しました\n",
+		"整合性チェックに失敗しました\n",
+	} {
+		t.Run(strings.TrimSpace(failure), func(t *testing.T) {
+			dir := t.TempDir()
+			config := filepath.Join(dir, "digesters.yaml")
+			for path, contents := range map[string][]byte{
+				config:                              body,
+				filepath.Join(dir, "bench.log"):     []byte(failure),
+				filepath.Join(dir, "slow-db-1.log"): []byte("slow log input\n"),
+			} {
+				if err := os.WriteFile(path, contents, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := runDigest([]string{"-config", config, "-run-dir", dir, "-raw-dir", dir, "-skip-fetch", "-role", "mysql_all=db-1"}); err != nil {
+				t.Fatal(err)
+			}
+			for _, d := range cfg.Digesters {
+				for _, output := range d.Outputs {
+					path := filepath.Join(dir, strings.ReplaceAll(output.File, "{host}", "db-1"))
+					got, err := os.ReadFile(path)
+					if err != nil || string(got) != "aggregated" {
+						t.Fatalf("%s output=%q err=%v", path, got, err)
+					}
+				}
+				stderr := filepath.Join(dir, strings.ReplaceAll(d.Stderr, "{host}", "db-1"))
+				if contents, err := os.ReadFile(stderr); err != nil && !os.IsNotExist(err) || len(contents) != 0 {
+					t.Fatalf("unexpected failure reason: %q err=%v", contents, err)
+				}
+			}
+		})
+	}
+}
+
+func TestSkippedDigestKeepsRequiredOutputsAndReason(t *testing.T) {
+	for _, mode := range []string{"source", "source-per-host", "remote-per-host"} {
+		t.Run(mode, func(t *testing.T) {
+			dir := t.TempDir()
+			runner := &digestRunner{
+				runDir: dir,
+				roles:  map[string][]string{"mysql": {"db-1"}},
+				sshScriptFn: func(_, _ string) (string, string, error) {
+					return "", "remote input unavailable", errors.New("exit status 1")
+				},
+			}
+			prefix := ""
+			if mode != "source" {
+				prefix = "{host}-"
+			}
+			d := Digester{
+				Name: "digest", Stderr: prefix + "digest.stderr",
+				Outputs: []Output{
+					{File: prefix + "digest.log"},
+					{File: prefix + "digest.json", OnSkip: "[]"},
+				},
+			}
+			var err error
+			if mode == "remote-per-host" {
+				d.Remote = &Remote{Role: "mysql", PerHost: true, Script: "exit 1"}
+				err = runner.digestRemote(d)
+			} else {
+				source := Source{Name: "slow", Role: "mysql", Local: "{run_dir}/absent.log"}
+				d.PerHost = mode == "source-per-host"
+				host := ""
+				if d.PerHost {
+					host = "db-1"
+				}
+				err = runner.digestSource(d, source, host)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			var specs []ArtifactSpec
+			for _, output := range d.Outputs {
+				name := strings.ReplaceAll(output.File, "{host}", "db-1")
+				specs = append(specs, ArtifactSpec{Pattern: name, Producer: "digester:digest"})
+				body, err := os.ReadFile(filepath.Join(dir, name))
+				want := ""
+				if output.OnSkip != "" {
+					want = "[]\n"
+				}
+				if err != nil || string(body) != want {
+					t.Fatalf("%s output=%q want=%q err=%v", name, body, want, err)
+				}
+			}
+			if err := checkRunDir(dir, specs); err != nil {
+				t.Fatal(err)
+			}
+			artifacts, _, err := scanArtifacts(dir)
+			if err != nil || len(artifacts) != 2 {
+				t.Fatalf("artifacts=%#v err=%v", artifacts, err)
+			}
+			for _, artifact := range artifacts {
+				if artifact.Status != "failed" || artifact.Reason == "" {
+					t.Fatalf("skip was not recorded: %#v", artifact)
+				}
+			}
+		})
+	}
+}
 
 func TestDisabledDigesterIsOptionalAndRequiresExplicitSelection(t *testing.T) {
 	dir := t.TempDir()

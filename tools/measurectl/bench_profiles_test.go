@@ -26,6 +26,7 @@ func TestBenchProfilesStartBeforeLoadAndFinishBeforeFinalize(t *testing.T) {
 		{"readiness failure", "auto", 0, 0, 6, 0, 6},
 		{"stop failure", "auto", 0, 0, 0, 8, 8},
 		{"manual", "manual", 0, 0, 0, 0, 0},
+		{"manual unknown", "manual", 0, 0, 0, 0, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tmp := t.TempDir()
@@ -124,7 +125,11 @@ esac
 						}
 						time.Sleep(5 * time.Millisecond)
 					}
-					_, err := io.WriteString(writer, "\n12\ny\n")
+					resultInput := "\n12\ny\n"
+					if tc.name == "manual unknown" {
+						resultInput = "\n\n\n"
+					}
+					_, err := io.WriteString(writer, resultInput)
 					manualInput <- err
 				}()
 			}
@@ -149,6 +154,17 @@ esac
 			}
 			if code != tc.wantExit {
 				t.Fatalf("exit=%d want=%d: %s", code, tc.wantExit, out)
+			}
+			if tc.name == "manual unknown" {
+				body, err := os.ReadFile(filepath.Join(tmp, "runs", "20260901-120000", "bench.log"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, marker := range []string{"SCORE:", "BENCHMARK_PASS", "BENCHMARK_FAIL"} {
+					if strings.Contains(string(body), marker) {
+						t.Fatalf("unknown result emitted %s", marker)
+					}
+				}
 			}
 			calls, err := os.ReadFile(filepath.Join(tmp, "calls"))
 			if err != nil {

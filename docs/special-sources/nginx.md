@@ -12,18 +12,21 @@ nginx の設定。リポジトリでは `nginx/nginx.conf`、`nginx/conf.d/`、`
 ```nginx
 worker_processes auto;
 worker_rlimit_nofile 16384;
+error_log /var/log/nginx/error.log warn;
 
 events {
-  worker_connections 2304;
+  worker_connections 8192;
   multi_accept on;
 }
 ```
 
 - `worker_connections` は worker 1 プロセスあたりの同時接続数で、クライアント側だけでなく upstream 側の
   接続も数える。worker 数を掛けた値がそのまま処理可能な HTTP リクエスト数になるわけではない。
-- `worker_rlimit_nofile=16384` は worker ごとの FD 上限を `worker_connections=2304` より大きくし、
-  upstream 接続、ログ、TLS などにも余裕を設ける。systemd 側の上限がこれより低い場合は、サービス側も設定する。
+- `worker_rlimit_nofile=16384` は worker ごとの FD 上限を `worker_connections=8192` より大きくし、
+  ログなど接続以外の FD にも余裕を設ける。systemd 側の上限がこれより低い場合は、サービス側も設定する。
 - `worker_processes auto` の worker 数はホストの CPU 数などから決まる。接続数と FD 上限は各 worker に適用される。
+- 接続枠が少なくなると nginx は待機接続を閉じて枠を確保する。この警告を保存するため、`error_log` は
+  `warn` を指定する。レベルを省略すると `error` になり、この警告は記録されない。ログのパスは既存設定に合わせる。
 
 ## 基本設定
 

@@ -163,6 +163,10 @@ raw配下の個別ファイルもmanifestに記録し、trafficのないホス�
 nginx側のJSON列、識別情報の扱い、設定反映は[nginx access logの計測手順](../docs/measurement/nginx-access-log.md)を参照する。
 本書ではaccess logを回収するsource・digesterと、分析schemaとの対応を管理する。
 
+sourceの`fetch_delay`はコピー前の待ち時間（既定0、負の値は不可）。標準の`access` sourceは`2s`を指定し、
+nginxの`flush=1s`でバッファに残る末尾の行が書き出されるのを待つ。ホストごとの待ちは並列に行い、
+`-skip-fetch`では待たない。ログ形式・採取範囲は変えず、バッファのflush時間を変える場合はこの待ちも合わせる。
+
 ### 分析
 
 `tools/analysis/sources.yaml`は、RUN成果物とDuckDB schemaの対応表である。標準成果物だけなら変更しない。

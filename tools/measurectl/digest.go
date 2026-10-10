@@ -18,17 +18,15 @@ import (
 // タイムアウト付きで実行する → 失敗なら理由を残して既定値で埋める」という
 // 形が共通なので、違うのは宣言に書いた入力・コマンド・既定値だけになる。
 type digestRunner struct {
-	cfg     *DigestConfig
-	runDir  string
-	rawDir  string
-	sshUser string
-	sshOpts []string
-	roles   map[string][]string
-	vars    map[string]string
-	dryRun  bool
-	// bench.log が preflight 失敗を示しているか。skip_if_bench_failed の判定に使う。
-	benchFailed bool
-	loadWindow  LoadWindow
+	cfg        *DigestConfig
+	runDir     string
+	rawDir     string
+	sshUser    string
+	sshOpts    []string
+	roles      map[string][]string
+	vars       map[string]string
+	dryRun     bool
+	loadWindow LoadWindow
 	// fetchFn is used by focused tests; production fetches through rsyncFrom.
 	fetchFn     func(host, remote, local string) error
 	sshScriptFn func(host, script string) (string, string, error)
@@ -84,7 +82,6 @@ func runDigest(args []string) error {
 		vars:    vars,
 		dryRun:  *dryRun,
 	}
-	r.benchFailed = benchFailed(filepath.Join(*runDir, "bench.log"))
 	benchLog, _ := os.ReadFile(filepath.Join(*runDir, "bench.log"))
 	r.loadWindow = resolveLoadWindow(benchLog)
 
@@ -175,8 +172,12 @@ func (r *digestRunner) fetchAll() error {
 func (r *digestRunner) fetchSource(src Source, host string) error {
 	local := r.expand(src.Local, host)
 	if r.dryRun {
+		if src.FetchDelay > 0 {
+			fmt.Printf("[dry-run] wait %s before fetching %s from %s\n", src.FetchDelay, src.Name, host)
+		}
 		return r.rsyncFrom(host, src.Remote, local)
 	}
+	time.Sleep(src.FetchDelay)
 	if err := os.MkdirAll(filepath.Dir(local), 0o755); err != nil {
 		return err
 	}
@@ -371,11 +372,8 @@ func (r *digestRunner) digestRemote(d Digester) error {
 func (r *digestRunner) skipRemoteHost(d Digester, host, reason string) error {
 	r.appendStderrForHost(d, reason, host)
 	for _, output := range d.Outputs {
-		if output.OnSkip == "" {
-			continue
-		}
 		path := filepath.Join(r.runDir, r.expand(output.File, host))
-		if err := os.WriteFile(path, []byte(unescape(output.OnSkip)+"\n"), 0o644); err != nil {
+		if err := writeSkippedOutput(path, output); err != nil {
 			return err
 		}
 	}
@@ -390,11 +388,8 @@ func (r *digestRunner) skipHost(d Digester, host, reason string) error {
 	}
 	r.appendStderrForHost(d, reason, host)
 	for _, output := range d.Outputs {
-		if output.OnSkip == "" {
-			continue
-		}
 		path := filepath.Join(r.runDir, r.expand(output.File, host))
-		if err := os.WriteFile(path, []byte(unescape(output.OnSkip)+"\n"), 0o644); err != nil {
+		if err := writeSkippedOutput(path, output); err != nil {
 			return err
 		}
 	}
@@ -435,9 +430,6 @@ func (r *digestRunner) skipReason(d Digester, src Source, host string) string {
 		}
 		return fmt.Sprintf("%s skipped: %s not collected on %s", d.Name, src.Name, host)
 	}
-	if d.SkipIfBenchFailed && r.benchFailed {
-		return fmt.Sprintf("%s skipped: benchmark failed during preflight", d.Name)
-	}
 	// 先頭コマンドが PATH に無ければ飛ばす。宣言に書かなくても、実行しようと
 	// している当のコマンドから判定できる。
 	for _, out := range d.Outputs {
@@ -471,16 +463,24 @@ func (r *digestRunner) skip(d Digester, reason string) error {
 		}
 	}
 	for _, out := range d.Outputs {
-		if out.OnSkip == "" {
-			continue
-		}
 		path := filepath.Join(r.runDir, out.File)
-		if err := os.WriteFile(path, []byte(unescape(out.OnSkip)+"\n"), 0o644); err != nil {
+		if err := writeSkippedOutput(path, out); err != nil {
 			return err
 		}
 	}
 	fmt.Printf("%s の集計をスキップ（%s）\n", d.Name, reason)
 	return nil
+}
+
+// Keep declared outputs present even without fallback data. The paired stderr
+// records why they were skipped, so empty artifacts remain distinguishable
+// from successful aggregation with no rows.
+func writeSkippedOutput(path string, output Output) error {
+	body := unescape(output.OnSkip)
+	if body != "" {
+		body += "\n"
+	}
+	return os.WriteFile(path, []byte(body), 0o644)
 }
 
 func (r *digestRunner) runOutput(d Digester, out Output, inputs []string, host string) error {
@@ -758,16 +758,6 @@ func (r *digestRunner) rsyncFrom(host, remote, local string) error {
 		return fmt.Errorf("rsync: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
-}
-
-// benchFailed は bench.log が preflight 失敗を示しているか。
-// ファイルが無い / 読めない場合は「失敗とは判断しない」。
-func benchFailed(path string) bool {
-	body, err := os.ReadFile(path)
-	if err != nil {
-		return false
-	}
-	return passFalseRe.Match(body)
 }
 
 func fileSize(path string) int64 {

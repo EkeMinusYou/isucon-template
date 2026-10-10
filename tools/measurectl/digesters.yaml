@@ -19,6 +19,8 @@ sources:
     role: nginx
     remote: /var/log/nginx/access.log
     local: '{run_dir}/raw/access-{host}.log'
+    # Allow the nginx access_log flush=1s timer to write the buffered tail.
+    fetch_delay: 2s
     # 1 本 130MB 前後あるが zstd で 1/30 程度になる。集計が済んでから畳む。
     compress: true
 
@@ -204,8 +206,7 @@ digesters:
     per_host: true
     stderr: '{host}-pt-query-digest.stderr'
     timeout: 120s
-    # preflight で落ちた走行のスロークエリを集計しても、読むのは初期化の分だけになる。
-    skip_if_bench_failed: true
+    # Aggregate available slow logs even when the benchmark fails.
     outputs:
       - file: '{host}-pt-query-digest.log'
         run: pt-query-digest {input}
@@ -266,7 +267,6 @@ digesters:
     per_host: true
     stderr: '{host}-slp.stderr'
     timeout: 180s
-    skip_if_bench_failed: true
     # PATH に無ければ集計を飛ばす (理由は stderr に残る)。
     install_hint: go install github.com/tkuchiki/slp/cmd/slp@latest
     outputs:
