@@ -18,7 +18,7 @@ func TestRuntimeLogsDoNotReadBinarySQLReports(t *testing.T) {
 		t.Fatal(err)
 	}
 	runDir := filepath.Join(t.TempDir(), "runs", "20260901-120000")
-	writeTestFile(t, runDir, "host1-pt-query-digest.log", "INSERT INTO icons VALUES (_binary'\xff\xd8');\n")
+	writeTestFile(t, runDir, "host1-pt-query-digest.log", "INSERT INTO images VALUES (_binary'\xff\xd8');\n")
 	query := "set variable run_glob = " + sqlString(filepath.ToSlash(runDir)) + ";\n" + string(schema) + "select run_id, host, source_artifact, content from runtime_logs_raw"
 	check := func(want string) {
 		t.Helper()

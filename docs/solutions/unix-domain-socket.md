@@ -22,7 +22,7 @@ UDS はホスト間接続には使えない。nginx とアプリが別ホスト�
   与える。
 - systemd の `RuntimeDirectory` など、再起動時にも確実に作られる runtime directory を使う。`/tmp` に
   広い権限で置く構成や `0777` の socket は、所有権と不要な接続を管理しにくい。
-- `/api/initialize` や `/api/register` のように別ホストへ固定された経路がある場合、通常 API だけを UDS
+- 初期化や登録など一部の経路だけが別ホストへ固定されている場合、通常 API だけを UDS
   にして他の upstream は TCP のままにできるかを確認する。
 - 業務 listener と pprof などの計測用 listener は別物である。業務 listener を UDS 化しても、必要な計測用
   listener を一緒に削除しない。

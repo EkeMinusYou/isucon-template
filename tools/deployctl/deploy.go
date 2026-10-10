@@ -170,8 +170,6 @@ func validateRemotePath(remote string, delete bool) error {
 		strings.HasPrefix(remote, "/etc/systemd/system/") ||
 		strings.HasPrefix(remote, "/etc/nginx/") ||
 		strings.HasPrefix(remote, "/etc/mysql/") ||
-		// contest: The authoritative Go DNS configuration has its own directory.
-		strings.HasPrefix(remote, "/etc/isupipe-dns/") ||
 		strings.HasPrefix(remote, "/usr/local/bin/")
 	if !allowed {
 		return fmt.Errorf("remote path はデプロイ対象の許可済みパスに限定されます: %q", remote)

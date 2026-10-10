@@ -1,4 +1,4 @@
-# ISUCON13
+# ISUCON template
 
 ISUCONの競技サーバーを、ローカルのリポジトリを正本としてセットアップ・デプロイし、
 ベンチ1回ごとのログ・メトリクス・profileを同じ`RUN_ID`へ回収するためのテンプレートです。
@@ -9,16 +9,15 @@ ISUCONの競技サーバーを、ローカルのリポジトリを正本とし�
 依頼された改善に必要なDB再作成や不要ファイルの削除などの破壊的変更を許容し、
 切り戻し専用の仕組みや旧実装の保持は求めません。公式の正当性・永続性・追試要件は維持します。
 
-現在は`isucon-1`がPowerDNS、`isucon-2`が共有MySQL、`isucon-3`がGo・nginx・アイコン保存を担当します。
-初回の標準計測確認は[セットアップ報告](docs/setup-report.md)、現行構成は[役割分離の報告](docs/role-split.md)を参照してください。
+templateの既定は、`isucon-1`がアプリ・nginx・MySQLを兼ねる単一ホスト構成です。
+ホストの役割分担は競技開始時に`Taskfile.yml`の`*_HOSTS`で設定します。
 
-ベンチはユーザーが`task bench`で実行します。`isucon-bench`でベンチを起動し、計測結果を自動回収します。
-profileは180秒、snapshotは開始60秒後です。
+ベンチはユーザーが`task bench`で実行します。`BENCH_HOST`でベンチを起動し、計測結果を自動回収します。
 通常回収では失敗RUNも保存し、分析DBを同期します。`after-bench`は成果物をローカルGit commitします。
 
-`task db-recreate`はisucon-2の`isupipe`と`isudns`を破棄して公式schemaから作り直します。
-アプリ・PowerDNSの書込みを止め、schema再作成、DNS起動、アプリ起動、`POST /api/initialize`の順に処理します。
-通常の`task deploy-all`はDBを再作成しません。`task deploy-role-split`は再作成・初期化と配布、役割適用、再起動後の確認をまとめて実行します。
+`task db-recreate`は`MYSQL_HOST`の競技DBを破棄して公式schemaから作り直します。
+アプリの書込みを止め、schema再作成、アプリ起動、`INITIALIZE_PATH`への初期化リクエストの順に処理します。
+通常の`task deploy-all`はDBを再作成しません。
 
 ## 必要なローカルツール
 
@@ -37,8 +36,8 @@ Linuxバイナリをローカルでクロスコンパイルして配布します
 
 ## 競技開始時
 
-構成の正本は`Taskfile.yml`です。ホスト・役割・内部IP・service・DB・TARGET_OS/ARCHは実機へ合わせて設定済みです。
-取得・生成・検査をやり直すときは以下を使います。
+構成の正本は`Taskfile.yml`です。`# >>> contest values >>>`区画のホスト・役割・内部IP・service・DB・TARGET_OS/ARCHを
+実機と公式資料に合わせて設定してから、取得・生成・検査を行います。
 
 `~/.ssh/config`に同じホストaliasを設定し、読み取りで実環境と公式資料を確認してから取得します。
 
@@ -54,8 +53,8 @@ task setup-check
 Goの生成binaryと他言語の取得済み生成物を除外しています。schemaのsymlink、
 実サーバーでの設定構文検査は[取得と構文検査の手引き](tools/setup/README.md)を参照してください。
 
-`MYSQL_HOSTS`と`MYSQL_HOST`はisucon-2を指し、DB設定配布・標準メトリクス・対話DB接続の対象です。
-アプリはisucon-2の内部IPへDB接続します。`DNS_HOSTS=isucon-1`でGo権威DNSとHTTP入口を動かし、アプリはisucon-3です。
+`MYSQL_HOSTS`はDB設定配布とservice有効化の対象、`MYSQL_HOST`は標準メトリクス・対話DB接続・既定のDB接続先です。
+DBをアプリと別ホストへ置く場合は、アプリが`MYSQL_HOST`の内部IPへ接続するよう設定します。
 `task gen`が接続先を生成し、ホスト固有の認証情報は既存の`env.sh`に保持します。
 
 取得した`webapp/`、`nginx/`、`mysql/`、`etc/`は最初のbaselineとしてcommitします。
@@ -70,16 +69,12 @@ credentialらしいファイルを検出し、build・test・成果物契約・d
 task deploy          # build + app配布 + restart
 task deploy-nginx    # 設定上書き・nginx -t成功後にreload
 task deploy-mysql    # MySQL設定配布 + restart
-task deploy-dns      # Go DNS設定配布 + 登録ログを保持してrestart
-task deploy-go-dns   # Go DNS初回配布 + DB再作成・初期化・登録復元確認
 task deploy-sysctl   # 全ホストへ配布 + sysctl -p
-task deploy-all      # DB・DNS・アプリ・nginxを依存順に反映。DB初期化はしない
-task deploy-role-split # 役割分離・DB再作成・初期化・再起動後の永続性確認
+task deploy-all      # DB・アプリ・nginxを依存順に反映。DB初期化はしない
 task db-recreate     # アプリを止め、DBを破棄・再作成して初期化
 task apply-roles     # 役割変更後だけenable/disableを収束
 task check-roles
 task check-network
-task check-dns
 ```
 
 サーバーを変更せず実際の転送先・role・activationを確認する場合は、Go Task自身の`--dry`ではなく
@@ -89,17 +84,15 @@ deployctlのdry-runを呼ぶ次のTaskを使います。
 task deploy-app-dry
 task deploy-all-dry
 task db-recreate-dry
-task deploy-role-split-dry
 ```
 
-`tools/contest/deployments.yaml`が汎用graphをincludeし、競技固有の転送・activationを定義します。`Taskfile.yml`が役割と値を持ちます。
+`DEPLOYCTL_CONFIG`（既定`tools/deployctl/deployments.yaml`）が転送・activationのgraphを定義し、`Taskfile.yml`が役割と値を持ちます。
 新しいサービスが必要ならdeploymentを追加し、通常の変更に一時的な迂回Taskを増やさないでください。
 
 `db-recreate`は`setup-preflight`でローカルの役割・schema・追加資材とdry-runを確認してから、
-全ホストのGoとPowerDNSを停止し、役割外のGo・nginx・MySQLを無効化します。isucon-2の`isupipe`と`isudns`を再作成し、
-`webapp/sql/initdb.d/10_schema.sql`と`webapp/sql/schema/pdns.sql`を適用します。
-isucon-1のPowerDNS、isucon-3のGoを順に起動して、isucon-3で`POST /api/initialize`を一度実行し、失敗時は後続へ進みません。
-`RESET_INPUTS`とSQL/DNSのuploadが初期化資材を管理します。`db-recreate-dry`で対象と順序を確認してください。
+アプリを停止し、`MYSQL_HOST`の`DB_NAME`を再作成して`SQL_DIR`の`SQL_SCHEMA_FILE`を適用します。
+アプリを起動して`INITIALIZE_PATH`への初期化リクエストを一度実行し、失敗時は後続へ進みません。
+`RESET_INPUTS`とSQLのuploadが初期化資材を管理します。`db-recreate-dry`で対象と順序を確認してください。
 
 `task config-check`はnginx/MySQLの正規配布先へ設定を書き込み、構文検査します。reloadは行いませんが、
 成功した設定は配布先に残ります。初期化時の`CONFIG_CHECK_COMMAND`へ設定する前に、検査コマンドと
@@ -123,9 +116,8 @@ task bench-manual
 整合性チェックの結果を入力します。原文は同じRUNの`benchmark-result.txt`へ保存します。
 スコアが分からない場合は空欄にし、0点と区別します。
 
-`Taskfile.yml`の`BENCH_HOST`と`BENCH_COMMAND`は設定済みです。次のコマンドで`isucon-bench`へ接続し、
-`isucon`ユーザーの`/home/isucon`でベンチを実行します。対象は`https://pipe.u.isucon.dev`、
-nameserverは`172.31.45.106`、webappは`43.207.86.150`・`13.230.232.20`・`52.192.157.52`です。
+`Taskfile.yml`の`BENCH_HOST`・`BENCH_TARGET`・`BENCH_COMMAND`を当日の環境に合わせて設定すると、
+次のコマンドで`BENCH_HOST`へ接続し、`ISUCON_USER`の`REMOTE_HOME`でベンチを実行します。
 
 ```shell
 task bench

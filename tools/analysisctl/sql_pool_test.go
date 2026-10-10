@@ -37,7 +37,7 @@ func TestSQLPoolHeaderOnlyRunsKeepDeclaredTypes(t *testing.T) {
 				writeTestFile(t, dir, "bench.log", "2026-09-01T12:00:00Z\tBENCHMARK_START\n2026-09-01T12:01:00Z\tBENCHMARK_END\n")
 				data := "sample\ttimestamp\telapsed_ms\tdatabase_host\tpool\trole\tshard\tmetric\tvalue\n"
 				if (i == 0) != emptyFirst {
-					data += "1\t2026-09-01T12:00:01Z\t1000\tdb.local\tisupipe\tprimary\t0\tin_use\t2.000000\n"
+					data += "1\t2026-09-01T12:00:01Z\t1000\tdb.local\tapp\tprimary\t0\tin_use\t2.000000\n"
 				}
 				writeTestFile(t, dir, "host1-sql-pool-metrics.tsv", data)
 				if err := r.syncSelection(dir, []string{dir}, []string{runID}); err != nil {
