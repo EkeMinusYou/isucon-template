@@ -19,7 +19,7 @@
 templateに置いてあるのは`bench-patterns.json`、`user-transition-routes.json`、
 `analysis-schema/bench-errors-semantic.sql`、`smoke/`のプレースホルダーだけである。setupで当日の形式へ書き換え、
 必要になった解法固有の宣言だけをこのディレクトリへ足す。`Taskfile.contest.yml`のhookタスク
-（`prepare-db-assets`、`gen-contest-routing`、`setup-contest-assets`、`setup-smoke-probes`）も同じ考え方で、該当する処理がなければ空のままにする。
+（`build-contest-assets`、`prepare-db-assets`、`gen-contest-routing`、`setup-contest-assets`、`setup-smoke-probes`、`check-contest-network`）も同じ考え方で、該当する処理がなければ空のままにする。
 
 `analysis-schema/`のviewは、dashboardとREADMEが名前と列で参照する契約である。書式に合わせて
 本体を書き換えるときも、view名と列は変えない。書き換えなければ0行を返す。

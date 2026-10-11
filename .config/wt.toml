@@ -1,2 +1,12 @@
+[pre-start]
+shared-raw = "task worktree-link-raw PRIMARY_WORKTREE='{{ primary_worktree_path }}'"
+
+[step.copy-ignored]
+exclude = ["/raw"]
+
+[pre-remove]
+preserve-run-raw = "task worktree-save-run-raw PRIMARY_WORKTREE='{{ primary_worktree_path }}'"
+
 [post-merge]
-qsync = "task q-sync"
+# Isolate sync from Herdr's shutdown of the source pane's session.
+qsync = """python3 -c 'import os; os.setsid(); os.execvp("task", ["task", "q-sync"])'"""

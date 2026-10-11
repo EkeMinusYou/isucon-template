@@ -38,6 +38,7 @@ tools/contest/README.md
 Taskfile.contest.yml
 docs/analysis
 docs/conversation
+docs/implementations
 docs/official
 etc
 generated

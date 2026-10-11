@@ -15,7 +15,7 @@
 
 改善案は現行コード・設定、公式資料、保存済みRUNを根拠に評価し、観測事実・推論・未確定点を分けて報告する。局所指標の改善と得点への寄与を区別し、欠損成果物を0として扱わない。
 
-基本の流れは `isucon-setup → 目的に応じた相談・資料照合 → 実装・正規deploy → ユーザーによるベンチ` です。依頼内容に応じて必要なスキルを呼び出します。例: `$isucon-agent 今どこがスコアに効きそうか相談したい`、`$isucon-special-sauce docs/special-sources/kernel-parameters.md`。
+初回は `isucon-setupでベンチ前の整備・疎通確認 → ユーザーへ初回ベンチを依頼 → 共有されたRUNでsetupの実負荷確認` と進めます。その後は目的に応じた相談・資料照合、実装・正規deploy、ユーザーによるベンチへ進みます。依頼内容に応じて必要なスキルを呼び出します。例: `$isucon-agent 今どこがスコアに効きそうか相談したい`、`$isucon-special-sauce docs/special-sources/kernel-parameters.md`。
 
 並行して仮説を試す場合は`isucon-worktree`を使う。ユーザーが`docs/conversation/`から仮説を選び、曜日名のworktreeで実装する。デプロイはそのworktreeについてユーザーが明示的に指示した後に限り、計測はユーザーが行う。効果を確認した変更だけを`wt`でmainへ取り込む。
 

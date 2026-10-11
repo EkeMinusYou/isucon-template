@@ -13,7 +13,6 @@ semantic_schemas:
   - ../contest/analysis-schema/bench-errors-semantic.sql
 
 reports:
-  bottleneck_evidence: queries/bottleneck-evidence.sql
   bottleneck_profile: queries/bottleneck-profile.sql
 
 profiles:
@@ -106,6 +105,10 @@ sources:
     schema: schema/access-log.sql
     match: "raw/access-*.log*"
     view: http_traffic_buckets
+  - table: nginx_oncpu
+    schema: schema/nginx-oncpu.sql
+    match: "*-nginx-oncpu.folded"
+    view: nginx_oncpu_stacks
   - table: user_transition_edges
     schema: schema/user-transitions.sql
     match: user-transitions.json
@@ -130,10 +133,6 @@ sources:
     schema: schema/bench-summary.sql
     match: bench.log
     view: bench_summaries_raw
-  - table: bench_scenarios
-    schema: schema/bench-summary.sql
-    match: bench.log
-    view: bench_scenarios_raw
   # Add per-operation score breakdowns for the contest's own bench.log here,
   # with their schema under ../contest/analysis-schema/. Saved reports cite the
   # table names, so keep them stable within a contest.

@@ -182,25 +182,39 @@ func assessCaptureQuality(dir string, m Manifest, artifacts []Artifact) []Artifa
 	for _, name := range m.RequiredArtifacts {
 		required[name] = true
 	}
-	var accessIndexes []int
-	var accessRows int64
-	for i := range artifacts {
-		a := &artifacts[i]
+	var inspected, accessIndexes []int
+	for i, a := range artifacts {
 		if !required[a.Name] {
 			continue
 		}
 		switch {
-		case a.Name == "user-transitions.json":
-			a.Quality = inspectUserTransitions(filepath.Join(dir, a.Name))
-		case strings.HasSuffix(a.Name, ".pprof"):
-			a.Quality = inspectProfile(filepath.Join(dir, a.Name), m.LoadWindow)
-		case strings.HasPrefix(a.Name, "raw/access-") && strings.HasSuffix(a.Name, ".log.zst"):
-			a.Quality = inspectAccessLog(filepath.Join(dir, a.Name), m.LoadWindow)
+		case a.Name == "user-transitions.json", strings.HasSuffix(a.Name, ".pprof"):
+			inspected = append(inspected, i)
+		case isAccessLogArtifact(a.Name):
+			inspected = append(inspected, i)
 			accessIndexes = append(accessIndexes, i)
-			accessRows += a.Quality.InWindowSamples
-		default:
-			continue
 		}
+	}
+	// Each artifact is read independently; access logs dominate, so inspect them concurrently.
+	_ = parallel(inspected, func(i int) error {
+		a := &artifacts[i]
+		path := filepath.Join(dir, a.Name)
+		switch {
+		case a.Name == "user-transitions.json":
+			a.Quality = inspectUserTransitions(path)
+		case strings.HasSuffix(a.Name, ".pprof"):
+			a.Quality = inspectProfile(path, m.LoadWindow)
+		default:
+			a.Quality = inspectAccessLog(path, m.LoadWindow)
+		}
+		return nil
+	})
+	var accessRows int64
+	for _, i := range accessIndexes {
+		accessRows += artifacts[i].Quality.InWindowSamples
+	}
+	for _, i := range inspected {
+		a := &artifacts[i]
 		if a.Quality.Status != "valid" {
 			if a.Status != "missing" {
 				a.Status = "failed"
@@ -217,6 +231,10 @@ func assessCaptureQuality(dir string, m Manifest, artifacts []Artifact) []Artifa
 		}
 	}
 	return artifacts
+}
+
+func isAccessLogArtifact(name string) bool {
+	return strings.HasPrefix(name, "raw/access-") && strings.HasSuffix(name, ".log.zst")
 }
 
 func inspectUserTransitions(path string) ArtifactQuality {

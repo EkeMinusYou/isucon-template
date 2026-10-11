@@ -391,7 +391,12 @@ create table if not exists http_traffic (
     max_time_sec double,
     sum_upstream_time_sec double,
     upstream_time_samples bigint,
-    sum_body_bytes double
+    sum_body_bytes double,
+    connection_samples bigint,
+    new_connections bigint,
+    resumed_tls_connections bigint,
+    sum_client_gap_sec double,
+    client_gap_samples bigint
 );
 
 -- endpoint_cost の時系列版。負荷区間外の bucket も含むので in_load_window で絞る。
@@ -417,6 +422,13 @@ select
     t.status_4xx,
     t.status_5xx,
     t.sum_body_bytes,
+    -- 接続列は nginx の log_format に接続番号を入れた RUN だけにある。旧 RUN は母数 0。
+    t.connection_samples,
+    t.new_connections,
+    t.new_connections / nullif(t.connection_samples, 0) as new_connection_share,
+    t.resumed_tls_connections,
+    t.sum_client_gap_sec * 1000 / nullif(t.client_gap_samples, 0) as client_gap_avg_ms,
+    t.client_gap_samples,
     w.duration_seconds as load_window_seconds,
     'access-log time bucket' as scope,
     'raw/access-<host>.log' as source_artifact

@@ -59,7 +59,7 @@ func TestDiscoverRunsOnlyFinalized(t *testing.T) {
 func TestLoadConfigRejectsUnknownFields(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "sources.yaml")
-	data := []byte("version: 1\nbase_schema: base.sql\nreports:\n  bottleneck_evidence: evidence.sql\n  bottleneck_profile: profile.sql\nsources:\n  - table: t\n    schema: t.sql\n    match: t.tsv\n    view: t_raw\n")
+	data := []byte("version: 1\nbase_schema: base.sql\nreports:\n  bottleneck_profile: profile.sql\nsources:\n  - table: t\n    schema: t.sql\n    match: t.tsv\n    view: t_raw\n")
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -294,7 +294,9 @@ func TestCollectorFreeRunCanBeImportedBeforeMeasuredRun(t *testing.T) {
 	check("select status from artifacts where name = 'raw/access-host1.log.zst'", "missing")
 	// A later measured RUN must insert into the initially empty typed tables.
 	writeTestFile(t, tmp, "runs/20260901-120100/run.json", `{"schema_version":4,"run_id":"20260901-120100","phase":"finalized"}`)
-	writeTestFile(t, tmp, "runs/20260901-120100/bench.log", "2026-09-01T12:01:00Z\tBENCHMARK_START\n2026-09-01T12:02:00Z\tBENCHMARK_END\n")
+	// An interrupted multibyte sequence must not block later RUN imports.
+	malformedLog := "日本語の途中で出力が混在: \xe3\x81\n2026-09-01T12:01:00Z\tBENCHMARK_START\n2026-09-01T12:02:00Z\tBENCHMARK_END\n"
+	writeTestFile(t, tmp, "runs/20260901-120100/bench.log", malformedLog)
 	writeTestFile(t, tmp, "runs/20260901-120100/host1-proc-metrics.tsv", "sample\ttimestamp\telapsed_ms\tcpu_busy_pct\n1\t2026-09-01T12:00:59Z\t1000\t9.5\n2\t2026-09-01T12:01:01Z\t2000\t1.5\n")
 	writeTestFile(t, tmp, "runs/20260901-120100/slp.tsv", header+"1\tSELECT 1\t0.25\t0.25\t0.25\t1\t1\t0\t0\n")
 	writeTestFile(t, tmp, "runs/20260901-120100/upstream-breakdown.tsv", "upstream_addr\tupstream_status\tcache_status\trequests\tstatus_2xx\tstatus_3xx\tstatus_4xx\tstatus_5xx\tstatus_other\tresponse_time_sum_ms\tresponse_time_avg_ms\tupstream_time_sum_ms\tupstream_time_avg_ms\n127.0.0.1:8080\t200\tMISS\t1\t1\t0\t0\t0\t0\t2.5\t2.5\t1.5\t1.5\n")
@@ -308,4 +310,12 @@ func TestCollectorFreeRunCanBeImportedBeforeMeasuredRun(t *testing.T) {
 	check("select sum_time_sec from queries", "0.25")
 	check("select response_time_sum_ms from upstreams", "2.5")
 	check("select collectors_disabled from manifests where run_id='20260901-120100'", "false")
+	check("select contains(content, '日本語の途中で出力が混在: \ufffd') from bench_error_logs where run_id='20260901-120100'", "true")
+	original, err := os.ReadFile(filepath.Join(dir, "bench.log"))
+	if err != nil || string(original) != malformedLog {
+		t.Fatalf("original benchmark bytes changed: %q, %v", original, err)
+	}
+	if !strings.Contains(r.stderr.(*bytes.Buffer).String(), "original unchanged") {
+		t.Fatal("UTF-8 replacement was not reported")
+	}
 }

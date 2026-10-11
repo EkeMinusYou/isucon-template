@@ -37,7 +37,7 @@ oneshots:
   - name: fgprof
     label: wall-clock profile
     group: profiles
-    enabled_by_default: true
+    enabled_by_default: false # Collect explicitly with task fgprof-collect.
     hosts: app
     delay: '{var:profile_delay}'
     run: curl -fsS --max-time {var:profile_timeout_seconds} -o {remote_out} '{var:fgprof_url}&run_id={run_id}'

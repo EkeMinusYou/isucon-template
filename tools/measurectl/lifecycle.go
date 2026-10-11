@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -252,6 +253,10 @@ func (o lifecycleOptions) manifestBeginArgs(runDir string) ([]string, error) {
 }
 
 func writeRunState(path, runID string) error {
+	owner, err := currentWorktreePath()
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
@@ -261,7 +266,7 @@ func writeRunState(path, runID string) error {
 	}
 	tmpPath := tmp.Name()
 	defer os.Remove(tmpPath)
-	if _, err := fmt.Fprintln(tmp, runID); err != nil {
+	if _, err := fmt.Fprintf(tmp, "%s\n%s\n", runID, owner); err != nil {
 		_ = tmp.Close()
 		return err
 	}
@@ -276,11 +281,30 @@ func readRunState(path string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("read active RUN state: %w", err)
 	}
-	runID := strings.TrimSpace(string(body))
+	lines := strings.Split(strings.TrimSuffix(string(body), "\n"), "\n")
+	if len(lines) != 2 || !filepath.IsAbs(lines[1]) {
+		return "", fmt.Errorf("missing or invalid worktree owner in %s", path)
+	}
+	runID := lines[0]
 	if runID == "" || filepath.Base(runID) != runID {
 		return "", fmt.Errorf("invalid active RUN ID %q", runID)
 	}
+	current, err := currentWorktreePath()
+	if err != nil {
+		return "", err
+	}
+	if lines[1] != current {
+		return "", fmt.Errorf("RUN %s belongs to worktree %s; run this task there", runID, lines[1])
+	}
 	return runID, nil
+}
+
+func currentWorktreePath() (string, error) {
+	body, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		return "", fmt.Errorf("identify RUN worktree: %w", err)
+	}
+	return filepath.EvalSymlinks(strings.TrimSpace(string(body)))
 }
 
 func archiveRunState(path, name string) error {

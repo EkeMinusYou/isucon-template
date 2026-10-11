@@ -115,6 +115,7 @@ task bench-manual
 ポータルなどで完了を確認したらEnterを押し、結果原文の保存先（任意）、スコア、
 整合性チェックの結果を入力します。原文は同じRUNの`benchmark-result.txt`へ保存します。
 スコアが分からない場合は空欄にし、0点と区別します。
+原文に対応済みの結果行があれば、回収時にスコア・合否を読み取ります。原文にも結果がない場合は未判定のまま保存します。
 
 `Taskfile.yml`の`BENCH_HOST`・`BENCH_TARGET`・`BENCH_COMMAND`を当日の環境に合わせて設定すると、
 次のコマンドで`BENCH_HOST`へ接続し、`ISUCON_USER`の`REMOTE_HOME`でベンチを実行します。
@@ -125,13 +126,13 @@ task bench
 
 ベンチの結果ログはローカルのGoツール`tools/bench-output`を通し、元の出力と終了コードを保ちながら
 当日の出力を計測基盤共通の`SCORE:`・`BENCHMARK_PASS`／`BENCHMARK_FAIL`へ変換します。
-`task bench`が変換ツールを自動ビルドします。当日の出力形式は`tools/contest/bench-patterns.json`の
+`task bench`と`task after-bench`が変換ツールを自動ビルドします。手動実行でも回収前に保存ログを変換します。当日の出力形式は`tools/contest/bench-patterns.json`の
 正規表現で宣言し、該当行がない場合はスコアや成功を補いません。
 
 profile自動収集とuser-transitionは標準で有効です。[Go profile導入例](docs/measurement/go-profiling.md)に沿って
 setupで全APP_HOSTSへendpointを導入します。[nginx access logの計測手順](docs/measurement/nginx-access-log.md)に沿って
 識別列・API分類を整えます。通常の`bench` / `bench-manual`で
-CPU・fgprof・heap・allocs・goroutineを自動収集します。CPU・fgprofの開始を確認してから負荷を開始し、
+CPU・heap・allocs・goroutineを自動収集します。fgprofは既定無効で、必要な場合は`task fgprof-collect`で収集します。CPUの開始を確認してから負荷を開始し、
 収集・回収完了後にRUNを確定します。追加のprofile操作は不要です。
 profile対象は`collectors.yaml`の`group: profiles`と`enabled_by_default`から選びます。
 `PROFILES_ENABLED=false`は計測負荷比較等での明示的な停止用です。setupでは分析・dashboardまで確認します。
@@ -146,12 +147,18 @@ task after-bench SCORE=12345
 ```
 
 実行前に`pwd`、使用するTaskfile、対象ホストを確認してください。collectorの残存が検出されたら、
-そのRUN IDとローカルの`raw/current-run-id`を照合します。別checkoutで計測中の可能性があるため、
+そのRUN IDと共有の`raw/current-run-id`を照合します。別checkoutで計測中の可能性があるため、
 所有元と終了状態を確認してから対処します。`abort-run`はこの設定が探索するcollectorをまとめて掃除します。
 `before-bench`後に中断したRUNを破棄する場合だけ`task abort-run`を使います。通常の回収は必ず`after-bench`です。
 `task bench`と`task bench-manual`は、ベンチ失敗や割り込みでも可能な限り`after-bench`を実行し、
 失敗RUNをEvidenceとしてfinalizeします。共通の開始・終了・trap処理は`tools/bench/run.sh`、
 RUN状態遷移とcollector・digest・manifest処理は`measurectl run begin/finalize`が担当します。
+`.config/wt.toml`の`pre-start`は`task worktree-link-raw`を呼び、新しいworktreeのルート`raw`を
+primary worktreeへのディレクトリリンクにします。`runs/<RUN_ID>/raw`は各worktreeに保持します。
+`raw`は`copy-ignored`の対象外です。リンク先が違う場合や既存の`raw`が空でない場合は作成を止めます。
+`current-run-id`は1行目にRUN ID、2行目に開始元worktreeの正規化した絶対パスを記録します。
+回収・profile操作・中断は開始元でのみ実行でき、不一致なら操作前に開始元を表示して停止します。
+進行中RUNがある場合のデプロイ禁止は全worktreeに適用します。
 開始・終了マーカーは`task bench-timestamp`でENTRY_HOSTのUTC時刻を取得し、ローカルPCの時計を
 profileやアクセスログの時間窓へ混ぜません。取得失敗時はエラーとしてRUNをfinalizeします。
 競技サーバー間の時計差はsetupで別途確認してください。
@@ -193,7 +200,7 @@ lock collectorの負荷とcapture errorはRUNごとに確認し、過大な場�
 - `<host>-proc-metrics.tsv` / service / disk / task-state（task-stateは高頻度collector明示時）
 - `<host>-mysql-status.tsv` / `<host>-mysql-lock-waits.tsv`
 - `<host>-sql-pool-metrics.tsv` — アプリのSQL接続プール（adapter導入時）
-- `<host>-fgprof.pprof`（profile有効時）
+- `<host>-fgprof.pprof`（`task fgprof-collect`実行時）
 - `<host>-go-cpu.pprof` / heap / allocs / goroutine（profile有効時）
 - `raw/access-<host>.log.zst` — ホスト別nginxログ。空ログも圧縮して保存
 - `<host>-app-journal.log` / `<host>-nginx-error.log`

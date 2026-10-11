@@ -1,1 +1,2 @@
 *.sqlite3 -diff
+runs/scores.tsv merge=union

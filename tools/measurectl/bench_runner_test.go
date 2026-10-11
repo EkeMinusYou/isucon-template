@@ -24,7 +24,7 @@ set -eu
 case "$1" in
   before-bench)
     mkdir -p "$ISUCON_BENCH_RESULTS_DIR/20260901-120000" "$(dirname "$ISUCON_BENCH_RUN_STATE_FILE")"
-    printf '%s\n' 20260901-120000 > "$ISUCON_BENCH_RUN_STATE_FILE"
+    printf '%s\n%s\n' 20260901-120000 "$(pwd -P)" > "$ISUCON_BENCH_RUN_STATE_FILE"
     ;;
   after-bench)
     printf '%s\n' "$*" >> "$ISUCON_TEST_CALL_LOG"
@@ -88,7 +88,7 @@ echo "$1" >> "$ISUCON_TEST_DIR/calls"
 case "$1" in
 before-bench)
   mkdir -p "$ISUCON_BENCH_RESULTS_DIR/20260901-120000"
-  echo 20260901-120000 > "$ISUCON_BENCH_RUN_STATE_FILE"
+  printf '%s\n%s\n' 20260901-120000 "$(pwd -P)" > "$ISUCON_BENCH_RUN_STATE_FILE"
   ;;
 bench-timestamp)
   n=1

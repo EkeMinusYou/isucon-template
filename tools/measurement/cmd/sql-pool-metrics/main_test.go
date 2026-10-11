@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/csv"
+	"fmt"
 	"math"
 	"strings"
 	"testing"
@@ -29,17 +30,17 @@ func testSnapshot(captured int64, waitCount int64, waitDurationNS int64) snapsho
 }
 
 func TestValidateSnapshot(t *testing.T) {
-	if err := validateSnapshot(testSnapshot(1000, 0, 0), 128, 10); err != nil {
+	if err := validateSnapshot(testSnapshot(1000, 0, 0), 128, defaultMaxMetrics, 10); err != nil {
 		t.Fatalf("validate snapshot: %v", err)
 	}
 	invalid := testSnapshot(1000, 0, 0)
 	invalid.Pools[0].Name = "user\tsecret"
-	if err := validateSnapshot(invalid, 128, 10); err == nil {
+	if err := validateSnapshot(invalid, 128, defaultMaxMetrics, 10); err == nil {
 		t.Fatal("accepted an unsafe label")
 	}
 	invalid = testSnapshot(1000, 0, 0)
 	invalid.Pools[0].InUse = 4
-	if err := validateSnapshot(invalid, 128, 10); err == nil {
+	if err := validateSnapshot(invalid, 128, defaultMaxMetrics, 10); err == nil {
 		t.Fatal("accepted usage above open connections")
 	}
 }
@@ -47,7 +48,7 @@ func TestValidateSnapshot(t *testing.T) {
 func TestSnapshotMetricsAreBoundedAndRetained(t *testing.T) {
 	s := testSnapshot(1000, 0, 0)
 	s.Metrics = map[string]float64{"events_total": 12, "pending_bytes": 34}
-	if err := validateSnapshot(s, 128, 100); err != nil {
+	if err := validateSnapshot(s, 128, defaultMaxMetrics, 100); err != nil {
 		t.Fatal(err)
 	}
 	var output bytes.Buffer
@@ -63,7 +64,7 @@ func TestSnapshotMetricsAreBoundedAndRetained(t *testing.T) {
 		}
 	}
 	s.Metrics["bad"] = math.Inf(1)
-	if err := validateSnapshot(s, 128, 100); err == nil {
+	if err := validateSnapshot(s, 128, defaultMaxMetrics, 100); err == nil {
 		t.Fatal("nonfinite metric accepted")
 	}
 }
@@ -109,5 +110,23 @@ func TestWriteComputesPoolWaitRates(t *testing.T) {
 	}
 	if !countRateChecked || !averageWaitChecked {
 		t.Fatalf("derived wait metrics were not observed: count=%t average=%t", countRateChecked, averageWaitChecked)
+	}
+}
+
+func TestSnapshotMetricAndPoolLimitsAreIndependent(t *testing.T) {
+	s := testSnapshot(1000, 0, 0)
+	s.Metrics = make(map[string]float64)
+	for i := 0; i < 129; i++ {
+		s.Metrics[fmt.Sprintf("metric_%d", i)] = float64(i)
+	}
+	if err := validateSnapshot(s, 1, 129, 100); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateSnapshot(s, 1, 128, 100); err == nil {
+		t.Fatal("metric limit ignored")
+	}
+	s.Pools = append(s.Pools, s.Pools[0])
+	if err := validateSnapshot(s, 1, 1024, 100); err == nil {
+		t.Fatal("metric limit relaxed pool bound")
 	}
 }

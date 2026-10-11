@@ -48,6 +48,7 @@ func (f *guardedUploadExecutor) Run(name string, args []string, stdin string) ([
 	}
 	script := strings.ReplaceAll(stdin, "/etc/nginx", filepath.Join(f.root, "live"))
 	script = strings.ReplaceAll(script, "/tmp/isucon-deployctl-", filepath.Join(f.root, "backups")+"/")
+	script = strings.ReplaceAll(script, "$HOME/"+stampDir, filepath.Join(f.root, "stamps"))
 	cmd := exec.Command("sh", "-c", script)
 	cmd.Env = append(os.Environ(), "PATH="+filepath.Join(f.root, "bin")+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return cmd.CombinedOutput()

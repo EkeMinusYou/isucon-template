@@ -30,6 +30,11 @@ func TestBenchProfilesStartBeforeLoadAndFinishBeforeFinalize(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tmp := t.TempDir()
+			resultFile := filepath.Join(tmp, "participant-output.txt")
+			const participantOutput = "participant progress fixture\n"
+			if err := os.WriteFile(resultFile, []byte(participantOutput), 0644); err != nil {
+				t.Fatal(err)
+			}
 			fake := `#!/bin/sh
 set -eu
 [ "$1" != --silent ] || shift
@@ -38,7 +43,7 @@ echo "$1" >> "$ISUCON_TEST_DIR/calls"
 case "$1" in
 before-bench)
   mkdir -p "$run" "$(dirname "$ISUCON_BENCH_RUN_STATE_FILE")"
-  echo 20260901-120000 > "$ISUCON_BENCH_RUN_STATE_FILE"
+  printf '%s\n%s\n' 20260901-120000 "$(pwd -P)" > "$ISUCON_BENCH_RUN_STATE_FILE"
   ;;
 profiles-collect)
   echo PROFILE_CAPTURE_STARTED
@@ -125,7 +130,7 @@ esac
 						}
 						time.Sleep(5 * time.Millisecond)
 					}
-					resultInput := "\n12\ny\n"
+					resultInput := resultFile + "\n12\ny\n"
 					if tc.name == "manual unknown" {
 						resultInput = "\n\n\n"
 					}
@@ -164,6 +169,17 @@ esac
 					if strings.Contains(string(body), marker) {
 						t.Fatalf("unknown result emitted %s", marker)
 					}
+				}
+			}
+			if tc.name == "manual" {
+				runDir := filepath.Join(tmp, "runs", "20260901-120000")
+				body, err := os.ReadFile(filepath.Join(runDir, "bench.log"))
+				if err != nil || !strings.Contains(string(body), participantOutput) {
+					t.Fatalf("participant output missing from analysis input: %v", err)
+				}
+				original, err := os.ReadFile(filepath.Join(runDir, "benchmark-result.txt"))
+				if err != nil || string(original) != participantOutput {
+					t.Fatalf("original participant output changed: %v", err)
 				}
 			}
 			calls, err := os.ReadFile(filepath.Join(tmp, "calls"))
@@ -218,7 +234,7 @@ func TestProfileTasksResolveConfiguredDuration(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := filepath.Join(t.TempDir(), "state")
-	if err := os.WriteFile(state, []byte("20000101-000000\n"), 0o600); err != nil {
+	if err := os.WriteFile(state, []byte("20000101-000000\n"+root+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"profiles-collect", "profiles-ready", "profiles-stop"} {

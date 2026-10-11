@@ -102,6 +102,8 @@ if [ "$mode" = manual ]; then
     else
       cp "$result_file" "$run_dir/benchmark-result.txt"
       printf 'RESULT_ARTIFACT: benchmark-result.txt\n' >> "$run_dir/bench.log"
+      cat "$run_dir/benchmark-result.txt" >> "$run_dir/bench.log"
+      printf '\n' >> "$run_dir/bench.log"
     fi
   fi
   printf '完了後にスコアを入力してください（空欄可）: '

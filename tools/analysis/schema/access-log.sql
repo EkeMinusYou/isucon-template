@@ -12,7 +12,7 @@ with routes as (
         -- # <<< contest values <<<
     ] as patterns
 ),
-requests as (
+requests as materialized (
     select
         regexp_extract(filename, 'runs/([^/]+)/', 1) as run_id,
         regexp_replace(regexp_extract(filename, '/access-([^/]+)$', 1),
@@ -26,7 +26,19 @@ requests as (
         method,
         uri,
         try_cast(status as bigint) as status,
-        coalesce(try_cast(body_bytes as double), 0.0) as body_bytes
+        coalesce(try_cast(body_bytes as double), 0.0) as body_bytes,
+        try_cast(connection_requests as bigint) as connection_requests,
+        ssl_session_reused,
+        -- HTTP/1.1 は 1 接続で順に処理するので、同じ接続の前の応答書き出しから
+        -- この要求の開始までがクライアント側の間隔になる。接続番号は nginx 再起動で
+        -- 振り直されるため、ファイル単位で区切る。接続番号のない旧ログは NULL。
+        case when try_cast(connection as bigint) is not null then
+            try_cast(msec as double) - coalesce(try_cast(response_time as double), 0.0)
+                - lag(try_cast(msec as double)) over (
+                    partition by filename, try_cast(connection as bigint)
+                    order by try_cast(msec as double) - coalesce(try_cast(response_time as double), 0.0)
+                )
+        end as client_gap_sec
     from read_json(
         getvariable('run_glob') || '/raw/access-*.log*',
         format = 'newline_delimited',
@@ -44,8 +56,19 @@ requests as (
             'upstream_addr': 'VARCHAR',
             'upstream_status': 'VARCHAR',
             'cache_status': 'VARCHAR',
-            'session_id': 'VARCHAR'
+            'session_id': 'VARCHAR',
+            'connection': 'VARCHAR',
+            'connection_requests': 'VARCHAR',
+            'ssl_session_reused': 'VARCHAR'
         })
+),
+-- Parse each log once and normalize each distinct URI once. Repeated requests
+-- often share the same URI throughout a RUN.
+normalized_routes as materialized (
+    select
+        r.uri,
+        coalesce(list_filter(g.patterns, lambda p: regexp_matches(r.uri, p))[1], r.uri) as route
+    from (select distinct uri from requests) r, routes g
 ),
 buckets as (
     select
@@ -57,7 +80,7 @@ buckets as (
              as timestamptz) as ts,
         cast(5 as integer) as bucket_seconds,
         r.method,
-        coalesce(list_filter(g.patterns, lambda p: regexp_matches(r.uri, p))[1], r.uri) as route,
+        g.route,
         count(*) as requests,
         count(*) filter (where r.status between 200 and 299) as status_2xx,
         count(*) filter (where r.status between 300 and 399) as status_3xx,
@@ -67,8 +90,16 @@ buckets as (
         max(r.response_time_sec) as max_time_sec,
         sum(r.upstream_time_sec) as sum_upstream_time_sec,
         count(r.upstream_time_sec) as upstream_time_samples,
-        sum(r.body_bytes) as sum_body_bytes
-    from requests r, routes g
+        sum(r.body_bytes) as sum_body_bytes,
+        -- 接続の 1 本目の要求の route に新規接続を計上する。母数は connection_samples。
+        count(r.connection_requests) as connection_samples,
+        count(*) filter (where r.connection_requests = 1) as new_connections,
+        count(*) filter (where r.connection_requests = 1 and r.ssl_session_reused = 'r')
+            as resumed_tls_connections,
+        sum(r.client_gap_sec) as sum_client_gap_sec,
+        count(r.client_gap_sec) as client_gap_samples
+    from requests r
+    join normalized_routes g on r.uri is not distinct from g.uri
     where r.logged_at_epoch is not null
     group by all
 ),

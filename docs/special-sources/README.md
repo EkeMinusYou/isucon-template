@@ -11,6 +11,7 @@
 
 - [nginx の設定](nginx.md)
 - [MySQL の設定](mysqld.md)
+- [Go の DB 接続プール](sql-connection-pool.md)
 - [MySQL ドライバーのパラメーター補間](interpolate-params.md)
 - [MySQL のファイルディスクリプタ上限](file-descriptor.md)
 - [カーネルパラメーター](kernel-parameters.md)

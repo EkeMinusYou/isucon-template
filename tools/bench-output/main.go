@@ -131,18 +131,38 @@ func run(args []string, out, errOut io.Writer) int {
 	fs := flag.NewFlagSet("bench-output", flag.ContinueOnError)
 	fs.SetOutput(errOut)
 	patternsPath := fs.String("patterns", "tools/contest/bench-patterns.json", "benchmark log format declaration")
+	inputPath := fs.String("input", "", "read a saved log and emit only normalized result markers")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	command := fs.Args()
-	if len(command) == 0 {
-		fmt.Fprintln(errOut, "usage: bench-output [-patterns file] command [arguments...]")
+	if (len(command) == 0 && *inputPath == "") || (len(command) != 0 && *inputPath != "") {
+		fmt.Fprintln(errOut, "usage: bench-output [-patterns file] command [arguments...] | -input log")
 		return 2
 	}
 	declared, err := loadPatterns(*patternsPath)
 	if err != nil {
 		fmt.Fprintln(errOut, err)
 		return 2
+	}
+	if *inputPath != "" {
+		f, err := os.Open(*inputPath)
+		if err != nil {
+			fmt.Fprintln(errOut, err)
+			return 1
+		}
+		defer f.Close()
+		writer := &resultWriter{out: io.Discard, patterns: declared}
+		if _, err := io.Copy(writer, f); err != nil {
+			fmt.Fprintln(errOut, err)
+			return 1
+		}
+		// Emit only after EOF so callers can append to the input file safely.
+		if _, err := out.Write(writer.markers()); err != nil {
+			fmt.Fprintln(errOut, err)
+			return 1
+		}
+		return 0
 	}
 	cmd := exec.Command(command[0], command[1:]...)
 	writer := &resultWriter{out: out, patterns: declared}

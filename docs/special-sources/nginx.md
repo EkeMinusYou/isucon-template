@@ -65,13 +65,21 @@ nginx が接続を閉じるため、クライアントがリクエストを続�
 ## nginx と upstream の keepalive
 
 upstream keepalive は、nginx が upstream サーバーへのアイドル接続を再利用する仕組みである。`keepalive` の
-`keepalive 60` は同時リクエスト数ではなく、worker ごとに保持するアイドル接続数の上限である。
+値は同時リクエスト数ではなく、worker ごとに保持するアイドル接続数の上限である。
 
 ```nginx
-keepalive 60;
+keepalive 1024;
+keepalive_requests 100000;
 ```
 
-`keepalive` は既存の `upstream` ブロックへ追加する。その upstream を使う既存の `location` には
+- `keepalive 1024` は、負荷のピークでもアイドル接続が足りずに upstream へ新しく接続し直すことを避ける値である。
+  小さい値（例えば 60〜128）では、ピーク時に一部のリクエストが毎回新しい接続を張る。保持するアイドル接続も
+  `worker_connections` の枠を使うので、クライアント接続と合わせて `worker_connections` に収まることを確認する。
+- `keepalive_requests` は、一つの upstream 接続で処理するリクエスト数の上限である。既定値は 1000 で、上限に
+  達するたびに接続を閉じて張り直す。前節のクライアント側の `keepalive_requests` とは別の設定で、`upstream`
+  ブロックに書く。`100000` は、張り直しを負荷中にほぼ起こさないための有限値である。
+
+`keepalive` と `keepalive_requests` は既存の `upstream` ブロックへ追加する。その upstream を使う既存の `location` には
 次の2行を追加する。
 
 ```nginx

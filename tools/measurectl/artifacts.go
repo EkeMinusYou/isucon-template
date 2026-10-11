@@ -43,6 +43,7 @@ func runArtifacts(args []string) error {
 	digesters := fs.String("digesters", defaultMeasureConfigPath("digesters.yaml"), "集計の宣言")
 	runDir := fs.String("run-dir", "", "実走行を照合する (runs/<RUN_ID>)")
 	check := fs.Bool("check", false, "読み手 (analysis の SQL / dashboard の Go) と照合する")
+	recorded := fs.Bool("recorded", false, "-run-dir の内容検査を再実行せず、finalize が run.json に記録した結果を使う")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -66,11 +67,14 @@ func runArtifacts(args []string) error {
 		if err := checkRunDir(*runDir, specs); err != nil {
 			return err
 		}
-		artifacts, _, err := scanArtifacts(*runDir)
-		if err != nil {
-			return err
+		artifacts := manifest.Artifacts
+		if !*recorded {
+			scanned, _, err := scanArtifacts(*runDir)
+			if err != nil {
+				return err
+			}
+			artifacts = assessCaptureQuality(*runDir, manifest, scanned)
 		}
-		artifacts = assessCaptureQuality(*runDir, manifest, artifacts)
 		for _, a := range artifacts {
 			if a.Quality.Expected && a.Quality.Status != "valid" {
 				return fmt.Errorf("%s: %s", a.Name, a.Quality.Reason)

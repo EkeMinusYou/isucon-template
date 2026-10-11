@@ -1,6 +1,6 @@
 ---
 name: isucon-worktree
-description: ISUCONの並行改善で、ユーザーがdocs/conversationから選んだ仮説を曜日名のwtワークツリーで検証し、効果を確認してmainへ取り込む。
+description: ISUCONの並行改善で、wtで曜日略称のワークツリーと現在のHerdrワークスペース内のタブを作る。修正指示を各タブのCodexへisucon-agentスキル指定で渡し、ユーザーがdocs/conversationから選んだ仮説を検証してmainへ取り込む。
 ---
 
 # ISUCONの仮説検証ワークツリー
@@ -9,10 +9,23 @@ description: ISUCONの並行改善で、ユーザーがdocs/conversationから�
 
 ## 作成と作業
 
-1. `wt list`で使用中の名前を確認する。`monday`、`tuesday`、`wednesday`、`thursday`、`friday`、`saturday`、`sunday`の順に循環し、使用中の名前を飛ばして次の名前を使う。すべて空なら`monday`から始める。
-2. `main`を起点に`wt switch --create <weekday> --base main`で作る。作成後は、そのワークツリーで選ばれた仮説を調査・実装する。ワークツリー管理には`wt`を使う。
+ワークツリーの作成指示には、現在のHerdrワークスペース内に新しいタブを作ることも含む。
+
+1. `wt list`で使用中の名前を確認する。`mon`、`tue`、`wed`、`thu`、`fri`、`sat`、`sun`の順に循環し、使用中の名前を飛ばして次の名前を使う。すべて空なら`mon`から始める。
+2. `main`を起点に`wt switch --create <weekday> --base main --format json`で作り、返されたJSONからワークツリーの絶対パスを取得する。ワークツリーの作成・管理には`wt`を使う。
 3. 作成時のignoredファイルのコピーが終わったことを確認する。`runs/analysis.duckdb`はワークツリー固有の実ファイルとし、共有DBへのシンボリックリンクにしない。DB初期化用のignored資材もデプロイ前に揃える。コピーされていなければ`wt step copy-ignored --from main --to <weekday> --require-include`で補う。
-4. 現行実装と保存済みRUNのEvidenceを調べ、仮説の効果と正当性を評価できる変更を実装する。検証対象のコード・設定は計測前にコミットし、計測時の状態を追えるようにする。
+4. Herdr操作前に`HERDR_ENV=1`かつ`HERDR_WORKSPACE_ID`が設定されていることを確認する。`herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "<worktree-absolute-path>" --label "<weekday>" --no-focus`で、現在のワークスペースに作成済みワークツリーを作業ディレクトリとするタブを開く。返されたJSONの`.result.tab`と`.result.root_pane`からタブとペインのIDを取得する。現在のタブへのフォーカスを維持する。Herdr内で動作していない場合はタブ作成・Codex起動ができないことを報告し、外部からフォーカス中のセッションを操作しない。
+
+## 修正指示をCodexへ渡す
+
+ユーザーがワークツリーの修正・実装を指示したら、対象ごとにそのワークツリーのタブでCodexを起動し、`isucon-agent`スキルを明示して修正を開始させる。作成と修正を同時に指示された場合も、タブ作成後にこの手順を続ける。作成だけの指示では修正を開始しない。
+
+1. [isucon-agent](../isucon-agent/SKILL.md)を確認し、対象ワークツリー、仮説の出典となる会話ログ、ユーザーが指示した修正範囲と評価条件を整理する。既存のワークツリーでは`herdr tab list --workspace "$HERDR_WORKSPACE_ID"`と`herdr pane list --workspace "$HERDR_WORKSPACE_ID"`で対応するタブ・ペインと作業ディレクトリを確認する。タブがなければ上の作成手順に従って開く。
+2. 対象ペインが対話シェルの入力待ちであることを確認し、`herdr agent start <agent-name> --kind codex --pane <pane-id>`で起動する。名前は`isucon-mon`など、対象が分かる一意な名前にする。対象ペインに既存のCodexがあれば、その状態と担当内容を確認して再利用し、重複して起動しない。
+3. `herdr agent prompt <agent-name> '<修正指示>' --wait --until working --timeout 30000`で指示を送る。プロンプトにはリテラルの`$isucon-agent`と`.agents/skills/isucon-agent/SKILL.md`を含め、対象ワークツリー、会話ログ、修正内容、評価条件、既存の合意を伝える。ユーザーから修正を指示済みであることを明記し、その範囲のローカル実装を開始させる。シェルから送る際は単一引用符などで`$isucon-agent`の変数展開を防ぐ。
+4. 複数のワークツリーが指定された場合は、それぞれのCodexが`working`になったことを確認して次へ進み、各修正の完了を待たずに全対象の作業を開始する。既存のCodexが作業中の場合や送信が失敗した場合は、`herdr agent get`と`herdr agent read`で状況を確認し、同じ修正を重複して送らない。開始結果をワークツリー名とエージェント名とともに報告する。
+
+担当Codexは現行実装と保存済みRUNのEvidenceを調べ、選ばれた仮説の効果と正当性を評価できる変更を実装する。検証対象のコード・設定は計測前にコミットし、計測時の状態を追えるようにする。デプロイとベンチ実行の制約も担当Codexへ伝える。
 
 ## デプロイと計測
 

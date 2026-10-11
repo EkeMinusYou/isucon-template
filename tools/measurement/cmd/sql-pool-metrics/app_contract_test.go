@@ -44,7 +44,7 @@ func TestAppExporterCollectorContract(t *testing.T) {
 	writer.Comma = '\t'
 	c := &collector{
 		client: server.Client(), endpoint: server.URL + "/debug/sql-pools",
-		maxPools: defaultMaxPools, maxResponse: defaultMaxResponse,
+		maxPools: defaultMaxPools, maxMetrics: defaultMaxMetrics, maxResponse: defaultMaxResponse,
 		output: writer, previous: make(map[string]previousPool),
 	}
 	snapshot, err := c.fetch(context.Background())

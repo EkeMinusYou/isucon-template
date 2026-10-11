@@ -125,7 +125,7 @@ SSH切断・復元失敗などで残った場合は、表示された退避先�
 - MySQL slow logの利用可否と、performance schemaのqueryが当日のversionで利用できるか
 - 成果物を追加・削除したときに、fallback headerと分析側のschemaが一致しているか
 
-標準設定ではproc/service/disk、appのSQL接続プール、全MySQL hostのstatus・slow query・performance_schema digest、nginx access log、app/nginx/kernel journal、Go pprof・fgprof、user-transitionを収集する。初期setupでadapterを整え、分析・dashboardまで確認する。journalは`run.json.load_window`と同じ時間窓で回収できることを確認する。
+標準設定ではproc/service/disk、appのSQL接続プール、全MySQL hostのstatus・slow query・performance_schema digest、nginx access log、app/nginx/kernel journal、Go pprof（fgprofは既定無効）、user-transitionを収集する。初期setupでadapterを整え、分析・dashboardまで確認する。journalは`run.json.load_window`と同じ時間窓で回収できることを確認する。
 MySQLのslow log、Performance Schema、socket接続の前提は[MySQLの計測データ](../docs/measurement/mysql.md)を参照する。
 50msのlock waitは各user DBを対象に既定有効で、250msのtask stateは既定無効である。
 lock waitはホスト別の成果物へ保存し、RUNごとにcollector負荷とcapture errorを確認する。
@@ -140,10 +140,11 @@ digesterも`enabled_by_default: false`で既定の実行対象から外せます
 直接`manifest begin`を使う場合は`-role cache=host-a,host-b`を渡してください。
 古いRUNの未記録roleは推測で補いません。
 
-標準のfgprof・Go CPU・heap・allocs・goroutineは`group: profiles`かつ`enabled_by_default: true`。
+Go CPU・heap・allocs・goroutineは`group: profiles`かつ`enabled_by_default: true`。
+fgprofは既定無効で、必要な場合は`task fgprof-collect`で明示的に収集する。
 `bench/run.sh`がこの宣言から収集対象を選び、同じ対象を開始確認・必須成果物判定で使う。
 [Go profile導入例](../docs/measurement/go-profiling.md)に沿ってsetupでendpointを用意する。
-CPUとfgprofのRUN別開始確認後にベンチを開始し、設定した時間の収集・回収完了後にfinalizeする。
+有効なprofileのRUN別開始確認後にベンチを開始し、設定した時間の収集・回収完了後にfinalizeする。
 開始通知はprofilerの起動成功後に公開する。開始確認後は、CPU profile writerの非同期起動と
 小さなホスト時計差に備えて1秒先行収録し、同じRUNが収録中であることを再確認してからベンチを開始する。
 この1秒は大きな時計差を補正するものではなく、成果物の時間窓検査は緩和しない。
@@ -178,8 +179,8 @@ nginxの`flush=1s`でバッファに残る末尾の行が書き出されるの�
 4. 読み込みschemaとsemantic view
 5. 必要ならdashboardのAPIと表示
 
-ベンチ出力に独自のスコア内訳やシナリオ結果がある場合は、保存するmarker形式を先に固定してから
-`analysis/schema/bench-summary.sql`を拡張する。
+ベンチ出力の結果・内訳・進捗は形式が競技ごとに違うので、汎用の`analysis/schema/bench-summary.sql`は拡張せず、
+`tools/contest/analysis-schema/`にviewとして作る。詳細は[tools/contest/README.md](contest/README.md)。
 
 ### Go profileのDuckDB閲覧
 

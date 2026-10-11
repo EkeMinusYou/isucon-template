@@ -36,8 +36,7 @@ type profileConfig struct {
 }
 
 type reportConfig struct {
-	BottleneckEvidence string `yaml:"bottleneck_evidence"`
-	BottleneckProfile  string `yaml:"bottleneck_profile"`
+	BottleneckProfile string `yaml:"bottleneck_profile"`
 }
 
 type config struct {
@@ -76,7 +75,7 @@ var (
 )
 
 // Increment when persisted sources or analysis-window semantics change.
-const importSchemaVersion = "13"
+const importSchemaVersion = "15"
 
 func main() {
 	if err := runCLI(os.Args[1:], os.Stdout, os.Stderr); err != nil {
@@ -87,7 +86,7 @@ func main() {
 
 func runCLI(args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: analysisctl <sync|rebuild|status|evidence|profile> [flags] [arguments]")
+		return errors.New("usage: analysisctl <sync|rebuild|status|profile> [flags] [arguments]")
 	}
 	command := args[0]
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
@@ -122,11 +121,6 @@ func runCLI(args []string, stdout, stderr io.Writer) error {
 			return fmt.Errorf("unexpected arguments: %s", strings.Join(arguments, " "))
 		}
 		return r.status()
-	case "evidence":
-		if len(arguments) != 1 {
-			return errors.New("usage: analysisctl evidence [flags] RUN_ID")
-		}
-		return r.evidence(arguments[0])
 	case "profile":
 		if len(arguments) != 3 {
 			return errors.New("usage: analysisctl profile [flags] RUN_ID HOST SYMBOL_PATTERN")
@@ -178,8 +172,8 @@ func loadConfig(path string) (config, error) {
 	if (cfg.Profiles.Schema == "") != (len(cfg.Profiles.Tables) == 0) {
 		return config{}, errors.New("profiles.schema and profiles.tables must be specified together")
 	}
-	if cfg.Reports.BottleneckEvidence == "" || cfg.Reports.BottleneckProfile == "" {
-		return config{}, errors.New("reports.bottleneck_evidence and reports.bottleneck_profile are required")
+	if cfg.Reports.BottleneckProfile == "" {
+		return config{}, errors.New("reports.bottleneck_profile is required")
 	}
 	return cfg, nil
 }
@@ -405,6 +399,11 @@ func (r runner) syncSelection(runGlob string, dirs, runIDs []string) error {
 		return err
 	}
 	defer os.RemoveAll(tempDir)
+	// Keep collected bytes intact when concurrent log output splits UTF-8.
+	runGlob, err = r.prepareBenchmarkLogs(tempDir, runGlob, dirs)
+	if err != nil {
+		return err
+	}
 
 	profileDir := filepath.Join(tempDir, "profiles")
 	if err := os.Mkdir(profileDir, 0o755); err != nil {
@@ -563,23 +562,6 @@ func (r runner) applySemanticSchemas() error {
 		}
 	}
 	return nil
-}
-
-func (r runner) evidence(runID string) error {
-	if !runIDPattern.MatchString(runID) {
-		return fmt.Errorf("invalid RUN ID %q; expected YYYYMMDD-HHMMSS", runID)
-	}
-	if err := r.requireDatabase(); err != nil {
-		return err
-	}
-	found, err := r.queryCount("select count(*) from manifests where run_id = " + sqlString(runID))
-	if err != nil {
-		return err
-	}
-	if found != 1 {
-		return fmt.Errorf("RUN not found in analysis DB: %s", runID)
-	}
-	return r.runReport(r.config.Reports.BottleneckEvidence, map[string]string{"run_id": runID})
 }
 
 func (r runner) profile(runID, host, pattern string) error {

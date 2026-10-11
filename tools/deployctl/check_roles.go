@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 )
@@ -40,6 +41,15 @@ func runCheckRoles(args []string) error {
 			return fmt.Errorf("role %q has no hosts", role)
 		}
 	}
+	for _, pair := range strings.Split(vars["extra_service_roles"], ",") {
+		if pair == "" {
+			continue
+		}
+		unit, role, ok := strings.Cut(pair, ":")
+		if !ok || !nameRE.MatchString(unit) || !nameRE.MatchString(role) || len(roles[role]) == 0 {
+			return fmt.Errorf("invalid extra_service_roles entry %q; expected unit:role with a declared role", pair)
+		}
+	}
 	runner := newDeployRunner(*sshUser, *sshOpts, roles, vars, *dryRun, *parallel)
 	return runner.checkRoles(service)
 }
@@ -56,6 +66,26 @@ func (r *deployRunner) checkRoles(appService string) error {
 			containsRoleHost(r.roles["app"], host),
 			containsRoleHost(r.roles["nginx"], host),
 			containsRoleHost(r.roles["mysql"], host))
+		extra := map[string]string{}
+		for _, pair := range strings.Split(r.vars["extra_service_roles"], ",") {
+			if pair == "" {
+				continue
+			}
+			unit, role, _ := strings.Cut(pair, ":")
+			extra[unit] = role
+		}
+		units := make([]string, 0, len(extra))
+		for unit := range extra {
+			units = append(units, unit)
+		}
+		sort.Strings(units)
+		for _, unit := range units {
+			expected := "inactive"
+			if containsRoleHost(r.roles[extra[unit]], host) {
+				expected = "active"
+			}
+			script += fmt.Sprintf("check_unit '%s' %s\n", unit, expected)
+		}
 		jobs = append(jobs, roleCheckJob{host: host, script: script})
 	}
 	if r.dryRun {

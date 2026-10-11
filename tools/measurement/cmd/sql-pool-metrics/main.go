@@ -22,6 +22,7 @@ import (
 const (
 	defaultEndpoint    = "http://127.0.0.1:6060/debug/sql-pools"
 	defaultMaxPools    = 128
+	defaultMaxMetrics  = 1024
 	defaultMaxResponse = 1 << 20
 	defaultMaxOutput   = 32 << 20
 )
@@ -67,6 +68,7 @@ type collector struct {
 	previous    map[string]previousPool
 	sample      uint64
 	maxPools    int
+	maxMetrics  int
 	maxResponse int64
 }
 
@@ -91,12 +93,13 @@ func main() {
 	timeout := flag.Duration("timeout", 750*time.Millisecond, "HTTP request timeout")
 	outputPath := flag.String("output", "-", "TSV output path, or - for stdout")
 	maxPools := flag.Int("max-pools", defaultMaxPools, "maximum pool entries per snapshot")
+	maxMetrics := flag.Int("max-metrics", defaultMaxMetrics, "maximum numeric application metrics per snapshot")
 	maxResponse := flag.Int64("max-response-bytes", defaultMaxResponse, "maximum response body size")
 	maxOutput := flag.Int64("max-output-bytes", defaultMaxOutput, "maximum TSV output size")
 	flag.Parse()
 
-	if *interval <= 0 || *timeout <= 0 || *maxPools <= 0 || *maxResponse <= 0 || *maxOutput <= 0 {
-		fmt.Fprintln(os.Stderr, "interval, timeout, pool, and byte limits must be greater than zero")
+	if *interval <= 0 || *timeout <= 0 || *maxPools <= 0 || *maxMetrics <= 0 || *maxResponse <= 0 || *maxOutput <= 0 {
+		fmt.Fprintln(os.Stderr, "interval, timeout, pool, metric, and byte limits must be greater than zero")
 		os.Exit(2)
 	}
 	if strings.TrimSpace(*endpoint) == "" {
@@ -117,13 +120,13 @@ func main() {
 		output = outputFile
 	}
 	limited := &limitedWriter{writer: output, limit: *maxOutput}
-	if err := collect(context.Background(), limited, *endpoint, *interval, *timeout, *maxPools, *maxResponse); err != nil {
+	if err := collect(context.Background(), limited, *endpoint, *interval, *timeout, *maxPools, *maxMetrics, *maxResponse); err != nil {
 		fmt.Fprintf(os.Stderr, "collect SQL pool metrics: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func collect(parent context.Context, output io.Writer, endpoint string, interval, timeout time.Duration, maxPools int, maxResponse int64) error {
+func collect(parent context.Context, output io.Writer, endpoint string, interval, timeout time.Duration, maxPools, maxMetrics int, maxResponse int64) error {
 	writer := csv.NewWriter(output)
 	writer.Comma = '\t'
 	writer.UseCRLF = false
@@ -143,6 +146,7 @@ func collect(parent context.Context, output io.Writer, endpoint string, interval
 		output:      writer,
 		previous:    make(map[string]previousPool),
 		maxPools:    maxPools,
+		maxMetrics:  maxMetrics,
 		maxResponse: maxResponse,
 	}
 	collector.poll(ctx)
@@ -196,13 +200,13 @@ func (c *collector) fetch(ctx context.Context) (snapshot, error) {
 	if err := json.Unmarshal(body, &current); err != nil {
 		return snapshot{}, err
 	}
-	if err := validateSnapshot(current, c.maxPools, int64(len(body))); err != nil {
+	if err := validateSnapshot(current, c.maxPools, c.maxMetrics, int64(len(body))); err != nil {
 		return snapshot{}, err
 	}
 	return current, nil
 }
 
-func validateSnapshot(current snapshot, maxPools int, contentLength int64) error {
+func validateSnapshot(current snapshot, maxPools, maxMetrics int, contentLength int64) error {
 	if contentLength < 0 {
 		return errors.New("negative content length")
 	}
@@ -213,7 +217,7 @@ func validateSnapshot(current snapshot, maxPools int, contentLength int64) error
 		return fmt.Errorf("invalid pool count %d", len(current.Pools))
 	}
 	seen := make(map[string]struct{}, len(current.Pools))
-	if len(current.Metrics) > maxPools {
+	if len(current.Metrics) > maxMetrics {
 		return errors.New("too many snapshot metrics")
 	}
 	for name, value := range current.Metrics {

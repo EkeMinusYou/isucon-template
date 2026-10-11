@@ -96,3 +96,27 @@ func TestMarkerAcrossWritesStreamsImmediately(t *testing.T) {
 		t.Fatalf("markers = %q", got)
 	}
 }
+
+func TestParseSavedLogEmitsOnlyMarkers(t *testing.T) {
+	for _, tc := range []struct{ name, content, want string }{
+		{"pass", "detail\nscore: 10\nresult: ok\n", "SCORE: 10\nBENCHMARK_PASS\n"},
+		{"failure priority", "score: 0\nresult: ng\nresult: ok", "SCORE: 0\nBENCHMARK_FAIL\n"},
+		{"unknown", "detail only\n", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "bench.log")
+			if err := os.WriteFile(path, []byte(tc.content), 0600); err != nil {
+				t.Fatal(err)
+			}
+			var output, errors bytes.Buffer
+			code := run([]string{"-patterns", writeDeclaration(t, genericDeclaration), "-input", path}, &output, &errors)
+			if code != 0 || output.String() != tc.want {
+				t.Fatalf("code=%d output=%q errors=%q", code, output.String(), errors.String())
+			}
+			original, err := os.ReadFile(path)
+			if err != nil || string(original) != tc.content {
+				t.Fatal("saved log changed")
+			}
+		})
+	}
+}

@@ -124,7 +124,7 @@ func TestCaptureRequirementsArePerHostAndFrozen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(required) != 19 {
+	if len(required) != 16 {
 		t.Fatalf("required=%v", required)
 	}
 	m.RequiredArtifacts = required

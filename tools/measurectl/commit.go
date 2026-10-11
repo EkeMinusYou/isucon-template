@@ -65,11 +65,11 @@ func commitWorkingTree(runID string) error {
 	if len(staged) == 0 {
 		return fmt.Errorf("working tree has changes that git add could not stage: %s", status)
 	}
-	out, err := git(root, "-c", "core.hooksPath=/dev/null", "commit", "-m", "Snapshot changes before benchmark "+runID)
-	fmt.Print(string(out))
-	if err != nil {
+	message := "Snapshot changes before benchmark " + runID
+	if _, err := git(root, "-c", "core.hooksPath=/dev/null", "commit", "-q", "-m", message); err != nil {
 		return err
 	}
+	printCommitSummary(message, staged)
 	status, err = git(root, "status", "--porcelain=v1", "--untracked-files=all")
 	if err != nil {
 		return err
@@ -161,7 +161,15 @@ func commitRunArtifacts(runDir, scores string) error {
 	if len(changed) == 0 {
 		return nil
 	}
-	out, err := git(append([]string{"commit", "--only", "-m", "Record benchmark artifacts for " + m.RunID, "--"}, paths...)...)
-	fmt.Print(string(out))
-	return err
+	message := "Record benchmark artifacts for " + m.RunID
+	if _, err := git(append([]string{"commit", "-q", "--only", "-m", message, "--"}, paths...)...); err != nil {
+		return err
+	}
+	printCommitSummary(message, changed)
+	return nil
+}
+
+// printCommitSummary replaces git's per-file listing with one line.
+func printCommitSummary(message string, names []byte) {
+	fmt.Printf("commit: %s (%d files)\n", message, len(strings.Fields(string(names))))
 }

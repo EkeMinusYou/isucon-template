@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -187,6 +188,65 @@ func TestLifecycleFinalizeContinuesThroughCollectionFailures(t *testing.T) {
 	}
 	if runID, err := readRunState(filepath.Join(opts.rawDir, "last-run-id")); err != nil || runID != opts.runID {
 		t.Fatalf("last state = %q, %v", runID, err)
+	}
+}
+
+func TestSharedRunStateRejectsOtherWorktreeBeforeCollection(t *testing.T) {
+	opts := testLifecycleOptions(t)
+	owner, err := currentWorktreePath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	helper := filepath.Join(root, "tools/bench/active-run-id.sh")
+	for _, tc := range []struct {
+		name, state string
+		valid       bool
+	}{
+		{"owner", opts.runID + "\n" + owner + "\n", true},
+		{"other worktree", opts.runID + "\n" + t.TempDir() + "\n", false},
+		{"missing owner", opts.runID + "\n", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := os.MkdirAll(opts.rawDir, 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(opts.runStateFile, []byte(tc.state), 0600); err != nil {
+				t.Fatal(err)
+			}
+			id, err := readRunState(opts.runStateFile)
+			if tc.valid {
+				if err != nil || id != opts.runID {
+					t.Fatalf("read state: %q, %v", id, err)
+				}
+			} else {
+				// No collector may run before ownership has been checked.
+				runner := lifecycleRunner{collect: func([]string) error {
+					t.Fatal("collector ran for an unowned RUN")
+					return nil
+				}}
+				if err := runner.finalize(opts); err == nil {
+					t.Fatal("finalize accepted an unowned RUN")
+				}
+				body, err := os.ReadFile(opts.runStateFile)
+				if err != nil || string(body) != tc.state {
+					t.Fatalf("rejected state changed: %s, %v", body, err)
+				}
+			}
+			cmd := exec.Command("sh", helper, opts.runStateFile)
+			cmd.Dir = root
+			out, err := cmd.CombinedOutput()
+			if tc.valid {
+				if err != nil || string(out) != opts.runID+"\n" {
+					t.Fatalf("shell state: %s, %v", out, err)
+				}
+			} else if err == nil {
+				t.Fatalf("shell accepted an unowned RUN: %s", out)
+			}
+		})
 	}
 }
 
