@@ -36,6 +36,7 @@ tools/contest/README.md
 
 [contest]
 Taskfile.contest.yml
+docs/analysis
 docs/conversation
 docs/official
 etc
