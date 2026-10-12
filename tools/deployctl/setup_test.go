@@ -11,7 +11,7 @@ import (
 )
 
 func TestMySQLRoleConvergenceKeepsEveryAssignedHost(t *testing.T) {
-	cfg, err := loadConfig(repositoryConfig(t))
+	cfg, err := loadConfig("deployments.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,5 +174,24 @@ func TestConfigCheckUsesGuardedLiveUploads(t *testing.T) {
 		if u.Validate == "" || u.Remote != "/etc/"+u.Role+"/" || u.Local != u.Role+"/" {
 			t.Fatalf("unexpected configuration upload: %#v", u)
 		}
+	}
+}
+
+func TestDeclaredEmptyMySQLRole(t *testing.T) {
+	roles := roleValues{}
+	for _, value := range []string{"all=h1,h2", "app=h1", "nginx=h1,h2", "mysql="} {
+		if err := roles.Set(value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runner := deployRunner{roles: roles, vars: map[string]string{}}
+	for _, host := range roles["all"] {
+		script := roleCheckScript("app", containsRoleHost(roles["app"], host), true, containsRoleHost(roles["mysql"], host))
+		if !strings.Contains(script, "check_unit mysql inactive") {
+			t.Fatal(script)
+		}
+	}
+	if jobs, err := runner.uploadJobs([]upload{{Label: "inactive database upload", Role: "mysql"}}); err != nil || len(jobs) != 0 {
+		t.Fatal("empty role unexpectedly deployed database assets", err)
 	}
 }

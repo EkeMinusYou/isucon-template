@@ -107,7 +107,7 @@ func (r *deployRunner) uploadJobs(uploads []upload) ([]uploadJob, error) {
 	var jobs []uploadJob
 	for _, u := range uploads {
 		hosts, ok := r.roles[u.Role]
-		if !ok || len(hosts) == 0 {
+		if !ok {
 			return nil, fmt.Errorf("upload %q が指す role %q のホストが指定されていません", u.Label, u.Role)
 		}
 		for _, host := range hosts {
@@ -143,7 +143,7 @@ func (r *deployRunner) activationJobs(activations []activation) ([]activationJob
 	var jobs []activationJob
 	for _, a := range activations {
 		hosts, ok := r.roles[a.Role]
-		if !ok || len(hosts) == 0 {
+		if !ok {
 			return nil, fmt.Errorf("activation %q が指す role %q のホストが指定されていません", a.Label, a.Role)
 		}
 		for _, host := range hosts {

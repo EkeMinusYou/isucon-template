@@ -32,9 +32,9 @@
 | `analysisctl/` | 原則不要 | `analysis/sources.yaml`を読む汎用core。DuckDB CLIとRUNディレクトリが利用できることを確認する |
 | `bench/` | 一部確認 | `run.sh`が自動・手動ベンチ共通のload windowとfinalizeを担う。nginx on-CPU profilerを使う場合はOS、package manager、kernel用`perf`、probe URLを確認する |
 | `bench-output/` | ログ形式確認 | ベンチ出力からscore・合否を読む汎用core。形式は`tools/contest/bench-patterns.json`に分離する。[アプリ固有adapter](#アプリ固有adapter) |
-| `browser/` | 原則不要 | ローカルdashboard確認専用。必要な場合だけ`task browser-install`を実行し、競技サーバーへ配布しない |
+| `browser/` | 利用時 | ローカルdashboard確認用。`task browser-install`で導入し、競技サーバーへ配布しない |
 | `contest/` | 毎回入れ替え | この競技だけで成立する設定・ツールの集約先。他のディレクトリはここを参照する側でも競技非依存に保つ。[一覧と置く基準](contest/README.md) |
-| `dashboard/` | 条件付き | 標準成果物なら変更不要。独自collector、独自スコア列、追加ロールを表示する場合だけserver APIとweb UIを拡張する |
+| `dashboard/` | 利用時 | 標準成果物なら変更不要。独自collector、独自スコア列、追加ロールを表示する場合はserver APIとweb UIを拡張する |
 | `deployctl/` | 毎回確認 | [デプロイ](#デプロイ) |
 | `json-metrics-collector/` | 利用時のみ実装 | [アプリ固有adapter](#アプリ固有adapter) |
 | `measurectl/` | 毎回確認 | [計測と集計](#計測と集計) |
@@ -125,7 +125,7 @@ SSH切断・復元失敗などで残った場合は、表示された退避先�
 - MySQL slow logの利用可否と、performance schemaのqueryが当日のversionで利用できるか
 - 成果物を追加・削除したときに、fallback headerと分析側のschemaが一致しているか
 
-標準設定ではproc/service/disk、appのSQL接続プール、全MySQL hostのstatus・slow query・performance_schema digest、nginx access log、app/nginx/kernel journal、Go pprof（fgprofは既定無効）、user-transitionを収集する。初期setupでadapterを整え、分析・dashboardまで確認する。journalは`run.json.load_window`と同じ時間窓で回収できることを確認する。
+標準設定ではproc/service/disk、appのSQL接続プール、全MySQL hostのstatus・slow query・performance_schema digest、nginx access log、app/nginx/kernel journal、Go pprof（fgprofは既定無効）、user-transitionを収集する。初期setupでadapterを整え、DuckDB分析まで確認する。journalは`run.json.load_window`と同じ時間窓で回収できることを確認する。
 MySQLのslow log、Performance Schema、socket接続の前提は[MySQLの計測データ](../docs/measurement/mysql.md)を参照する。
 50msのlock waitは各user DBを対象に既定有効で、250msのtask stateは既定無効である。
 lock waitはホスト別の成果物へ保存し、RUNごとにcollector負荷とcapture errorを確認する。
@@ -170,6 +170,10 @@ nginxの`flush=1s`でバッファに残る末尾の行が書き出されるの�
 
 ### 分析
 
+`task q`は読み取り専用、`task q-sync`はfinalized RUNの取り込みを行う。
+同期中に別のDuckDBセッションとファイルロックが競合した場合は、最大60秒待って再試行する。
+待機期限を超えた場合は該当セッションを閉じて`task q-sync`を再実行する。回収済みRUNのベンチ再実行は不要。
+
 `tools/analysis/sources.yaml`は、RUN成果物とDuckDB schemaの対応表である。標準成果物だけなら変更しない。
 成果物名・列・DB種別を変更する場合は、次の宣言と読み手（queryを含む）を一つの変更で揃える。
 
@@ -177,7 +181,8 @@ nginxの`flush=1s`でバッファに残る末尾の行が書き出されるの�
 2. `run.json`へ記録されるartifact契約
 3. `analysis/sources.yaml`のsource
 4. 読み込みschemaとsemantic view
-5. 必要ならdashboardのAPIと表示
+5. 必要なDuckDBのquery
+6. dashboardで表示する場合はAPIと表示
 
 ベンチ出力の結果・内訳・進捗は形式が競技ごとに違うので、汎用の`analysis/schema/bench-summary.sql`は拡張せず、
 `tools/contest/analysis-schema/`にviewとして作る。詳細は[tools/contest/README.md](contest/README.md)。
@@ -241,7 +246,9 @@ task q -- "SELECT function, flat_value AS inuse_bytes, cumulative_value FROM ppr
 
 `tools/contest/bench-patterns.json`のscore・pass・fail正規表現を当日のベンチ出力形式へ合わせる。
 coreはログ形式を持たず、下流が読む`SCORE:`・`BENCHMARK_PASS`・`BENCHMARK_FAIL`は競技によらず固定である。
-scoreには1つのcapture groupを持たせ、該当する行がない項目は空文字にする。宣言が読めない場合は
+scoreには1つのcapture groupを持たせ、該当する行がない項目は空文字にする。
+全項目が空でも原文とコマンドの終了コードを保持し、結果markerは追加しない。
+出力書式が未確定でも開始・回収でき、スコアや成功は推測しない。宣言が読めない場合は
 ベンチを起動する前に終了コード2で停止する。
 
 `tools/contest/user-transition-routes.json`のCookie列・API prefix・正規化routeを当日のAPIへ合わせる。routeは動的IDを

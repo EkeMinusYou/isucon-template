@@ -40,6 +40,7 @@ docs/analysis
 docs/conversation
 docs/implementations
 docs/official
+docs/plans
 etc
 generated
 mysql

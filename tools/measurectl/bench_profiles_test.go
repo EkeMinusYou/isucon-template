@@ -238,8 +238,8 @@ func TestProfileTasksResolveConfiguredDuration(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"profiles-collect", "profiles-ready", "profiles-stop"} {
-		// Task dry mode expands variables without running collectors or SSH.
-		cmd := exec.Command(task, "--dry", name, "RUN_STATE_FILE="+state, "PROFILE_SECONDS=210")
+		// Task summary expands variables without running collectors or SSH, even for silent tasks.
+		cmd := exec.Command(task, "--summary", name, "RUN_STATE_FILE="+state, "PROFILE_SECONDS=210")
 		cmd.Dir = root
 		out, err := cmd.CombinedOutput()
 		if err != nil {

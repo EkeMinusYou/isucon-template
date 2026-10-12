@@ -30,13 +30,14 @@ type planDeployment struct {
 }
 
 type upload struct {
-	Label    string   `yaml:"label"`
-	Role     string   `yaml:"role"`
-	Local    string   `yaml:"local"`
-	Remote   string   `yaml:"remote"`
-	Delete   bool     `yaml:"delete"`
-	Excludes []string `yaml:"excludes"`
-	Validate string   `yaml:"validate"`
+	Label          string   `yaml:"label"`
+	Role           string   `yaml:"role"`
+	Local          string   `yaml:"local"`
+	Remote         string   `yaml:"remote"`
+	Delete         bool     `yaml:"delete"`
+	Excludes       []string `yaml:"excludes"`
+	Validate       string   `yaml:"validate"`
+	VerifyRequired bool     `yaml:"verify_required"`
 }
 
 type activation struct {

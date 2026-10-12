@@ -109,7 +109,9 @@ func TestTimelineBenchErrorsWithoutAccessLogs(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		sql := string(semantic)
+		// Production applies the common analysis schema before contest views.
+		// Keep its time-window relation available in this isolated fixture too.
+		sql := "create table if not exists load_windows (run_id varchar, started_at timestamptz);\n" + string(semantic)
 		if available {
 			sql = "set variable run_glob = '" + strings.ReplaceAll(dir, "'", "''") + "';\n" + string(raw) + "\ncreate or replace table bench_error_logs as select * from bench_error_logs_raw;\n" + sql
 		}
@@ -132,7 +134,7 @@ func TestTimelineBenchErrorsWithoutAccessLogs(t *testing.T) {
 			t.Fatalf("unexpected response: %+v", got)
 		}
 		if available {
-			// The placeholder patterns classify nothing, so the views stay empty
+			// This format-neutral fixture has no classified errors, so views stay empty
 			// while the query path and the JSON contract are still exercised.
 			if len(got.BenchErrors) != 0 || len(got.BenchErrorCounts) != 0 {
 				t.Fatalf("unexpected parsed output: %+v %+v", got.BenchErrors, got.BenchErrorCounts)

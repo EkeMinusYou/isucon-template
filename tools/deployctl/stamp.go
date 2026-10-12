@@ -198,11 +198,12 @@ func runVerify(args []string) error {
 type declaredUpload struct {
 	local    string
 	excludes []string
+	required bool
 }
 
 // verify compares every stamp on the hosts with the same declaration resolved in
 // this worktree. Destinations without a stamp were never deployed by deployctl
-// and are skipped.
+// and are skipped unless the upload declares verify_required.
 func (r *deployRunner) verify(cfg *config) error {
 	declared := map[string]map[string][]declaredUpload{}
 	for _, name := range sortedDeploymentNames(cfg) {
@@ -220,7 +221,7 @@ func (r *deployRunner) verify(cfg *config) error {
 				if declared[host] == nil {
 					declared[host] = map[string][]declaredUpload{}
 				}
-				declared[host][remote] = append(declared[host][remote], declaredUpload{local: local, excludes: u.Excludes})
+				declared[host][remote] = append(declared[host][remote], declaredUpload{local: local, excludes: u.Excludes, required: u.VerifyRequired})
 			}
 		}
 	}
@@ -260,6 +261,7 @@ func (r *deployRunner) verify(cfg *config) error {
 		}
 		var problems []string
 		checked := 0
+		seen := map[string]bool{}
 		for _, line := range strings.Split(string(out), "\n") {
 			if strings.TrimSpace(line) == "" {
 				continue
@@ -274,6 +276,7 @@ func (r *deployRunner) verify(cfg *config) error {
 					continue
 				}
 				checked++
+				seen[s.Remote+"\x00"+u.local] = true
 				local, err := fingerprint(u)
 				switch {
 				case err != nil:
@@ -284,6 +287,14 @@ func (r *deployRunner) verify(cfg *config) error {
 						from = s.Worktree
 					}
 					problems = append(problems, fmt.Sprintf("%s differs from local %s (deployed from %s at commit %.12s, %s)", s.Remote, s.Local, from, s.Commit, s.DeployedAt))
+				}
+			}
+		}
+		// Opt-in destinations must be deployed even on newly assigned hosts.
+		for remote, uploads := range declared[host] {
+			for _, u := range uploads {
+				if u.required && !seen[remote+"\x00"+u.local] {
+					problems = append(problems, fmt.Sprintf("%s: missing deployment stamp for local %s; deploy from here before measuring", remote, u.local))
 				}
 			}
 		}

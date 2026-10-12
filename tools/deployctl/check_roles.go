@@ -36,17 +36,21 @@ func runCheckRoles(args []string) error {
 	if service == "" || !nameRE.MatchString(service) {
 		return errors.New("-var service=<systemd-unit> is required")
 	}
-	for _, role := range []string{"all", "app", "nginx", "mysql"} {
+	for _, role := range []string{"all", "app", "nginx"} {
 		if len(roles[role]) == 0 {
 			return fmt.Errorf("role %q has no hosts", role)
 		}
+	}
+	if _, declared := roles["mysql"]; !declared {
+		return errors.New("mysql role must be declared, even when empty")
 	}
 	for _, pair := range strings.Split(vars["extra_service_roles"], ",") {
 		if pair == "" {
 			continue
 		}
 		unit, role, ok := strings.Cut(pair, ":")
-		if !ok || !nameRE.MatchString(unit) || !nameRE.MatchString(role) || len(roles[role]) == 0 {
+		_, declared := roles[role]
+		if !ok || !nameRE.MatchString(unit) || !nameRE.MatchString(role) || !declared {
 			return fmt.Errorf("invalid extra_service_roles entry %q; expected unit:role with a declared role", pair)
 		}
 	}

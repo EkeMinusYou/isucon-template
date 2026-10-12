@@ -60,9 +60,8 @@ func loadPatterns(filename string) (patterns, error) {
 	if result.fail, err = compilePattern("fail", declaration.Fail, 0); err != nil {
 		return patterns{}, err
 	}
-	if result.score == nil && result.pass == nil && result.fail == nil {
-		return patterns{}, fmt.Errorf("%s declares no pattern", filename)
-	}
+	// An unknown output format is a valid pass-through configuration. Preserve
+	// the command's output and exit status without inventing result markers.
 	return result, nil
 }
 

@@ -63,6 +63,12 @@ sources:
     view: metrics_sql_pool
     windowed: true
     window_column: ts
+  - table: metrics
+    schema: schema/json-metrics.sql
+    match: '*-json-metrics.tsv'
+    view: metrics_application_json
+    windowed: true
+    window_column: ts
   - table: task_states
     schema: schema/task.sql
     match: "*-task-states.tsv"

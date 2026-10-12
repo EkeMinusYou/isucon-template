@@ -105,8 +105,12 @@ func (v roleValues) String() string { return "role=host1,host2" }
 
 func (v roleValues) Set(value string) error {
 	name, raw, ok := strings.Cut(value, "=")
-	if !ok || !nameRE.MatchString(name) || raw == "" {
+	if !ok || !nameRE.MatchString(name) {
 		return fmt.Errorf("invalid role %q; expected role=host1,host2", value)
+	}
+	if raw == "" {
+		v[name] = nil
+		return nil
 	}
 	seen := map[string]bool{}
 	for _, host := range strings.Split(raw, ",") {
@@ -128,7 +132,7 @@ func (v variableValues) String() string { return "name=value" }
 
 func (v variableValues) Set(value string) error {
 	name, raw, ok := strings.Cut(value, "=")
-	if !ok || !nameRE.MatchString(name) || !valueRE.MatchString(raw) {
+	if !ok || !nameRE.MatchString(name) || (raw != "" && !valueRE.MatchString(raw)) {
 		return fmt.Errorf("invalid variable %q; values may contain letters, digits, and _./,:-", value)
 	}
 	v[name] = raw

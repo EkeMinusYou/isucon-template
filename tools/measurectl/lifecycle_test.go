@@ -288,3 +288,17 @@ func TestCollectorModeSurvivesManifestCreation(t *testing.T) {
 		})
 	}
 }
+
+func TestLifecycleManifestWithoutMySQL(t *testing.T) {
+	opts := testLifecycleOptions(t)
+	opts.roles["mysql"] = nil
+	args, err := opts.manifestBeginArgs(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, arg := range args {
+		if arg == "-mysql" && args[i+1] != "" {
+			t.Fatal("inactive MySQL recorded as active")
+		}
+	}
+}

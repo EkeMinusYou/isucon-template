@@ -59,3 +59,36 @@ func TestListRunsIncludesArchivedRunsAndSkipsContainerDirectories(t *testing.T) 
 		t.Fatal("resolveRunDir(archive) succeeded, want false")
 	}
 }
+
+func TestSmokeModeKeepsDiagnosticsSeparateFromRunHistory(t *testing.T) {
+	tmp := t.TempDir()
+	smokeDir := filepath.Join(tmp, "setup-smoke-20261012-120000")
+	runsDir := filepath.Join(tmp, "runs")
+	normalID := "20261011-120000"
+	for _, dir := range []string{smokeDir, filepath.Join(runsDir, normalID)} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a := &app{runsDir: runsDir, smokeDir: smokeDir}
+	runs, err := a.listRuns()
+	if err != nil || len(runs) != 1 {
+		t.Fatalf("diagnostic entries: %v, %v", runs, err)
+	}
+	if runs[0].RunID != filepath.Base(smokeDir) || runs[0].Score != nil || runs[0].Passed != nil {
+		t.Fatalf("diagnostic was assigned a benchmark result: %#v", runs[0])
+	}
+	if _, ok := a.resolveRunDir(normalID); ok {
+		t.Fatal("smoke mode exposed normal RUN history")
+	}
+	if dir, ok := a.resolveRunDir(filepath.Base(smokeDir)); !ok || dir != smokeDir {
+		t.Fatal("smoke directory was not exposed")
+	}
+	a.smokeDir = ""
+	if _, ok := a.resolveRunDir(filepath.Base(smokeDir)); ok {
+		t.Fatal("normal mode exposed diagnostic capture")
+	}
+	if dir, ok := a.resolveRunDir(normalID); !ok || dir != filepath.Join(runsDir, normalID) {
+		t.Fatal("normal RUN resolution changed")
+	}
+}

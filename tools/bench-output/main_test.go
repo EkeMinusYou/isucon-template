@@ -39,13 +39,43 @@ func TestLoadPatternsRejectsUnusableDeclarations(t *testing.T) {
 	for _, tt := range []struct{ name, declaration string }{
 		{"score without capture", `{"score": "^score: \\d+$"}`},
 		{"invalid expression", `{"pass": "^(unclosed$"}`},
-		{"no pattern", `{}`},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			if _, err := loadPatterns(writeDeclaration(t, tt.declaration)); err == nil {
 				t.Fatal("expected an error")
 			}
 		})
+	}
+}
+
+func TestUnknownFormatPreservesCommandOutputAndExit(t *testing.T) {
+	for _, code := range []string{"0", "7"} {
+		var output, errors bytes.Buffer
+		status := run([]string{"-patterns", writeDeclaration(t, `{"score":"","pass":"","fail":""}`),
+			"sh", "-c", "printf 'score: 42\nresult: ok\n'; exit " + code}, &output, &errors)
+		want := 0
+		if code == "7" {
+			want = 7
+		}
+		if status != want || output.String() != "score: 42\nresult: ok\n" || errors.Len() != 0 {
+			t.Fatalf("status=%d output=%q errors=%q", status, output.String(), errors.String())
+		}
+	}
+}
+
+func TestUnknownFormatDoesNotBlockSavedLogRecovery(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "bench.log")
+	content := "BENCHMARK_FAIL\texit_status=2\n"
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var output, errors bytes.Buffer
+	code := run([]string{"-patterns", writeDeclaration(t, `{}`), "-input", path}, &output, &errors)
+	if code != 0 || output.Len() != 0 || errors.Len() != 0 {
+		t.Fatalf("code=%d output=%q errors=%q", code, output.String(), errors.String())
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != content {
+		t.Fatal("saved log changed")
 	}
 }
 

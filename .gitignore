@@ -9,6 +9,9 @@
 raw/
 /raw
 
+# Temporary files written while saving conversation logs
+/docs/conversation/.*.md.tmp
+
 # Contest application build artifacts
 webapp/go/default.pgo
 
@@ -32,8 +35,15 @@ node_modules/
 tools/browser/.playwright-cli/
 
 # Rebuildable state
+/generated/nginx/
+/generated/public/
 runs/analysis.duckdb
 runs/analysis.duckdb.lock
+
+# Temporary files used for analysis rebuilds and RUN artifact collection
+/runs/.analysis-rebuild-*
+/runs/*/.collector-fetch-*/
+/runs/*/.run-*.json
 
 # Raw access logs are retained locally for re-digestion but not committed.
 runs/*/raw/

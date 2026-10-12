@@ -197,3 +197,20 @@ collectors:
       nginx-oncpu.folded: '{host}-nginx-oncpu.folded'
       nginx-oncpu-metadata.json: '{host}-nginx-oncpu-metadata.json'
     stderr: '{host}-nginx-oncpu.stderr'
+
+  - name: application-json
+    label: bounded application JSON metrics
+    enabled_by_default: false
+    hosts: app
+    binary: tools/measurement/cmd/json-metrics-collector/json-metrics-collector
+    remote_root: /tmp/isucon-application-json-metrics
+    stdout: /dev/null
+    args: >-
+      -enable-endpoint {var:application_metrics_enable_url}
+      -snapshot-endpoint {var:application_metrics_snapshot_url}
+      -disable-endpoint {var:application_metrics_disable_url}
+      -interval 1s
+      -output {remote_dir}/metrics.tsv
+    outputs:
+      metrics.tsv: '{host}-json-metrics.tsv'
+    stderr: '{host}-application-json-metrics.stderr'

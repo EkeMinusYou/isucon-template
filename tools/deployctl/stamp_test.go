@@ -112,3 +112,36 @@ func TestVerifyRejectsContentFromAnotherWorktree(t *testing.T) {
 		t.Fatalf("stale content must fail verification, got %v", err)
 	}
 }
+
+func TestVerifyRequiresStampForNewTopology(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "config"), []byte("new topology"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	local := dir + "/"
+	cfg := &config{Deployments: map[string]deployment{
+		"edge": {Uploads: []upload{{Label: "config", Role: "edge", Local: local, Remote: "/etc/nginx/", VerifyRequired: true}}},
+	}}
+	fingerprint, _ := localFingerprint(local, nil)
+	for _, test := range []struct {
+		name, source, fingerprint string
+		wantOK                    bool
+	}{
+		{name: "absent"},
+		{name: "old source", source: "nginx/", fingerprint: fingerprint},
+		{name: "stale content", source: local, fingerprint: "stale"},
+		{name: "current", source: local, fingerprint: fingerprint, wantOK: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var stamps string
+			if test.source != "" {
+				body, _ := json.Marshal(deployStamp{Remote: "/etc/nginx/", Local: test.source, Fingerprint: test.fingerprint})
+				stamps = string(body) + "\n"
+			}
+			r := &deployRunner{sshUser: "isucon", parallel: 1, roles: map[string][]string{"edge": {"new-host"}}, exec: &stampExecutor{stamps: stamps}}
+			if err := r.verify(cfg); (err == nil) != test.wantOK {
+				t.Fatalf("verify() = %v, want success %v", err, test.wantOK)
+			}
+		})
+	}
+}

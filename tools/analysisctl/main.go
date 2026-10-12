@@ -56,6 +56,7 @@ type options struct {
 	results    string
 	configPath string
 	duckdb     string
+	lockWait   time.Duration
 	stdout     io.Writer
 	stderr     io.Writer
 }
@@ -86,7 +87,7 @@ func main() {
 
 func runCLI(args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: analysisctl <sync|rebuild|status|profile> [flags] [arguments]")
+		return errors.New("usage: analysisctl <sync|rebuild|status|profile|smoke> [flags] [arguments]")
 	}
 	command := args[0]
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
@@ -96,8 +97,12 @@ func runCLI(args []string, stdout, stderr io.Writer) error {
 	flags.StringVar(&opts.results, "results", "runs", "RUN artifact directory")
 	flags.StringVar(&opts.configPath, "config", "tools/analysis/sources.yaml", "source declaration path")
 	flags.StringVar(&opts.duckdb, "duckdb", "duckdb", "DuckDB CLI path")
+	flags.DurationVar(&opts.lockWait, "lock-wait", time.Minute, "maximum wait for a conflicting DuckDB file lock")
 	if err := flags.Parse(args[1:]); err != nil {
 		return err
+	}
+	if opts.lockWait < 0 {
+		return errors.New("lock-wait must not be negative")
 	}
 	arguments := flags.Args()
 	cfg, err := loadConfig(opts.configPath)
@@ -106,6 +111,11 @@ func runCLI(args []string, stdout, stderr io.Writer) error {
 	}
 	r := runner{options: opts, config: cfg}
 	switch command {
+	case "smoke":
+		if len(arguments) != 1 {
+			return errors.New("usage: analysisctl smoke [flags] SETUP_SMOKE_DIR")
+		}
+		return r.smoke(arguments[0])
 	case "sync":
 		if len(arguments) != 0 {
 			return fmt.Errorf("unexpected arguments: %s", strings.Join(arguments, " "))
@@ -603,7 +613,7 @@ func (r runner) requireDatabase() error {
 }
 
 func (r runner) queryCount(query string) (int, error) {
-	output, err := r.duckdbOutput(nil, "-noheader", "-list", r.db, "-c", query)
+	output, err := r.duckdbOutput(nil, "-readonly", "-noheader", "-list", r.db, "-c", query)
 	if err != nil {
 		return 0, err
 	}
@@ -629,7 +639,7 @@ func (r runner) runReport(path string, variables map[string]string) error {
 		fmt.Fprintf(&script, "set variable %s = %s;\n", key, sqlString(variables[key]))
 	}
 	script.Write(data)
-	cmd := exec.Command(r.duckdb, r.db)
+	cmd := exec.Command(r.duckdb, "-readonly", r.db)
 	cmd.Stdin = strings.NewReader(script.String())
 	cmd.Stdout = r.stdout
 	cmd.Stderr = r.stderr
@@ -640,7 +650,7 @@ func (r runner) runReport(path string, variables map[string]string) error {
 }
 
 func (r runner) indexedRuns() (map[string]bool, error) {
-	output, err := r.duckdbOutput(nil, "-noheader", "-list", r.db, "-c", "select run_id from ingested order by run_id")
+	output, err := r.duckdbOutput(nil, "-readonly", "-noheader", "-list", r.db, "-c", "select run_id from ingested order by run_id")
 	if err != nil {
 		return nil, err
 	}
@@ -675,7 +685,7 @@ func (r runner) missingTables(active []sourceConfig) ([]string, error) {
 		quoted[i] = sqlString(table)
 	}
 	query += strings.Join(quoted, ",") + ")"
-	output, err := r.duckdbOutput(nil, "-noheader", "-list", r.db, "-c", query)
+	output, err := r.duckdbOutput(nil, "-readonly", "-noheader", "-list", r.db, "-c", query)
 	if err != nil {
 		return nil, err
 	}
@@ -700,7 +710,7 @@ func (r runner) importSchemaCurrent() (bool, error) {
 	if tableCount == 0 {
 		return false, nil
 	}
-	output, err := r.duckdbOutput(nil, "-noheader", "-list", r.db, "-c", "select value from analysis_metadata where key = 'import_schema_version'")
+	output, err := r.duckdbOutput(nil, "-readonly", "-noheader", "-list", r.db, "-c", "select value from analysis_metadata where key = 'import_schema_version'")
 	if err != nil {
 		return false, err
 	}
@@ -713,15 +723,44 @@ func (r runner) duckdbCommand(env []string, args ...string) error {
 }
 
 func (r runner) duckdbOutput(env []string, args ...string) (string, error) {
-	cmd := exec.Command(r.duckdb, args...)
-	if env != nil {
-		cmd.Env = env
+	deadline := time.Now().Add(r.lockWait)
+	waiting := false
+	for {
+		cmd := exec.Command(r.duckdb, args...)
+		if env != nil {
+			cmd.Env = env
+		}
+		output, err := cmd.CombinedOutput()
+		if err == nil {
+			return string(output), nil
+		}
+		message := strings.TrimSpace(string(output))
+		failure := fmt.Errorf("duckdb %s: %w: %s", strings.Join(args, " "), err, message)
+		// Retry file-lock conflicts only; SQL and import errors must surface immediately.
+		conflict := strings.Contains(message, "IO Error: Could not set lock on file ") &&
+			strings.Contains(message, "Conflicting lock is held")
+		if !conflict {
+			return "", failure
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			if waiting {
+				return "", fmt.Errorf("DuckDB lock wait timed out after %s; close the conflicting session and retry: %w", r.lockWait, failure)
+			}
+			return "", failure
+		}
+		if !waiting {
+			if r.stderr != nil {
+				fmt.Fprintf(r.stderr, "DuckDBのロック解放を待っています（最大%s）\n", r.lockWait)
+			}
+			waiting = true
+		}
+		delay := 250 * time.Millisecond
+		if remaining < delay {
+			delay = remaining
+		}
+		time.Sleep(delay)
 	}
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("duckdb %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(output)))
-	}
-	return string(output), nil
 }
 
 func sqlString(value string) string {

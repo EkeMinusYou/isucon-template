@@ -135,7 +135,7 @@ setupで全APP_HOSTSへendpointを導入します。[nginx access logの計測�
 CPU・heap・allocs・goroutineを自動収集します。fgprofは既定無効で、必要な場合は`task fgprof-collect`で収集します。CPUの開始を確認してから負荷を開始し、
 収集・回収完了後にRUNを確定します。追加のprofile操作は不要です。
 profile対象は`collectors.yaml`の`group: profiles`と`enabled_by_default`から選びます。
-`PROFILES_ENABLED=false`は計測負荷比較等での明示的な停止用です。setupでは分析・dashboardまで確認します。
+`PROFILES_ENABLED=false`は計測負荷比較等での明示的な停止用です。setupではDuckDB分析まで確認します。
 
 分割して操作する場合は、[Go profile導入例](docs/measurement/go-profiling.md#時間と開始順序)の開始確認・回収待ちも行ってください。
 以下はprofileを明示的に停止した場合の例です。
@@ -156,6 +156,10 @@ RUN状態遷移とcollector・digest・manifest処理は`measurectl run begin/fi
 `.config/wt.toml`の`pre-start`は`task worktree-link-raw`を呼び、新しいworktreeのルート`raw`を
 primary worktreeへのディレクトリリンクにします。`runs/<RUN_ID>/raw`は各worktreeに保持します。
 `raw`は`copy-ignored`の対象外です。リンク先が違う場合や既存の`raw`が空でない場合は作成を止めます。
+`pre-merge`はペインの作業ディレクトリから対象HerdrタブのIDを記録します。
+`post-merge`は分析DBを同期し、記録したタブがあれば閉じます。
+削除時のディレクトリ移動に影響されず、別worktreeのペインが混在するタブは残します。
+Herdr外でのマージや該当タブがない場合は、タブ終了処理をスキップします。
 `current-run-id`は1行目にRUN ID、2行目に開始元worktreeの正規化した絶対パスを記録します。
 回収・profile操作・中断は開始元でのみ実行でき、不一致なら操作前に開始元を表示して停止します。
 進行中RUNがある場合のデプロイ禁止は全worktreeに適用します。
@@ -287,3 +291,24 @@ nginxのon-CPU profile、任意JSON endpointのsnapshot、ダッシュボード�
 これらは自動適用する完成設定ではありません。公式仕様、現行構成、計測値、正当性・評価条件を確認して採用します。
 
 計測結果は`runs/`へ保存します。調査・実装の判断根拠は完了報告と必要な再利用資料へ記録し、作業用の集計ファイルは一時ディレクトリに置きます。
+
+## Setup smoke analysis
+
+`task setup-smoke-analysis SMOKE_DIR=.task/setup-smoke-...` indexes diagnostic
+captures with the configured DuckDB source readers. It does not create a RUN,
+score history or benchmark quality judgment. The diagnostic database stays
+inside the smoke directory, and its materialized tables use the `smoke_` prefix.
+
+`task dashboard-smoke-server SMOKE_DIR=.task/setup-smoke-...` serves that capture
+with the regular dashboard API, without registering it in the RUN history.
+`SMOKE_DASHBOARD_ADDR` changes its listening address (default 127.0.0.1:8091).
+`task setup-postflight` checks the configured roles, connections, deployed
+contents and collector cleanup. `task setup-smoke-fgprof SMOKE_DIR=...` checks
+the optional fgprof endpoint with a three-second capture using `FGPROF_URL`.
+These tasks contain no competition-specific routes, services or host names;
+the smoke request flow and API classification remain under `tools/contest/`.
+
+<!--
+# >>> contest values >>>
+# <<< contest values <<<
+-->

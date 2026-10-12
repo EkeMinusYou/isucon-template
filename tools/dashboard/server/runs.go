@@ -109,7 +109,7 @@ func collectRunDirs(parent string, byID map[string]runDir, onlyMissing bool) err
 }
 
 func (a *app) listRuns() ([]runInfo, error) {
-	dirs, err := listRunDirs(a.runsDir)
+	dirs, err := a.artifactDirs()
 	if err != nil {
 		return nil, err
 	}
@@ -170,7 +170,7 @@ func (a *app) handleRuns(w http.ResponseWriter, r *http.Request) {
 // resolveRunDir validates run_id against the active and archived RUN directory
 // listings (rejecting path traversal) and returns its directory.
 func (a *app) resolveRunDir(runID string) (string, bool) {
-	dirs, err := listRunDirs(a.runsDir)
+	dirs, err := a.artifactDirs()
 	if err != nil {
 		return "", false
 	}
@@ -180,4 +180,13 @@ func (a *app) resolveRunDir(runID string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// artifactDirs exposes smoke data only in explicit smoke mode. It never writes
+// a score history or a finalized RUN manifest.
+func (a *app) artifactDirs() ([]runDir, error) {
+	if a.smokeDir != "" {
+		return []runDir{{ID: filepath.Base(a.smokeDir), Path: a.smokeDir}}, nil
+	}
+	return listRunDirs(a.runsDir)
 }

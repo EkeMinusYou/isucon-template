@@ -208,9 +208,9 @@ func (o lifecycleOptions) manifestBeginArgs(runDir string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	mysql, err := first("mysql")
-	if err != nil {
-		return nil, err
+	mysql := ""
+	if hosts := o.roles["mysql"]; len(hosts) > 0 {
+		mysql = hosts[0]
 	}
 	args := []string{
 		"-dir", runDir, "-collector-clean",

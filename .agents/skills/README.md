@@ -9,7 +9,7 @@
 - `isucon-use-solution` — 指定された一つの `docs/solutions/` 文書の適用条件を現行環境と照合して報告
 - `isucon-create-solution` — 再利用できる実装パターンを `docs/solutions/` に新規作成・更新
 - `isucon-agent` — ユーザーと対話しながら調査・提案を進め、合意した改善案をローカルに実装する。deployは明示的な指示がある場合だけ行う
-- `isucon-worktree` — ユーザーが会話ログから選んだ仮説を曜日名のworktreeで検証し、効果を確認してmainへ取り込む
+- `isucon-worktree` — ユーザーが会話ログから選んだ仮説を曜日名のworktreeで実装し、mainへ取り込んでからmainで計測・分析する
 
 設定資料を使った変更は `isucon-special-sauce`、solution文書の適用評価は `isucon-use-solution`、対話で調査から実装まで進める場合は `isucon-agent` を使います。special-sauceは資料の値を適用して正規deployし、agentはユーザーが合意した改善案をローカルに実装して、deployは明示的な指示を受けてから行います。
 
@@ -17,7 +17,7 @@
 
 初回は `isucon-setupでベンチ前の整備・疎通確認 → ユーザーへ初回ベンチを依頼 → 共有されたRUNでsetupの実負荷確認` と進めます。その後は目的に応じた相談・資料照合、実装・正規deploy、ユーザーによるベンチへ進みます。依頼内容に応じて必要なスキルを呼び出します。例: `$isucon-agent 今どこがスコアに効きそうか相談したい`、`$isucon-special-sauce docs/special-sources/kernel-parameters.md`。
 
-並行して仮説を試す場合は`isucon-worktree`を使う。ユーザーが`docs/conversation/`から仮説を選び、曜日名のworktreeで実装する。デプロイはそのworktreeについてユーザーが明示的に指示した後に限り、計測はユーザーが行う。効果を確認した変更だけを`wt`でmainへ取り込む。
+並行して改善を実装する場合は`isucon-worktree`を使う。ユーザーが`docs/conversation/`から仮説を選び、曜日名のworktreeで調査・実装・ローカル確認を行う。マージ指示を受けてmain側の担当が`wt`でmainへ取り込み、成功後に対象worktreeのHerdrタブを閉じる。その後mainでデプロイ・計測の調整と計測結果の分析・採否判断を進める。デプロイは明示的な指示後にmainから行い、ベンチはユーザーがmainから実行する。実装は並行して進めても、計測・評価は原則として一つの仮説ずつ行う。
 
 `isucon-agent`は相談の入口です。調べる範囲を会話で決め、提案した改善案にユーザーが合意したらローカルに実装し、差分・確認結果・想定する対象ホストと影響を報告します。deployを明示的に指示された場合だけ、AGENTS.mdとTaskfileに従って正規deployします。ベンチは実行しません。例: `$isucon-agent 今どこがスコアに効きそうか相談したい`、`$isucon-agent この変更を実装してdeployして`。
 

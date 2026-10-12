@@ -2,12 +2,12 @@
 
 ## 概要
 
-高頻度のキー単位の可変状態更新を、リクエストごとのDBトランザクションから、ownerごとのオンメモリ状態と追記型の Write-Ahead Log（WAL）へ移す実装パターンである。DBを毎回更新してからレスポンスを返す代わりに、対象キーの状態遷移をアプリケーション内で直列化し、変更差分をWALへ記録してからメモリ状態へ適用する。DBへの反映は別のmaterializerが差分をまとめて行う。
+高頻度のキー単位の可変状態更新を、リクエストごとのDBトランザクションから、ownerごとのオンメモリ状態と追記型の Write-Ahead Log（WAL）へ移す実装パターンである。DBを毎回更新してからレスポンスを返す代わりに、対象キーの状態遷移をアプリケーション内で直列化し、変更差分を復元用の追記ログへ保存する。メモリ確定・ファイル追記・同期のどこまでを応答前に完了させるかは、対象の永続性要件で選ぶ。DBへ投影する構成では、別のmaterializerが差分をまとめて反映する。
 
 ここでいう状態キーは、ユーザーに限定されない。ユーザーID、部屋ID、注文ID、カートID、テナントID、デバイスIDなど、同じキーに属する状態遷移を一つのownerへ集約できる単位を指す。ユーザーを例にする箇所は、このリポジトリの実装を説明するための固有例である。
 
 ```text
-request
+request (respond after file append)
   -> owner routing
   -> per-key mailbox
   -> validate and build an after-image delta
@@ -15,7 +15,16 @@ request
   -> apply the delta to hot state
   -> response
 
-WAL delta -> coalesce by key -> table-wise bulk upsert -> projection marker
+request (respond before file append)
+  -> owner routing
+  -> per-key mailbox
+  -> validate and build an immutable delta
+  -> reserve bounded WAL queue capacity
+  -> commit hot state and enqueue the delta in the same order
+  -> response
+
+WAL queue -> ordered file append -> background sync
+written WAL delta -> optional DB projection -> projection marker
 ```
 
 この方式が有効なのは、同じ状態キーに属する状態を短時間に何度も読み書きし、各リクエストが次の状態をレスポンスへ返す必要がある一方、DBの永続化をリクエスト単位で完了させなくてもよい経路である。主に次の仕事を減らせる。
@@ -25,7 +34,7 @@ WAL delta -> coalesce by key -> table-wise bulk upsert -> projection marker
 - 変更していない行を含む全状態の書き戻し
 - 複数の小さなDMLを個別に実行するためのステートメント・トランザクションのオーバーヘッド
 
-WALの追記、`fsync`、DB投影は別の処理である。追記はレコードをファイルへ渡す処理、`fsync` はOS・ファイルシステムのキャッシュをストレージへ反映する耐久化境界、DB投影はWALの内容をDBの正本またはread modelへ反映する処理である。性能上の要点は、通常リクエストをDB commitや個別の`fsync`へ直結させず、追記と耐久化をgroup commitし、DB投影もキー単位でcoalesceして複数行upsertすることである。さらに、仕様が許す場合は`fsync`完了を待たずに追記完了で応答すると、group commitでも残る同期待ちを応答経路から除ける（[追記完了で応答する判断](#追記完了で応答する判断)）。
+WALキューへの登録、ファイル追記、`fsync`、DB投影は別の処理である。追記はレコードをファイルへ渡す処理、`fsync` はOS・ファイルシステムのキャッシュをストレージへ反映する耐久化境界、DB投影はWALの内容をDBの正本またはread modelへ反映する処理である。性能上の要点は、通常リクエストをDB commitや個別の`fsync`へ直結させず、追記・同期・投影をまとめることである。正常停止時に受理済み差分を保存できればよい要件では、ファイル追記も応答後へ移せる（[応答と永続化の境界を選ぶ](#応答と永続化の境界を選ぶ)）。非同期方式ではメモリ公開がファイル追記に先行するため、キュー登録を追記完了や耐久化完了とは呼ばない。
 
 ただし、オンメモリ状態を正しく扱えることが前提であり、単にgoroutineへ処理を移す非同期化ではない。受理した更新の順序、ワンタイム処理、再起動後の復元、旧経路との切り替えを含めて一つの状態機械として設計する。
 
@@ -46,17 +55,41 @@ WALの追記、`fsync`、DB投影は別の処理である。追記はレコー�
 
 hot stateは負荷の高い処理中の実行正本、WALは状態遷移の復旧用記録、DBは長期保存または外部参照用の投影先、という責務を明確に分ける。どれを最終的な業務正本と呼ぶかは対象の仕様に合わせるが、同じ更新を複数の独立した経路で自由に変更してはならない。
 
-`Write`と`Sync`のどこをレスポンスの成功境界にするかを先に決める。
+メモリ確定・キュー登録、`Write`、`Sync`のどこをレスポンスの成功境界にするかを先に決める。
 
 | 境界 | 意味 | 適用時の注意 |
 | --- | --- | --- |
+| メモリ確定＋WALキュー登録 | 状態が公開され、同じ順序の差分がアプリ内キューに保持された | ファイル書込みは非同期。正常停止時の全件drain・同期・closeが必要。未書込分はプロセスの異常終了で失われ得る |
 | WAL追記完了 | `write(2)`が返り、レコードがカーネルのページキャッシュへ渡った | プロセス停止・通常のOS再起動では残り、カーネル障害・電源断で失われる可能性がある。アプリ内バッファ（`bufio.Writer`、未flushのchannel・slice）に置いただけの状態はこれに含めない |
 | group commit完了 | 対象sequenceまで`fsync`または同等の耐久化が完了した | 強い復旧要件に向く。複数リクエストを一回の同期へまとめる |
 | DB transaction commit | DB上の投影が確定した | 他プロセスや旧経路がDBだけを読む場合の可視化境界になる |
 
 公式仕様が更新の即時反映を要求する場合、DB投影を後回しにしても、hot stateを読む同一ownerの経路では更新後の値を返せなければならない。別owner、管理API、旧実装、追試用の読み取りがDBを参照するなら、対象キーのmaterializerを先にflushするか、同じWALを読む読取経路を用意する。
 
-プロセス障害・OS障害・電源断で失われる範囲は異なる。レスポンスをWAL追記だけで成功にする設計は、`fsync`完了を待つ設計と同じ耐久性ではない。クラッシュ後にも受理済み更新を必ず保持する必要がある場合は、group commit後のdurable sequenceをレスポンスのbarrierにするか、外部の耐久キューを使う。競技や対象サービスが許す範囲で追記受理を先に返す場合でも、停止・owner切替・初期化・旧経路へのhandoffでは明示的なdurable fenceを置く。
+プロセスの異常終了、OS障害、電源断で失われる範囲は異なる。メモリ確定で応答する方式、WAL追記完了で応答する方式、`fsync`完了を待つ方式は同じ耐久性ではない。必要な障害耐性を暗黙に追加せず、公式要件・AGENTS.md・ユーザーの指示に合わせて選ぶ。どの方式でも、停止・owner切替・初期化・旧経路へのhandoffでは、受理済みsequenceまでの追記と必要な同期・投影を完了させる。
+
+### 応答と永続化の境界を選ぶ
+
+正常なサービス・OS再起動後に受理済みデータを取得できることが要件なら、正常停止時に全件を保存する非同期書込み方式を選べる。成功応答前の`write(2)`は必須条件ではない。このリポジトリのAGENTS.mdも、通常のサービス・OS再起動後の保持を求め、電源断・強制リセットへの耐性は必須としていない。この範囲では非同期書込みを候補にし、応答前の追記を無条件の前提にしない。
+
+| 事象 | メモリ確定＋キュー登録で応答 | ファイル追記完了で応答 | 同期完了で応答 |
+| --- | --- | --- | --- |
+| 正常なサービス停止・再起動 | 停止処理が全受理分を保存すれば残る | 追記済みレコードが残る | 同期済みレコードが残る |
+| 正常なOS停止・再起動 | アプリの停止処理とファイル保存が完了すれば残る | OSが追記済み内容を正常に書き出せば残る | 同期済みレコードが残る |
+| プロセスの異常終了・強制終了 | 未書込分が失われ得る | 完全に追記されたレコードはページキャッシュに残る | 同期済みレコードが残る |
+| カーネル障害・電源断・強制リセット | 未書込分・未同期分が失われ得る | 未同期分が失われ得る | 同期済み内容をストレージが保持する前提 |
+
+非同期方式の成立条件は次のとおりである。
+
+- 状態公開と、不変な差分のキュー登録を同じcommit順序で確定する。公開した更新だけキューにない、キューだけ登録して業務条件の検証に失敗する、といった部分確定を作らない。
+- キュー容量は件数とバイト数で制限し、確定前に容量を確保する。満杯なら確定前に待たせるか拒否し、成功応答済み差分を捨てない。writerが取出した未書込batchも未保存容量に含める。
+- writerはsequence順にまとめて書き、`Write`の戻り値・エラーを検査する。書込みが完了するまでは差分を保持する。DBへ投影する場合は追記済み差分を投影元にする。
+- 書込失敗時は新規受理を止め、未書込分を保持する。既に成功を返した分を取り消したことにせず、即終了・自動再起動でメモリ内キューを消して復旧を試みない。
+- 正常停止では、新規受付を止め、処理中の更新と外部副作用を終え、最後の受理済みsequenceまでキューとwriterのbatchを書き出し、同期・closeの完了を待つ。書込みが完了する前に正常停止を報告しない。
+- systemdの停止シグナルと待機時間をこの停止処理に合わせる。SIGTERM等で即終了する実装や、drain中に停止タイムアウトで強制終了される設定では成立しない。
+- owner移管・初期化でも受付をfenceし、処理中の操作と未保存差分を扱ってから世代・所有者を切り替える。非同期レプリカを使う読取りでは、必要な受理済みsequenceまで反映を待つか、現在のownerから読む。
+
+この方式が外すのは応答経路の書込み待ちであり、追記・同期の総仕事量は残る。異常終了への耐性が必要な対象では、次の追記完了方式または同期完了方式を選ぶ。電源断・強制終了の検証を、正常再起動だけが要件の作業へ追加しない。
 
 ### 追記完了で応答する判断
 
@@ -64,15 +97,15 @@ hot stateは負荷の高い処理中の実行正本、WALは状態遷移の復�
 
 | 事象 | 追記完了で応答 | durable sequenceを待って応答 |
 | --- | --- | --- |
-| プロセスのクラッシュ・kill・`systemctl restart` | 残る。ページキャッシュはプロセスと独立している | 残る |
+| プロセスの異常終了・kill | 完全に追記されたレコードが残る。ページキャッシュはプロセスと独立している | 残る |
 | 通常のOS再起動（`reboot`、`shutdown`、コンソールからの再起動） | 残る。停止処理でファイルシステムがページキャッシュを書き出す | 残る |
 | カーネルパニック・電源断・強制停止（ハイパーバイザーからのhard reset） | 未同期の末尾が失われ得る | 残る |
 
-ISUCONの追試のように「サーバー再起動後に負荷走行中の書き込みを取得できること」が要件で、通常の再起動を前提とするなら、追記完了で応答しても要件を満たす。公式資料が電源断や強制停止への耐性まで求めているか、再起動の方法を指定しているかを確認してから選ぶ。
+正常再起動に加えて、プロセスの異常終了でも受理済み内容を残す必要がある場合は、追記完了を応答の境界にする。正常停止時の保存で足りる場合にも選べるが、非同期書込みより強い境界である。公式資料と対象の指示を確認してから選ぶ。
 
 追記完了で応答する場合の条件は次のとおりである。
 
-- 応答前に`write(2)`を完了させる。追記を別goroutineのqueueへ渡しただけで応答すると、プロセス停止で消える。writerを分けるなら、`write(2)`完了をwaiterへ通知してから応答する
+- この方式では応答前に`write(2)`を完了させる。queue登録だけでは追記完了にはならない。writerを分けるなら、`write(2)`完了をwaiterへ通知してから応答する。正常停止時のdrainを前提とする非同期方式とは区別する
 - 公開（他リクエストからの可視化）も`write(2)`完了後にする。未追記の状態を他者へ見せない
 - `fdatasync`は同期workerで継続し、durable sequenceを停止・初期化・handoffのfenceとして使う。SIGTERM受信時は最後に同期してから終了する
 - 復元時は、未同期だった末尾がtorn writeになり得る前提で、checksumと完了フッターで切り詰める
@@ -148,8 +181,7 @@ input and auth
   -> current hot state or canonical load
   -> invariant check
   -> delta / tombstone creation
-  -> WAL append barrier
-  -> hot state apply
+  -> chosen commit boundary (enqueue/apply, append/apply, or sync/apply)
   -> response
   -> DB projection
   -> external read or fallback barrier
@@ -158,6 +190,7 @@ input and auth
 次の問いに答えられない候補は、オンメモリ化の対象から外すか、より狭いread modelに留める。
 
 - 同じキーを二つのworkerが同時に更新しないか。
+- メモリ確定・追記完了・同期完了のどこを成功境界とし、停止時に最後の受理分まで保存できるか。
 - どの値をレスポンスの正本として読むか。
 - DB投影が遅れている間に、旧経路や別ホストが何を読むか。
 - 差分に含める更新行、追加、削除、期限、idempotency keyやtokenの消費を全経路で列挙できるか。
@@ -228,6 +261,8 @@ func (e *Engine) submit(key int64, fn func(*State) (any, error)) (any, bool, err
 
 mutation関数は、入力検証と不変条件の判定を現在stateに対して行い、状態を直接変更せずに、結果とdeltaを返す。deltaはafter-imageと削除情報を持つ。
 
+以下のコード例は追記完了で応答する方式である。非同期方式では、確定前にキュー容量を確保し、差分のsequence確定・状態適用・不変な差分のキュー登録を同じcommit境界で行う。ファイル追記の完了待ちは応答経路から外す。
+
 ```go
 type Delta struct {
 	Key                 int64
@@ -260,13 +295,15 @@ func (e *Engine) mutate(key int64, fn func(*State) (any, *Delta, error)) (any, b
 }
 ```
 
-`Append`が失敗した場合にメモリ状態だけが進まない順序にする。slice、map、pointer、payloadはWAL、hot state、materializerで共有せず、コピーするか不変値として扱う。行の削除は、投影側で確実に適用できるtombstoneまたはdelete listとしてdeltaに含める。
+追記完了方式では、`Append`が失敗した場合にメモリ状態だけが進まない順序にする。非同期方式では、queue登録を保証してから状態を公開し、後続の書込失敗をwriterの停止・未保存差分の保持として扱う。slice、map、pointer、payloadはWAL、hot state、materializerで共有せず、コピーするか不変値として扱う。行の削除は、投影側で確実に適用できるtombstoneまたはdelete listとしてdeltaに含める。
 
 通常のmutationで完全な状態をcloneしてJSON化しない。完全snapshotが必要ならcheckpoint・明示的なhandoff・復旧用として独立させ、WALのdelta形式とDB投影形式を混同しない。checkpointを導入する場合は、checkpoint sequenceより前のdeltaを安全に捨てられる条件も定義する。
 
 ### 5. WALを追記、同期、replay可能にする
 
 WALレコードには少なくとも、version、generation、record kind、global sequence、key、key内sequence、payload length、checksumを持たせる。JSONは実装しやすいが、頻度とpayloadサイズによっては固定長binaryやcompact encodingを検討する。値をSQL文字列へ埋め込まず、WALのpayloadも入力サイズ上限を検査する。
+
+非同期方式では、メモリ公開とqueue登録が完了した`acceptedSeq`、ファイルへの全バイト追記が完了した`writtenSeq`、同期が完了した`durableSeq`を分け、`durableSeq <= writtenSeq <= acceptedSeq`を保つ。writerは登録済みsequenceを並べ替えずに追記する。複数mailboxで共通writerを使う場合は、sequenceの採番とqueue登録の順序もそろえる。
 
 ```go
 func (w *WAL) Append(delta *Delta) (uint64, error) {
@@ -289,9 +326,11 @@ func (w *WAL) SyncUntil(seq uint64) error {
 }
 ```
 
+上の`Append`は追記完了方式の例である。非同期方式ではrequest側が不変なレコードをbounded queueへ登録し、writerが複数レコードをまとめてファイルへ書く。完全に追記できたsequenceまでだけ`writtenSeq`を進め、DB materializerにはその範囲を渡す。
+
 writerのmutexは物理的なレコード順序だけを守り、`file.Sync()`中に通常のappendを同じmutexで待たせない。同期workerは時間窓またはバイト閾値で`writtenSeq`を取り込み、一回の`Sync`で複数レコードをdurableにし、完了したwaiterへ`durableSeq`を通知する。
 
-通常リクエストの完了境界を追記受理にする場合でも、`prepareLegacyFallback`、owner移管、停止、初期化のような境界では`SyncUntil`を使う。電源断・カーネル障害後にも受理済み更新を保持する必要がある対象では、通常リクエストもgroup commitのdurable sequenceを待つ。どちらにするかは[追記完了で応答する判断](#追記完了で応答する判断)で決める。
+通常リクエストの完了境界をメモリ確定または追記完了にする場合でも、`prepareLegacyFallback`、owner移管、停止、初期化のような境界では最後の受理済みsequenceまでdrainし、`SyncUntil`を使う。非同期方式の`SyncUntil`は、対象sequenceの追記と同期の両方を待つ。通常停止では、全更新元の完了後に`acceptedSeq`を固定し、`durableSeq`がそこへ到達してからcloseする。電源断・カーネル障害後にも受理済み更新を保持する必要がある対象では、通常リクエストもgroup commitのdurable sequenceを待つ。方式は[応答と永続化の境界を選ぶ](#応答と永続化の境界を選ぶ)に従って決める。
 
 WALのreplayでは、generationが現在の世代と一致するか、sequenceが単調か、checksumとpayloadの長さが正しいかを検証する。壊れた末尾を切り詰める仕様を採る場合も、途中の破損や異なるversionを無視して処理を続けない。
 
@@ -342,6 +381,8 @@ hot側で確定した業務エラーを、容量超過と混同して旧経路�
 認証、admin、外部参照、cache missの読み取りなど、hot stateを直接読まない経路にも同じ対象キーのflush barrierを用意する。状態がないキーに対して毎回load・fenceするのではなく、active mailboxまたは未反映WALがある場合だけ実行する。
 
 ### 8. 再起動と初期化を実装する
+
+非同期書込みでは、再起動の前に正常停止経路を実装する。新規受付を止め、実行中のmailbox・外部副作用の完了を待ち、最後の`acceptedSeq`まで追記・同期・closeを終えてからプロセスを終了する。初期化とowner移管も同じ未保存差分の境界を使う。
 
 再起動時の基本経路は次のとおりである。
 
