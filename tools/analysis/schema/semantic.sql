@@ -193,6 +193,10 @@ select * from measurement_quality where measurement_kind = 'profile';
 create or replace view measurement_quality_transition as
 select * from measurement_quality where measurement_kind = 'transition';
 
+-- Default outcomes come from manifests; a later semantic adapter may recover
+-- missing outcomes from the preserved participant output with the same columns.
+create or replace view effective_run_results as select * from manifests;
+
 create or replace view valid_runs as
 with artifact_summary as (
     select
@@ -229,7 +233,7 @@ select
         case when coalesce(a.periodic_artifacts, 0) = 0 then 'no periodic artifacts recorded' end,
         case when coalesce(a.bad_periodic_artifacts, 0) <> 0 then a.bad_periodic_artifacts || ' periodic artifact(s) failed quality' end
     ) as reasons
-from manifests m
+from effective_run_results m
 join load_windows w using (run_id)
 left join artifact_summary a using (run_id);
 

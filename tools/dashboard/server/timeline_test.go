@@ -110,8 +110,11 @@ func TestTimelineBenchErrorsWithoutAccessLogs(t *testing.T) {
 			t.Fatal(err)
 		}
 		// Production applies the common analysis schema before contest views.
-		// Keep its time-window relation available in this isolated fixture too.
-		sql := "create table if not exists load_windows (run_id varchar, started_at timestamptz);\n" + string(semantic)
+		// Keep the common time and result relations available in this fixture too.
+		sql := `create table if not exists load_windows (run_id varchar, started_at timestamptz);
+create table if not exists bench_phases (run_id varchar, started_at timestamptz, ended_at timestamptz);
+create table if not exists manifests (run_id varchar, score bigint, passed boolean);
+` + string(semantic)
 		if available {
 			sql = "set variable run_glob = '" + strings.ReplaceAll(dir, "'", "''") + "';\n" + string(raw) + "\ncreate or replace table bench_error_logs as select * from bench_error_logs_raw;\n" + sql
 		}
