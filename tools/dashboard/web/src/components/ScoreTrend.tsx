@@ -80,9 +80,10 @@ export function ScoreTrend({ scores }: Props) {
         />
         <YAxis
           tick={{ fontSize: 13, fill: 'var(--chart-muted)' }}
+          tickFormatter={(value: number) => value.toLocaleString()}
           axisLine={false}
           tickLine={false}
-          width={56}
+          width="auto"
         />
         <Tooltip
           cursor={{ stroke: 'var(--chart-cursor-line)', strokeWidth: 1 }}
