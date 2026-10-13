@@ -23,6 +23,8 @@ vars:
   LISTEN_PORT: '8080'
   TARGET_OS: linux
   TARGET_ARCH: amd64
+  # Optional Go PGO profile path for build/build-pgo; unset uses -pgo=auto (default.pgo).
+  # PGO_PROFILE: '{{.ROOT_DIR}}/runs/<RUN_ID>/isucon-1-go-cpu.pprof'
   # Example budget: initialization + checks + load + margin. Tune for the contest.
   PROFILE_SECONDS: '120'
   SNAPSHOT_PROFILE_DELAY: 40s
@@ -90,6 +92,9 @@ vars:
     -var extra_service_roles=isuride-matcher:matcher,isuride-payment_mock:payment_mock,isuride-tls-forward:tls_forward,isuride-matching-worker:solver
   # Arguments passed to the contest smoke binary on ENTRY_HOST.
   SMOKE_ARGS: '-base https://isuride.xiv.isucon.net'
+  # Optional extra measurectl roles referenced by contest collectors/digesters.
+  # CONTEST_MEASURECTL_ROLES: >-
+  #   -role matcher={{splitList " " .MATCHER_HOSTS | join ","}}
   # <<< contest values <<<
 
   ENTRY_HOST: '{{splitList " " .NGINX_HOSTS | first}}'
@@ -156,6 +161,7 @@ vars:
     -role nginx_profile={{.ENTRY_HOST}}
     -role mysql={{.MYSQL_HOST}}
     -role mysql_all={{splitList " " .MYSQL_HOSTS | join ","}}
+    {{default "" .CONTEST_MEASURECTL_ROLES}}
   MEASURECTL_VARS: >-
     -var services={{.MANAGED_SERVICES}}
     -var app_service={{.SERVICE}}
@@ -409,14 +415,14 @@ tasks:
     desc: GoアプリをローカルでTARGET_OS/TARGET_ARCHへクロスコンパイル
     dir: '{{.APP_DIR}}'
     cmds:
-      - '{{.GO_BUILD_ENV}} go build -trimpath -ldflags "-s -w" -o {{.APP_NAME}} .'
+      - '{{.GO_BUILD_ENV}} go build -pgo "{{default "auto" .PGO_PROFILE}}" -trimpath -ldflags "-s -w" -o {{.APP_NAME}} .'
       - task: build-contest-assets
 
   build-pgo:
-    desc: default.pgoを使ってGoアプリをビルド
+    desc: 指定profileまたはdefault.pgoを使ってGoアプリをビルド
     dir: '{{.APP_DIR}}'
     cmds:
-      - '{{.GO_BUILD_ENV}} go build -pgo=auto -trimpath -ldflags "-s -w" -o {{.APP_NAME}} .'
+      - '{{.GO_BUILD_ENV}} go build -pgo "{{default "auto" .PGO_PROFILE}}" -trimpath -ldflags "-s -w" -o {{.APP_NAME}} .'
       - task: build-contest-assets
 
   build-proc-metrics:
