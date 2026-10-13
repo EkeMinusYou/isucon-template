@@ -12,7 +12,7 @@ ISUCONの競技サーバーを、ローカルのリポジトリを正本とし�
 templateの既定は、`isucon-1`がアプリ・nginx・MySQLを兼ねる単一ホスト構成です。
 ホストの役割分担は競技開始時に`Taskfile.yml`の`*_HOSTS`で設定します。
 
-ベンチはユーザーが`task bench`で実行します。`BENCH_HOST`でベンチを起動し、計測結果を自動回収します。
+ベンチは`task bench`で実行します。設定したポータルへジョブを投入し、ログと計測結果を自動回収します。
 通常回収では失敗RUNも保存し、分析DBを同期します。`after-bench`は成果物をローカルGit commitします。
 
 `task db-recreate`は`MYSQL_HOST`の競技DBを破棄して公式schemaから作り直します。
@@ -106,51 +106,35 @@ unit変更を適用するには通常の`deploy-app`による再起動が必要�
 
 ## ベンチ計測
 
-ユーザーが別端末やポータルからベンチを手動実行する場合:
+`Taskfile.yml`の`CONTEST_PORTAL_BENCH_CONFIG`が、ポータルの実行・結果取得設定を指定します。
+URL、認証ヘッダー、要求形式、結果の抽出方法と完了条件は設定ファイルで差し替えます。
+CookieとCSRFトークンを環境変数へ設定し、実行対象を確認してください。
+詳細とISUCON12・13の設定例は[ポータルベンチツール](tools/portal-bench/README.md)を参照してください。
 
 ```shell
-task bench-manual
-```
-
-ポータルなどで完了を確認したらEnterを押し、結果原文の保存先（任意）、スコア、
-整合性チェックの結果を入力します。原文は同じRUNの`benchmark-result.txt`へ保存します。
-スコアが分からない場合は空欄にし、0点と区別します。
-原文に対応済みの結果行があれば、回収時にスコア・合否を読み取ります。原文にも結果がない場合は未判定のまま保存します。
-
-`Taskfile.yml`の`BENCH_HOST`・`BENCH_TARGET`・`BENCH_COMMAND`を当日の環境に合わせて設定すると、
-次のコマンドで`BENCH_HOST`へ接続し、`ISUCON_USER`の`REMOTE_HOME`でベンチを実行します。
-
-```shell
+task portal-bench-check # 設定と認証変数の確認のみ。通信・ジョブ投入なし
 task bench
 ```
 
-ベンチの結果ログはローカルのGoツール`tools/bench-output`を通し、元の出力と終了コードを保ちながら
-当日の出力を計測基盤共通の`SCORE:`・`BENCHMARK_PASS`／`BENCHMARK_FAIL`へ変換します。
-`task bench`と`task after-bench`が変換ツールを自動ビルドします。手動実行でも回収前に保存ログを変換します。当日の出力形式は`tools/contest/bench-patterns.json`の
-正規表現で宣言し、該当行がない場合はスコアや成功を補いません。
+`task bench`はポータル設定を事前検証し、配布物とservice状態が一致することを確認してから、
+操作ロック内で計測・ジョブ投入・完了待ち・ログ取得・成果物回収を行います。
+原文は`benchmark-result.txt`へ保存し、`bench.log`へログと`SCORE:`・`BENCHMARK_PASS`／`BENCHMARK_FAIL`を記録します。
+ポータルの結果判定は`outcome`で設定し、不明な成功やスコアは補いません。
+回収時のログ変換は`tools/bench-output`と`tools/contest/bench-patterns.json`を使います。
 
 profile自動収集とuser-transitionは標準で有効です。[Go profile導入例](docs/measurement/go-profiling.md)に沿って
 setupで全APP_HOSTSへendpointを導入します。[nginx access logの計測手順](docs/measurement/nginx-access-log.md)に沿って
-識別列・API分類を整えます。通常の`bench` / `bench-manual`で
+識別列・API分類を整えます。通常の`task bench`で
 CPU・heap・allocs・goroutineを自動収集します。fgprofは既定無効で、必要な場合は`task fgprof-collect`で収集します。CPUの開始を確認してから負荷を開始し、
 収集・回収完了後にRUNを確定します。追加のprofile操作は不要です。
 profile対象は`collectors.yaml`の`group: profiles`と`enabled_by_default`から選びます。
 `PROFILES_ENABLED=false`は計測負荷比較等での明示的な停止用です。setupではDuckDB分析まで確認します。
 
-分割して操作する場合は、[Go profile導入例](docs/measurement/go-profiling.md#時間と開始順序)の開始確認・回収待ちも行ってください。
-以下はprofileを明示的に停止した場合の例です。
-
-```shell
-task before-bench PROFILES_ENABLED=false
-# ベンチ実行
-task after-bench SCORE=12345
-```
-
 実行前に`pwd`、使用するTaskfile、対象ホストを確認してください。collectorの残存が検出されたら、
 そのRUN IDと共有の`raw/current-run-id`を照合します。別checkoutで計測中の可能性があるため、
 所有元と終了状態を確認してから対処します。`abort-run`はこの設定が探索するcollectorをまとめて掃除します。
 `before-bench`後に中断したRUNを破棄する場合だけ`task abort-run`を使います。通常の回収は必ず`after-bench`です。
-`task bench`と`task bench-manual`は、ベンチ失敗や割り込みでも可能な限り`after-bench`を実行し、
+`task bench`は、ベンチ失敗や割り込みでも可能な限り`after-bench`を実行し、
 失敗RUNをEvidenceとしてfinalizeします。共通の開始・終了・trap処理は`tools/bench/run.sh`、
 RUN状態遷移とcollector・digest・manifest処理は`measurectl run begin/finalize`が担当します。
 `.config/wt.toml`の`pre-start`は`task worktree-link-raw`を呼び、新しいworktreeのルート`raw`を
@@ -178,9 +162,7 @@ RUNは確定済みなので`after-bench`を再実行せず、対象ファイル�
 collector負荷は、同じ構成で通常RUNと次のRUNを取り、スコアとホストメトリクスを比較します。
 
 ```shell
-task bench-no-collectors
-# ポータルベンチの場合
-task bench-manual-no-collectors
+task bench MEASURECTL_COLLECT_FLAGS=-no-collectors PROFILES_ENABLED=false
 ```
 
 collectorなしRUNは`run.json.collectors_disabled=true`を記録し、周期collectorの成果物を任意扱いにします。
@@ -191,7 +173,7 @@ access logやdigesterの必須成果物の欠損は引き続き検査失敗で�
 250msのtask-state走査は既定では無効です。50msのMySQL lock wait取得は、各DBのlock waitを
 同じRUNで比較できるよう`mysql_all`を対象に既定有効としています。利用を変更する場合は
 `tools/measurectl/collectors.yaml`の`task-state`と`mysql-locks`の`enabled_by_default`を切り替えます。
-設定変更後は通常の`task bench` / `task bench-manual`で収集されます。
+設定変更後は通常の`task bench`で収集されます。
 
 lock collectorの負荷とcapture errorはRUNごとに確認し、過大な場合はsampling intervalとquery timeoutを
 見直します。各DBの成果物は`<host>-mysql-lock-waits.tsv`として保存されます。
@@ -274,13 +256,13 @@ nginxのon-CPU profile、任意JSON endpointのsnapshot、ダッシュボード�
 
 `.agents/skills/`では環境整備、対話による調査・実装、資料照合、資料作成を支援します。
 
-- `isucon-setup` — 初期取得と正規deploy/bench経路の準備
+- `isucon-setup` — WebUIのHARに基づくポータル対応、初期構築・正規deploy・ベンチ実行と計測不足の補修
 - `isucon-special-sauce` — 設定資料を現行環境と照合し、適用できる改善を実装・正規deploy
 - `isucon-use-solution` — 指定されたsolution文書の適用条件を現行環境と照合して報告
-- `isucon-agent` — 対話しながら調査・提案を進め、合意した改善案を実装・正規deployまで行う
+- `isucon-agent` — 必要な破壊的変更も含め、調査・実装・正規deploy・ベンチ・分析を自律的に繰り返す
 - `isucon-create-solution` — 再利用できる実装パターンを`docs/solutions/`へ文書化
 
-デプロイはTaskfileの正規経路を使い、対象ホストと影響を確認します。ベンチはユーザーが実行します。
+デプロイはTaskfileの正規経路を使い、対象ホストと影響を確認します。ベンチは`task bench`で実行し、結果と計測成果物を確認します。
 
 ## 再利用資料
 

@@ -17,6 +17,7 @@ webapp/go/default.pgo
 
 # Tool build artifacts
 /tools/bench-output/bench-output
+/tools/portal-bench/portal-bench
 /tools/analysisctl/analysisctl
 /tools/deployctl/deployctl
 /tools/measurectl/measurectl
@@ -49,6 +50,8 @@ runs/analysis.duckdb.lock
 runs/*/raw/
 
 # Local credentials
+.env.local
+/*.har
 application_default_credentials.json
 
 # Keep host credentials at their original destinations.

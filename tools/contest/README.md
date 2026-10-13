@@ -10,6 +10,7 @@
 | ファイル | 読む側 | 内容 |
 | --- | --- | --- |
 | `bench-patterns.json` | `tools/bench-output` | ベンチ出力のscore・合否正規表現。coreは形式を持たない |
+| `portal-bench.json`、`portal/` | `tools/portal-bench` | ポータルの実行要求・認証ヘッダー・応答フィールド・完了条件。ISUCON12・13の設定例を含む |
 | `load-phase.yaml` | `tools/analysisctl` | 任意。ベンチログの実負荷開始・停止行の正規表現。`tools/analysis/sources.yaml`の`load_phase`で参照する |
 | `user-transition-routes.json` | `tools/user-transition-metrics` | Cookie列と正規化routeの宣言 |
 | `analysis-schema/` | `tools/analysis/sources.yaml` | ベンチログの解釈をDuckDBのviewにするschema。エラー行の意味ビューとscore集計 |

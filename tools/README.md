@@ -11,7 +11,7 @@
 - 汎用ファイルへ競技固有の値を書く場合は、直前の行へ`# contest:`から始まるコメントで理由を残す。構造そのものが特定の解法に依存する場合は、値ではなくファイルを分ける。次の競技へ引き継ぐ際は`grep -rn '# contest:' tools/`が要修正箇所の一覧になる。
 - 競技ごとに書き換える値がまとまっている場合は、`# >>> contest values >>>` 〜 `# <<< contest values <<<`で囲う。`Taskfile.yml`のvarsがこれにあたる。手段の使い分けとtemplateへの戻し方は[tools/template/README.md](template/README.md)。
 - collectorを増やす場合は、成果物の宣言・回収・分析側の読み手を同じ変更で揃える。
-- 計測設定の評価ではcollectorあり・なしを比較し、間隔や有効化範囲を決める。この負荷比較は初期setupの完了条件には含めず、依頼された場合に`isucon-setup`の追加検証としてユーザーが実行したベンチ結果を使う。
+- 計測設定の評価ではcollectorあり・なしを比較し、間隔や有効化範囲を決める。この負荷比較は初期setupの完了条件には含めず、依頼された場合に`isucon-setup`の追加検証としてベンチ結果を使う。
 - optionalなcollectorやprofilerは、目的と停止・cleanup手順が確認できた場合だけ有効にする。
 - deploy、service restart、ログローテート、collector起動はサーバー状態を変更する。対象を確認してから実行する。
 
@@ -30,8 +30,9 @@
 | --- | --- | --- |
 | `analysis/` | 成果物・DB・スコア変更時 | [分析](#分析) |
 | `analysisctl/` | 原則不要 | `analysis/sources.yaml`を読む汎用core。DuckDB CLIとRUNディレクトリが利用できることを確認する |
-| `bench/` | 一部確認 | `run.sh`が自動・手動ベンチ共通のload windowとfinalizeを担う。nginx on-CPU profilerを使う場合はOS、package manager、kernel用`perf`、probe URLを確認する |
+| `bench/` | 一部確認 | `run.sh`がベンチのload windowとfinalizeを担う。nginx on-CPU profilerを使う場合はOS、package manager、kernel用`perf`、probe URLを確認する |
 | `bench-output/` | ログ形式確認 | ベンチ出力からscore・合否を読む汎用core。形式は`tools/contest/bench-patterns.json`に分離する。[アプリ固有adapter](#アプリ固有adapter) |
+| `portal-bench/` | ポータル利用時 | [汎用ポータルベンチ](portal-bench/README.md)。HTTP／コマンド、応答形式、完了条件を設定し、`task bench`でRUNとログを回収する |
 | `browser/` | 利用時 | ローカルdashboard確認用。`task browser-install`で導入し、競技サーバーへ配布しない |
 | `contest/` | 毎回入れ替え | この競技だけで成立する設定・ツールの集約先。他のディレクトリはここを参照する側でも競技非依存に保つ。[一覧と置く基準](contest/README.md) |
 | `dashboard/` | 利用時 | 標準成果物なら変更不要。独自collector、独自スコア列、追加ロールを表示する場合はserver APIとweb UIを拡張する |
@@ -52,7 +53,7 @@
 
 ### Taskfile
 
-ホスト、役割、IP、アプリ名、DB名、service、port、build、ベンチコマンドを実環境へ合わせる。OS・CPU architectureと、service・設定・ログのパスを確認して値を決める。
+ホスト、役割、IP、アプリ名、DB名、service、port、build、ポータル設定を実環境へ合わせる。OS・CPU architectureと、service・設定・ログのパスを確認して値を決める。
 
 競技固有・解法固有のタスクは`Taskfile.contest.yml`へ置き、`Taskfile.yml`が`flatten: true`で取り込む。
 取り込んだタスクは名前空間なしで呼べ、`Taskfile.yml`のvarsとタスクをそのまま参照できる。

@@ -38,7 +38,7 @@ esac
 	if err := os.WriteFile(fakeTask, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("sh", "tools/bench/run.sh", "auto", "--", "sh", "-c", "echo 'score: 10'; echo BENCHMARK_PASS")
+	cmd := exec.Command("sh", "tools/bench/run.sh", "--", "sh", "-c", `printf 'portal log\n' > "$ISUCON_BENCH_ARTIFACT_DIR/benchmark-result.txt"; echo 'score: 10'; echo BENCHMARK_PASS`)
 	cmd.Dir = root
 	cmd.Env = append(os.Environ(),
 		"PATH="+tmp+string(os.PathListSeparator)+os.Getenv("PATH"),
@@ -70,6 +70,10 @@ esac
 			t.Errorf("bench.log does not contain %s:\n%s", marker, benchLog)
 		}
 	}
+	result, err := os.ReadFile(filepath.Join(results, "20260901-120000", "benchmark-result.txt"))
+	if err != nil || string(result) != "portal log\n" {
+		t.Fatalf("portal artifact = %q, error = %v", result, err)
+	}
 }
 
 func TestBenchClockFailureFinalizesWithoutLocalFallback(t *testing.T) {
@@ -77,11 +81,10 @@ func TestBenchClockFailureFinalizesWithoutLocalFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, mode := range []string{"auto", "manual"} {
-		for _, failAt := range []string{"1", "2"} {
-			t.Run(mode+"/clock"+failAt, func(t *testing.T) {
-				tmp := t.TempDir()
-				fake := `#!/bin/sh
+	for _, failAt := range []string{"1", "2"} {
+		t.Run("clock"+failAt, func(t *testing.T) {
+			tmp := t.TempDir()
+			fake := `#!/bin/sh
 set -eu
 [ "$1" != --silent ] || shift
 echo "$1" >> "$ISUCON_TEST_DIR/calls"
@@ -101,39 +104,34 @@ after-bench) ;;
 *) exit 96 ;;
 esac
 `
-				if err := os.WriteFile(filepath.Join(tmp, "task"), []byte(fake), 0755); err != nil {
-					t.Fatal(err)
+			if err := os.WriteFile(filepath.Join(tmp, "task"), []byte(fake), 0755); err != nil {
+				t.Fatal(err)
+			}
+			args := []string{"tools/bench/run.sh", "--", "sh", "-c", `touch "$ISUCON_TEST_DIR/load-ran"; echo BENCHMARK_PASS`}
+			cmd := exec.Command("sh", args...)
+			cmd.Dir = root
+			cmd.Env = append(os.Environ(), "PATH="+tmp+string(os.PathListSeparator)+os.Getenv("PATH"),
+				"ISUCON_TEST_DIR="+tmp, "ISUCON_TEST_FAIL_AT="+failAt,
+				"ISUCON_BENCH_RUN_STATE_FILE="+filepath.Join(tmp, "state"),
+				"ISUCON_BENCH_RESULTS_DIR="+filepath.Join(tmp, "runs"), "ISUCON_BENCH_PROFILES_ENABLED=false")
+			output, err := cmd.CombinedOutput()
+			if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != 23 {
+				t.Fatalf("clock failure=%v output=%s", err, output)
+			}
+			calls, err := os.ReadFile(filepath.Join(tmp, "calls"))
+			if err != nil || strings.Count(string(calls), "after-bench") != 1 {
+				t.Fatalf("finalize calls=%s err=%v", calls, err)
+			}
+			log, _ := os.ReadFile(filepath.Join(tmp, "runs", "20260901-120000", "bench.log"))
+			if strings.Contains(string(log), "BENCHMARK_END") || failAt == "1" && strings.Contains(string(log), "BENCHMARK_START") {
+				t.Fatalf("failed clock produced a marker: %s", log)
+			}
+			if failAt == "1" {
+				if _, err := os.Stat(filepath.Join(tmp, "load-ran")); !os.IsNotExist(err) {
+					t.Fatal("benchmark ran without a start timestamp")
 				}
-				args := []string{"tools/bench/run.sh", mode}
-				if mode == "auto" {
-					args = append(args, "--", "sh", "-c", `touch "$ISUCON_TEST_DIR/load-ran"; echo BENCHMARK_PASS`)
-				}
-				cmd := exec.Command("sh", args...)
-				cmd.Dir = root
-				cmd.Stdin = strings.NewReader("12\ny\n")
-				cmd.Env = append(os.Environ(), "PATH="+tmp+string(os.PathListSeparator)+os.Getenv("PATH"),
-					"ISUCON_TEST_DIR="+tmp, "ISUCON_TEST_FAIL_AT="+failAt,
-					"ISUCON_BENCH_RUN_STATE_FILE="+filepath.Join(tmp, "state"),
-					"ISUCON_BENCH_RESULTS_DIR="+filepath.Join(tmp, "runs"), "ISUCON_BENCH_PROFILES_ENABLED=false")
-				output, err := cmd.CombinedOutput()
-				if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != 23 {
-					t.Fatalf("clock failure=%v output=%s", err, output)
-				}
-				calls, err := os.ReadFile(filepath.Join(tmp, "calls"))
-				if err != nil || strings.Count(string(calls), "after-bench") != 1 {
-					t.Fatalf("finalize calls=%s err=%v", calls, err)
-				}
-				log, _ := os.ReadFile(filepath.Join(tmp, "runs", "20260901-120000", "bench.log"))
-				if strings.Contains(string(log), "BENCHMARK_END") || failAt == "1" && strings.Contains(string(log), "BENCHMARK_START") {
-					t.Fatalf("failed clock produced a marker: %s", log)
-				}
-				if mode == "auto" && failAt == "1" {
-					if _, err := os.Stat(filepath.Join(tmp, "load-ran")); !os.IsNotExist(err) {
-						t.Fatal("benchmark ran without a start timestamp")
-					}
-				}
-			})
-		}
+			}
+		})
 	}
 }
 
@@ -153,7 +151,7 @@ printf '%s\n' "$*" >> "$ISUCON_TEST_CALL_LOG"
 	if err := os.WriteFile(fakeTask, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("sh", "tools/bench/run.sh", "auto", "--", "sh", "-c", "touch \"$ISUCON_TEST_BENCHMARK_MARKER\"")
+	cmd := exec.Command("sh", "tools/bench/run.sh", "--", "sh", "-c", "touch \"$ISUCON_TEST_BENCHMARK_MARKER\"")
 	cmd.Dir = root
 	cmd.Env = append(os.Environ(),
 		"PATH="+tmp+string(os.PathListSeparator)+os.Getenv("PATH"),

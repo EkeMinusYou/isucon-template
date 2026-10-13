@@ -1,0 +1,98 @@
+{
+  "base_url": "{{env \"PORTAL_URL\"}}",
+  "vars": {
+    "target_id": "{{env \"PORTAL_TARGET_ID\"}}"
+  },
+  "headers": {
+    "Cookie": "{{env \"PORTAL_COOKIE\"}}",
+    "X-CSRF-Token": "{{env \"PORTAL_CSRF_TOKEN\"}}",
+    "Origin": "{{.base_url}}",
+    "Referer": "{{.base_url}}/contestant",
+    "Accept": "application/protobuf, application/vnd.google.protobuf, text/plain"
+  },
+  "timeout": "20m",
+  "request_timeout": "30s",
+  "poll_interval": "5s",
+  "poll_retries": 3,
+  "start": {
+    "http": {
+      "method": "POST",
+      "url": "/api/contestant/benchmark_jobs",
+      "headers": {
+        "Content-Type": "application/vnd.google.protobuf"
+      },
+      "body_base64": "{{protoUint 1 .target_id}}"
+    },
+    "response": {
+      "format": "protobuf",
+      "fields": {
+        "job_id": {
+          "path": "1.1",
+          "type": "int"
+        }
+      }
+    }
+  },
+  "poll": {
+    "http": {
+      "method": "GET",
+      "url": "/api/contestant/benchmark_jobs/{{urlquery .job_id}}"
+    },
+    "response": {
+      "format": "protobuf",
+      "fields": {
+        "job_id": {
+          "path": "1.1",
+          "type": "int"
+        },
+        "state": {
+          "path": "1.4",
+          "type": "uint",
+          "default": "0"
+        },
+        "passed": {
+          "path": "1.18.2",
+          "type": "bool",
+          "default": "false"
+        },
+        "score": {
+          "path": "1.9",
+          "type": "int",
+          "default": "0"
+        },
+        "stdout": {
+          "path": "1.18.5.2",
+          "type": "string",
+          "default": ""
+        },
+        "stderr": {
+          "path": "1.18.5.3",
+          "type": "string",
+          "default": ""
+        }
+      }
+    }
+  },
+  "outcome": {
+    "status": "state",
+    "done_values": [
+      "4"
+    ],
+    "failed_values": [
+      "2",
+      "3"
+    ],
+    "pass": "passed",
+    "pass_values": [
+      "true"
+    ],
+    "fail_values": [
+      "false"
+    ],
+    "score": "score",
+    "logs": [
+      "stdout",
+      "stderr"
+    ]
+  }
+}

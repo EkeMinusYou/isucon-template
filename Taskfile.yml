@@ -3,6 +3,8 @@
 # Update the variables in the first section at the start of each contest.
 version: '3'
 
+dotenv: ['.env.local']
+
 # Contest-specific tasks live in Taskfile.contest.yml and are flattened into
 # this namespace, so the generic graph below never names a contest asset.
 # Task names must not collide across the two files; the generic side calls into
@@ -55,7 +57,6 @@ vars:
   # >>> contest values >>>
   # Contest topology. Keep host roles and private addresses here only.
   ALL_HOSTS: isucon-1 isucon-2 isucon-3
-  BENCH_HOST: isucon-bench
   IP:
     map:
       isucon-1: 172.31.0.126
@@ -104,11 +105,8 @@ vars:
   ALL_HOST_IPS: '{{range (splitList " " .ALL_HOSTS)}}{{.}}={{index $.IP .}} {{end}}'
 
   # >>> contest values >>>
-  BENCH_TARGET: https://isuride.xiv.isucon.net
-  # The benchmarker serves the payment mock; the app reaches it via the bench host's private IP.
-  BENCH_PAYMENT_URL: http://172.31.36.103:12345
-  BENCH_COMMAND: ./bench run --target {{.BENCH_TARGET}} --addr {{.ENTRY_IP}}:443 --payment-url {{.BENCH_PAYMENT_URL}}
-  BENCH_SSH_OPTIONS: ''
+  # Portal request, auth headers, result fields and completion rules for task bench.
+  CONTEST_PORTAL_BENCH_CONFIG: tools/contest/portal-bench.json
   # <<< contest values <<<
 
   RESULT_DIR: runs
@@ -180,6 +178,7 @@ vars:
 
   # Server-changing commands and benchmark runs share one lock across all worktrees.
   OPERATION_LOCK: sh tools/bench/operation-lock.sh
+  PORTAL_BENCH_CONFIG: '{{default "" .CONTEST_PORTAL_BENCH_CONFIG}}'
 
   DEPLOYCTL_COMMON: >-
     {{.DEPLOYCTL_FLAGS}}
@@ -502,6 +501,14 @@ tasks:
     sources: ['*.go', go.mod]
     generates: [bench-output]
     cmds: ['go build -trimpath -ldflags "-s -w" -o bench-output .']
+
+  build-portal-bench:
+    desc: 汎用ポータルベンチツールをローカル向けにビルド
+    silent: true
+    dir: tools/portal-bench
+    sources: ['*.go', go.mod]
+    generates: [portal-bench]
+    cmds: ['go build -trimpath -ldflags "-s -w" -o portal-bench .']
 
   build-deployctl:
     internal: true
@@ -935,41 +942,23 @@ tasks:
       - '{{.DEPLOYCTL_DIR}}/deployctl check-roles {{.DEPLOYCTL_COMMON}}'
 
   bench:
-    desc: 計測開始→BENCH_HOSTでベンチ→回収
+    desc: 計測開始→設定したポータルでベンチ→ログと成果物を回収
     silent: true
-    deps: [build-bench-output]
-    preconditions:
-      - sh: test -n '{{.BENCH_COMMAND}}'
-        msg: BENCH_COMMAND is empty; use task bench-manual for portal benchmarks
-    env: &bench_runner_env
+    deps: [build-portal-bench]
+    env:
       ISUCON_BENCH_RUN_STATE_FILE: '{{.RUN_STATE_FILE}}'
       ISUCON_BENCH_RESULTS_DIR: '{{.RESULT_DIR}}'
       ISUCON_BENCH_COLLECT_FLAGS: '{{default "" .MEASURECTL_COLLECT_FLAGS}}'
       ISUCON_BENCH_PROFILES_ENABLED: '{{.PROFILES_ENABLED}}'
     cmds:
-      - >-
-        {{.OPERATION_LOCK}} sh tools/bench/run.sh auto -- tools/bench-output/bench-output {{.SSH}} {{.BENCH_SSH_OPTIONS}} {{.SSH_USER}}@{{.BENCH_HOST}}
-        "sudo -u {{.ISUCON_USER}} -i bash -lc 'cd {{.REMOTE_HOME}} && {{.BENCH_COMMAND}}'"
+      - 'tools/portal-bench/portal-bench -config "{{.PORTAL_BENCH_CONFIG}}" -check'
+      - '{{.OPERATION_LOCK}} sh tools/bench/run.sh -- tools/portal-bench/portal-bench -config "{{.PORTAL_BENCH_CONFIG}}"'
 
-  bench-no-collectors:
-    desc: collector負荷比較用に標準collectorを止めてベンチ・ログ回収
+  portal-bench-check:
+    desc: ポータル設定と認証変数を通信せず検証
+    deps: [build-portal-bench]
     cmds:
-      - task: bench
-        vars: { MEASURECTL_COLLECT_FLAGS: -no-collectors, PROFILES_ENABLED: 'false' }
-
-  bench-manual:
-    desc: 計測開始後、ユーザーによるベンチ実行と結果入力を待って回収
-    interactive: true
-    env: *bench_runner_env
-    cmds:
-      - '{{.OPERATION_LOCK}} sh tools/bench/run.sh manual'
-
-  bench-manual-no-collectors:
-    desc: ポータルベンチでcollector負荷を比較するため標準collectorを無効化
-    interactive: true
-    cmds:
-      - task: bench-manual
-        vars: { MEASURECTL_COLLECT_FLAGS: -no-collectors, PROFILES_ENABLED: 'false' }
+      - 'tools/portal-bench/portal-bench -config "{{.PORTAL_BENCH_CONFIG}}" -check'
 
   before-bench:
     desc: 差分をcommitしてRUNを採番し、ログローテートとcollector起動を行う

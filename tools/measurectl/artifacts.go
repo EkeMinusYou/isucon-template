@@ -167,6 +167,7 @@ func loadArtifactSpecs(collectorsPath, digestersPath string) ([]ArtifactSpec, er
 	specs = append(specs,
 		ArtifactSpec{Pattern: "run.json", Producer: "measurectl:manifest"},
 		ArtifactSpec{Pattern: "bench.log", Producer: "bench"},
+		ArtifactSpec{Pattern: "benchmark-result.txt", Producer: "bench:portal", Optional: true},
 		// 走行ディレクトリではなく runs/ 直下に積む履歴。
 		ArtifactSpec{Pattern: "scores.tsv", Producer: "measurectl:manifest", Optional: true},
 	)

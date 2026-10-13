@@ -1,0 +1,90 @@
+{
+  "base_url": "{{env \"PORTAL_URL\"}}",
+  "headers": {
+    "Cookie": "{{env \"PORTAL_COOKIE\"}}",
+    "X-CSRFToken": "{{env \"PORTAL_CSRF_TOKEN\"}}",
+    "X-Requested-With": "XMLHttpRequest",
+    "Origin": "{{.base_url}}",
+    "Referer": "{{.base_url}}/contest/"
+  },
+  "timeout": "20m",
+  "request_timeout": "30s",
+  "poll_interval": "5s",
+  "poll_retries": 3,
+  "start": {
+    "http": {
+      "method": "POST",
+      "url": "/contest/jobs/enqueue/",
+      "headers": {
+        "Content-Type": "application/x-www-form-urlencoded"
+      }
+    },
+    "response": {
+      "format": "json",
+      "fields": {
+        "job_id": {
+          "path": "/id"
+        }
+      }
+    }
+  },
+  "poll": {
+    "http": {
+      "method": "GET",
+      "url": "/contest/jobs/{{urlquery .job_id}}/"
+    },
+    "response": {
+      "format": "regex",
+      "fields": {
+        "job_id": {
+          "path": "(?s)<th[^>]*>\\s*JobId\\s*</th>\\s*<td[^>]*>\\s*([0-9]+)\\s*</td>"
+        },
+        "state": {
+          "path": "(?s)<th[^>]*>\\s*Status\\s*</th>\\s*<td[^>]*>\\s*<span[^>]*>([^<]+)</span>",
+          "trim": true
+        },
+        "passed": {
+          "path": "(?s)<th[^>]*>\\s*Result\\s*</th>\\s*<td[^>]*>\\s*<span[^>]*>([^<]+)</span>",
+          "default": "",
+          "trim": true
+        },
+        "score": {
+          "path": "(?s)<th[^>]*>\\s*Total Score\\s*</th>\\s*<td[^>]*>([^<]*)</td>",
+          "default": "",
+          "replace": [
+            {
+              "pattern": "[,\\s]",
+              "value": ""
+            }
+          ]
+        },
+        "message": {
+          "path": "(?s)<th[^>]*>\\s*Message\\s*</th>\\s*<td[^>]*>\\s*<pre[^>]*>(.*?)</pre>",
+          "type": "html_text",
+          "default": ""
+        }
+      }
+    }
+  },
+  "outcome": {
+    "status": "state",
+    "done_values": [
+      "Done"
+    ],
+    "failed_values": [
+      "Aborted",
+      "Canceled"
+    ],
+    "pass": "passed",
+    "pass_values": [
+      "Passed"
+    ],
+    "fail_values": [
+      "Failed"
+    ],
+    "score": "score",
+    "logs": [
+      "message"
+    ]
+  }
+}

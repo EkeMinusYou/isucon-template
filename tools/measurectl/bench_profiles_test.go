@@ -2,13 +2,11 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestBenchProfilesStartBeforeLoadAndFinishBeforeFinalize(t *testing.T) {
@@ -17,24 +15,17 @@ func TestBenchProfilesStartBeforeLoadAndFinishBeforeFinalize(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct {
-		name, mode                                            string
+		name                                                  string
 		benchExit, profileExit, readyExit, stopExit, wantExit int
 	}{
-		{"success", "auto", 0, 0, 0, 0, 0},
-		{"benchmark failure", "auto", 7, 0, 0, 0, 7},
-		{"profile failure", "auto", 0, 9, 0, 0, 9},
-		{"readiness failure", "auto", 0, 0, 6, 0, 6},
-		{"stop failure", "auto", 0, 0, 0, 8, 8},
-		{"manual", "manual", 0, 0, 0, 0, 0},
-		{"manual unknown", "manual", 0, 0, 0, 0, 0},
+		{"success", 0, 0, 0, 0, 0},
+		{"benchmark failure", 7, 0, 0, 0, 7},
+		{"profile failure", 0, 9, 0, 0, 9},
+		{"readiness failure", 0, 0, 6, 0, 6},
+		{"stop failure", 0, 0, 0, 8, 8},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tmp := t.TempDir()
-			resultFile := filepath.Join(tmp, "participant-output.txt")
-			const participantOutput = "participant progress fixture\n"
-			if err := os.WriteFile(resultFile, []byte(participantOutput), 0644); err != nil {
-				t.Fatal(err)
-			}
 			fake := `#!/bin/sh
 set -eu
 [ "$1" != --silent ] || shift
@@ -99,56 +90,16 @@ esac
 			if err := os.WriteFile(filepath.Join(tmp, "task"), []byte(fake), 0o755); err != nil {
 				t.Fatal(err)
 			}
-			args := []string{"tools/bench/run.sh", tc.mode}
-			if tc.mode == "auto" {
-				// This is a local stub, never the contest benchmark executable.
-				args = append(args, "--", "sh", "-c", fmt.Sprintf("test -f \"$ISUCON_TEST_DIR/sampling\" || exit 95; touch \"$ISUCON_TEST_DIR/load-ran\"; echo BENCHMARK_PASS; exit %d", tc.benchExit))
-			}
+			// This is a local stub, never the contest benchmark executable.
+			args := []string{"tools/bench/run.sh", "--", "sh", "-c", fmt.Sprintf("test -f \"$ISUCON_TEST_DIR/sampling\" || exit 95; touch \"$ISUCON_TEST_DIR/load-ran\"; echo BENCHMARK_PASS; exit %d", tc.benchExit)}
 			cmd := exec.Command("sh", args...)
 			cmd.Dir = root
-			cmd.Stdin = strings.NewReader("\n\n12\ny\n")
-			var manualInput chan error
-			if tc.mode == "manual" {
-				reader, writer := io.Pipe()
-				cmd.Stdin = reader
-				defer reader.Close()
-				manualInput = make(chan error, 1)
-				go func() {
-					defer writer.Close()
-					if _, err := io.WriteString(writer, "\n"); err != nil {
-						manualInput <- err
-						return
-					}
-					deadline := time.Now().Add(5 * time.Second)
-					for {
-						if _, err := os.Stat(filepath.Join(tmp, "stop-requested")); err == nil {
-							break
-						}
-						if time.Now().After(deadline) {
-							manualInput <- fmt.Errorf("stop notification waited for result input")
-							return
-						}
-						time.Sleep(5 * time.Millisecond)
-					}
-					resultInput := resultFile + "\n12\ny\n"
-					if tc.name == "manual unknown" {
-						resultInput = "\n\n\n"
-					}
-					_, err := io.WriteString(writer, resultInput)
-					manualInput <- err
-				}()
-			}
 			cmd.Env = append(os.Environ(), "PATH="+tmp+string(os.PathListSeparator)+os.Getenv("PATH"),
 				"ISUCON_TEST_DIR="+tmp, "ISUCON_BENCH_RESULTS_DIR="+filepath.Join(tmp, "runs"),
 				"ISUCON_BENCH_RUN_STATE_FILE="+filepath.Join(tmp, "raw", "current-run-id"),
 				"ISUCON_BENCH_PROFILES_ENABLED=true", "ISUCON_BENCH_COLLECT_FLAGS=",
 				fmt.Sprintf("ISUCON_TEST_PROFILE_EXIT=%d", tc.profileExit), fmt.Sprintf("ISUCON_TEST_READY_EXIT=%d", tc.readyExit), fmt.Sprintf("ISUCON_TEST_STOP_EXIT=%d", tc.stopExit))
 			out, err := cmd.CombinedOutput()
-			if manualInput != nil {
-				if err := <-manualInput; err != nil {
-					t.Fatal(err)
-				}
-			}
 			code := 0
 			if err != nil {
 				if e, ok := err.(*exec.ExitError); ok {
@@ -159,28 +110,6 @@ esac
 			}
 			if code != tc.wantExit {
 				t.Fatalf("exit=%d want=%d: %s", code, tc.wantExit, out)
-			}
-			if tc.name == "manual unknown" {
-				body, err := os.ReadFile(filepath.Join(tmp, "runs", "20260901-120000", "bench.log"))
-				if err != nil {
-					t.Fatal(err)
-				}
-				for _, marker := range []string{"SCORE:", "BENCHMARK_PASS", "BENCHMARK_FAIL"} {
-					if strings.Contains(string(body), marker) {
-						t.Fatalf("unknown result emitted %s", marker)
-					}
-				}
-			}
-			if tc.name == "manual" {
-				runDir := filepath.Join(tmp, "runs", "20260901-120000")
-				body, err := os.ReadFile(filepath.Join(runDir, "bench.log"))
-				if err != nil || !strings.Contains(string(body), participantOutput) {
-					t.Fatalf("participant output missing from analysis input: %v", err)
-				}
-				original, err := os.ReadFile(filepath.Join(runDir, "benchmark-result.txt"))
-				if err != nil || string(original) != participantOutput {
-					t.Fatalf("original participant output changed: %v", err)
-				}
 			}
 			calls, err := os.ReadFile(filepath.Join(tmp, "calls"))
 			if err != nil {

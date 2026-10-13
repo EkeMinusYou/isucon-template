@@ -39,30 +39,14 @@ Taskfileの次の値を競技に合わせる。120秒・40秒は例であり、�
 | `PPROF_BASE_URL` / `FGPROF_URL` / `PROFILE_STATUS_URL` | adapterの公開先。fgprofのsecondsはPROFILE_SECONDSに追従 |
 | `PROFILE_STOP_URL` | RUN IDを照合して採取へ停止を通知するendpoint |
 
-通常の`task bench` / `task bench-manual`が`group: profiles`の有効な宣言を選び、収集開始、全ホストの開始確認、
+通常の`task bench`が`group: profiles`の有効な宣言を選び、収集開始、全ホストの開始確認、
 1秒の先行収録、開始状態の再確認、負荷開始、終了時刻の記録、停止通知、profile回収待ち、finalizeを順に行う。
-手動モードでは案内後すぐに負荷を開始し、完了のEnter直後に停止通知する。結果ファイルやスコアの入力中も回収は進む。
 停止通知は全APP_HOSTSの有効なCPU・fgprof宣言へ並列に送る。失敗した場合は採取上限まで待って回収・finalizeし、エラーを返す。
 ポータルの待機が長い場合など、採取窓が負荷を覆わなければartifact検査は失敗する。
 開始確認失敗時は負荷を開始せず、失敗RUNとして回収を試みる。
 開始通知はprofiler起動成功後に公開する。GoのCPU profile writerは非同期に起動するため、
 通知後も1秒の先行収録時間を取る。この余裕は任意の起動遅延や大きなホスト時計差を保証せず、
 収録時間にはこの1秒も含めて余裕を持たせる。artifactの時間窓検査は緩和しない。
-
-分割操作する場合は開始確認と回収待ちを呼び出し側で管理する。
-
-```sh
-task before-bench PROFILES_ENABLED=true
-task profiles-collect &
-profile_pid=$!
-task profiles-ready
-sleep 1
-task profiles-ready
-# Start the benchmark immediately in another terminal and wait for completion.
-task profiles-stop
-wait "$profile_pid"
-task after-bench SCORE=12345
-```
 
 新しいRUNでは宣言上有効なprofile×APP_HOSTS、各NGINX_HOSTSの圧縮access log、user-transitionを必須にする。
 profileの形式・sample種別・時刻と、ログのzstd・JSON・必須列を検査する。
