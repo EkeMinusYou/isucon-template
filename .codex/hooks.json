@@ -1,12 +1,13 @@
 {
-  "description": "Save every turn in sessions that explicitly invoke $isucon-agent.",
+  "description": "Save every session in this repository to docs/conversation and commit locally; no upload.",
   "hooks": {
-    "UserPromptSubmit": [
+    "SessionStart": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"$(git rev-parse --show-toplevel)/.codex/hooks/isucon_agent_conversation.sh\" mark"
+            "command": "sh \"$(git rev-parse --show-toplevel)/.codex/hooks/conversation.sh\" mark codex",
+            "timeout": 30
           }
         ]
       }
@@ -16,21 +17,19 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"$(git rev-parse --show-toplevel)/.codex/hooks/isucon_agent_conversation.sh\" export",
-            "async": true,
+            "command": "sh \"$(git rev-parse --show-toplevel)/.codex/hooks/conversation.sh\" export codex",
             "timeout": 30,
-            "statusMessage": "Saving and committing isucon-agent conversation"
+            "async": true
           }
         ]
       }
     ],
     "SessionEnd": [
       {
-        "matcher": "^other$",
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"$(git rev-parse --show-toplevel)/.codex/hooks/isucon_agent_conversation.sh\" cleanup",
+            "command": "sh \"$(git rev-parse --show-toplevel)/.codex/hooks/conversation.sh\" export codex",
             "timeout": 3
           }
         ]

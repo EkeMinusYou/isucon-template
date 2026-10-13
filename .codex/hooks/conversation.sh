@@ -3,6 +3,12 @@
 export LC_ALL=C
 
 action=${1-}
+provider=${2-codex}
+case "$provider" in
+  codex) provider_name=Codex ;;
+  claude) provider_name='Claude Code' ;;
+  *) exit 0 ;;
+esac
 event=$(cat) || exit 0
 
 git_retry_count=3
@@ -42,26 +48,26 @@ if [ -z "$repository_root" ]; then
   exit 0
 fi
 
+# Record only sessions belonging to the repository containing this hook.
+hook_root=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd -P) || exit 0
+if [ "$repository_root" != "$hook_root" ]; then
+  exit 0
+fi
+
 root_key=$(printf '%s' "$repository_root" | cksum | awk '{print $1}') || exit 0
 safe_session_id=$(printf '%s' "$session_id" | tr -c 'A-Za-z0-9._-' '_')
 if [ -z "$safe_session_id" ]; then
   safe_session_id=unknown
 fi
 
-state_dir="${TMPDIR:-/tmp}/codex-isucon-agent-session-markers/$root_key"
-marker="$state_dir/$safe_session_id.marker"
+if [ "$provider" = claude ]; then
+  safe_session_id="claude-$safe_session_id"
+fi
+state_dir="${TMPDIR:-/tmp}/conversation-hook-sessions/$root_key"
 timestamp_path="$state_dir/$safe_session_id.timestamp"
 
 case "$action" in
   mark)
-    if ! printf '%s' "$event" | jq -e '
-      (.prompt // empty)
-      | select(type == "string")
-      | test("(^|[^A-Za-z0-9_-])\\$isucon-agent([^A-Za-z0-9_-]|$)")
-    ' >/dev/null 2>&1; then
-      exit 0
-    fi
-
     mkdir -p "$state_dir" || exit 0
     if [ ! -f "$timestamp_path" ]; then
       timestamp=$(date '+%Y%m%d-%H%M%S') || exit 0
@@ -75,14 +81,8 @@ case "$action" in
         exit 0
       fi
     fi
-    : > "$marker" || exit 0
-    chmod 600 "$marker" 2>/dev/null || true
     ;;
   export)
-    if [ ! -f "$marker" ]; then
-      exit 0
-    fi
-
     transcript_path=$(event_value '.transcript_path // empty') || exit 0
     if [ -z "$transcript_path" ]; then
       exit 0
@@ -113,7 +113,7 @@ case "$action" in
 
     # Stop runs before task_complete is written; the hook runs asynchronously.
     turn_id=$(event_value '.turn_id // empty') || turn_id=
-    if [ -n "$turn_id" ]; then
+    if [ "$provider" = codex ] && [ -n "$turn_id" ]; then
       completion_attempt=0
       while ! tail -n 50 "$transcript_path" | jq -e --arg turn_id "$turn_id" '
         select(.payload.type? == "task_complete" and .payload.turn_id? == $turn_id)
@@ -145,21 +145,29 @@ case "$action" in
 
     timestamp_prefix="$timestamp"_
     output_dir="$repository_root/docs/conversation"
+    # Reuse a session file after resume, even if temporary state was removed.
+    for existing_path in "$output_dir"/*_"$safe_session_id".md; do
+      if [ -f "$existing_path" ]; then
+        existing_name=${existing_path##*/}
+        timestamp_prefix=${existing_name%"$safe_session_id.md"}
+        break
+      fi
+    done
     output_path="$output_dir/$timestamp_prefix$safe_session_id.md"
     temporary_path="$output_dir/.$timestamp_prefix$safe_session_id.md.tmp"
     mkdir -p "$output_dir" || exit 0
 
     {
-      printf '%s\n\n' "# Codex conversation"
+      printf '%s\n\n' "# $provider_name conversation"
       printf '%s\n\n' "- Session: $safe_session_id"
-      printf '%s\n\n' '<!-- codex-hook-format: 11; tool results and reasoning content omitted -->'
+      printf '%s\n\n' '<!-- conversation-hook-format: 12; tool results and reasoning content omitted -->'
       printf '%s\n\n' '- REASONING durations are estimates from the preceding message or tool event to reasoning completion and may include model/network waits.'
       printf '%s\n\n' '- SETTINGS record observed configuration changes, not the service tier actually used by each request. Unknown values were not recorded; later observations do not backfill earlier settings.'
       printf '%s\n\n' "---"
     } > "$temporary_path" || exit 0
 
     # Rebuild to include completion records appended after an earlier export.
-    if ! jq -sr '
+    if ! jq -sr --arg provider "$provider" '
       def event_time:
         (.timestamp? // .payload.timestamp? // null) as $value
         | if ($value | type) == "number" then $value
@@ -302,6 +310,8 @@ case "$action" in
           null
         elif (.cmd? | type) == "string" then
           .cmd
+        elif (.command? | type) == "string" then
+          .command
         else
           null
         end;
@@ -311,7 +321,7 @@ case "$action" in
         | ($tool.name? // $tool.tool_name? // "unknown") as $name
         | ($tool.arguments? // $tool.input? // $tool.tool_input? // null) as $raw_arguments
         | ($raw_arguments | normalized_tool_arguments | command_from_arguments) as $command
-        | if $name == "exec_command" and $command != null then
+        | if ($name == "exec_command" or $name == "Bash") and $command != null then
             command_section($command)
           elif $raw_arguments == null then
             "## TOOL\n\n### `\($name)`\n"
@@ -437,7 +447,28 @@ case "$action" in
           empty
         end;
 
-      . as $records
+      # Claude transcripts wrap messages and mix text with tool blocks.
+      def claude_records:
+        .[]
+        | select(.type? == "user" or .type? == "assistant")
+        | . as $record
+        | .message as $message
+        | select(($message | type) == "object")
+        | (if $message.model? != null then
+             {type: "turn_context", timestamp: $record.timestamp,
+              payload: {model: $message.model}}
+           else empty end),
+          (($message.content // [])
+           | if type == "string" then [{type: "text", text: .}] else . end
+           | .[]
+           | if .type? == "text" then
+               {timestamp: $record.timestamp,
+                payload: {type: "message", role: $message.role, content: .text}}
+             elif .type? == "tool_use" then
+               {timestamp: $record.timestamp, payload: .}
+             else empty end);
+
+      (if $provider == "claude" then [claude_records] else . end) as $records
       | (reduce $records[] as $record (
           {};
           ($record.payload // $record) as $payload
@@ -510,14 +541,6 @@ case "$action" in
       fi
     fi
 
-    ;;
-  cleanup)
-    rm -f "$marker"
-    rmdir "$state_dir/$safe_session_id.export.lock" 2>/dev/null || true
-    timestamp=$(cat "$timestamp_path" 2>/dev/null) || timestamp=
-    timestamp_prefix="$timestamp"_
-    rm -f "$repository_root/docs/conversation/.$timestamp_prefix$safe_session_id.md.tmp"
-    rm -f "$timestamp_path"
     ;;
 esac
 
