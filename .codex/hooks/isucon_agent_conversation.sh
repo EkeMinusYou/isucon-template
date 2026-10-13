@@ -152,8 +152,9 @@ case "$action" in
     {
       printf '%s\n\n' "# Codex conversation"
       printf '%s\n\n' "- Session: $safe_session_id"
-      printf '%s\n\n' '<!-- codex-hook-format: 10; tool results and reasoning content omitted -->'
+      printf '%s\n\n' '<!-- codex-hook-format: 11; tool results and reasoning content omitted -->'
       printf '%s\n\n' '- REASONING durations are estimates from the preceding message or tool event to reasoning completion and may include model/network waits.'
+      printf '%s\n\n' '- SETTINGS record observed configuration changes, not the service tier actually used by each request. Unknown values were not recorded; later observations do not backfill earlier settings.'
       printf '%s\n\n' "---"
     } > "$temporary_path" || exit 0
 
@@ -261,6 +262,27 @@ case "$action" in
           if $elapsed != null then "Estimated \($elapsed | worked_for)" else "Duration unknown" end,
           if $time != null then ($time | strflocaltime("%Y-%m-%d %H:%M:%S %z")) else empty end
         ] | "## REASONING (\(join("; ")))\n";
+
+      def settings_patch:
+        (.payload // .) as $payload
+        | (if .type? == "turn_context" then $payload
+           elif $payload.type? == "thread_settings_applied" then
+             ($payload.thread_settings? // {})
+           else {} end)
+        | if type == "object" then
+            with_entries(select(.key == "model" or .key == "effort"
+              or .key == "reasoning_effort" or .key == "service_tier"))
+            | if has("reasoning_effort") then
+                .effort = .reasoning_effort | del(.reasoning_effort)
+              else . end
+            | map_values(if type == "string" and length > 0 then . else null end)
+          else {} end;
+
+      def settings_section($time):
+        "## SETTINGS\(if $time != null then " (\($time | strflocaltime("%Y-%m-%d %H:%M:%S %z")))" else "" end)\n\n"
+        + "- Model: \(.model // "unknown")\n"
+        + "- Reasoning effort: \(.effort // "unknown")\n"
+        + "- Service tier: \(.service_tier // "unknown")\n";
 
       def normalized_tool_arguments:
         if . == null then
@@ -427,9 +449,18 @@ case "$action" in
             else . end
         )) as $completed_turns
       | foreach $records[] as $record (
-        {user_at: null, activity_at: null, turn_id: null, output: ""};
+        {user_at: null, activity_at: null, turn_id: null, output: "",
+         settings: {model: null, effort: null, service_tier: null}, settings_seen: false};
         ($record.payload // $record) as $payload
         | ($record | event_time) as $time
+        | ($record | settings_patch) as $settings_patch
+        | .settings as $previous_settings
+        | .settings += $settings_patch
+        | (if ($settings_patch | length) > 0
+               and ((.settings_seen | not) or .settings != $previous_settings) then
+             (.settings | settings_section($time))
+           else "" end) as $settings_output
+        | if ($settings_patch | length) > 0 then .settings_seen = true else . end
         | if $payload.type? == "task_started" then
             .turn_id = $payload.turn_id
             | .activity_at = $time
@@ -448,7 +479,8 @@ case "$action" in
             // response_elapsed($user_at; $time)
           else null end) as $elapsed
         | response_elapsed(.activity_at; $time) as $activity_elapsed
-        | .output = ([$payload | render($elapsed; $time; $activity_elapsed)] | join(""))
+        | .output = $settings_output
+            + ([$payload | render($elapsed; $time; $activity_elapsed)] | join(""))
         | if ($payload | is_timed_activity) then
             .activity_at = $time
           else . end;
