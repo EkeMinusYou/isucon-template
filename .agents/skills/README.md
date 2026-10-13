@@ -4,22 +4,22 @@
 
 ## 構成
 
-- `isucon-setup` — 初期環境・標準計測の整備と既存環境の計測補修。pprof・fgprof・nginxログ・user-transitionの収集から分析・dashboardまで確認。ベンチはユーザーが実行
+- `isucon-setup` — 初期環境・標準計測の整備と既存環境の計測補修。pprof・fgprof・nginxログ・user-transitionの収集から分析・dashboardまで確認。ベンチを実行し、結果を確認して計測不足を補修
 - `isucon-special-sauce` — 設定資料の値を現行構成に合わせて適用し、正規deploy
 - `isucon-use-solution` — 指定された一つの `docs/solutions/` 文書の適用条件を現行環境と照合して報告
 - `isucon-create-solution` — 再利用できる実装パターンを `docs/solutions/` に新規作成・更新
-- `isucon-agent` — ユーザーと対話しながら調査・提案を進め、合意した改善案をローカルに実装する。deployは明示的な指示がある場合だけ行う
+- `isucon-agent` — 調査・実装・正規deploy・ベンチ・分析を自律的に繰り返して改善する。必要な破壊的変更も許可済みとして進める
 - `isucon-worktree` — ユーザーが会話ログから選んだ仮説を曜日名のworktreeで実装し、mainへ取り込んでからmainで計測・分析する
 
-設定資料を使った変更は `isucon-special-sauce`、solution文書の適用評価は `isucon-use-solution`、対話で調査から実装まで進める場合は `isucon-agent` を使います。special-sauceは資料の値を適用して正規deployし、agentはユーザーが合意した改善案をローカルに実装して、deployは明示的な指示を受けてから行います。
+設定資料を使った変更は `isucon-special-sauce`、solution文書の適用評価は `isucon-use-solution`、自律的に調査から実測・改善まで進める場合は `isucon-agent` を使います。special-sauceは資料の値を適用して正規deployし、agentは改善案を選び、実装・deploy・ベンチ・採否判断を繰り返します。
 
 改善案は現行コード・設定、公式資料、保存済みRUNを根拠に評価し、観測事実・推論・未確定点を分けて報告する。局所指標の改善と得点への寄与を区別し、欠損成果物を0として扱わない。
 
-初回は `isucon-setupでベンチ前の整備・疎通確認 → ユーザーへ初回ベンチを依頼 → 共有されたRUNでsetupの実負荷確認` と進めます。その後は目的に応じた相談・資料照合、実装・正規deploy、ユーザーによるベンチへ進みます。依頼内容に応じて必要なスキルを呼び出します。例: `$isucon-agent 今どこがスコアに効きそうか相談したい`、`$isucon-special-sauce docs/special-sources/kernel-parameters.md`。
+初回は `isucon-setupで整備・疎通確認 → task benchで初回ベンチ → RUNの結果確認・計測補修` と進めます。その後は目的に応じた相談・資料照合、実装・正規deploy、`task bench`での計測へ進みます。依頼内容に応じて必要なスキルを呼び出します。例: `$isucon-agent 今どこがスコアに効きそうか相談したい`、`$isucon-special-sauce docs/special-sources/kernel-parameters.md`。
 
-並行して改善を実装する場合は`isucon-worktree`を使う。ユーザーが`docs/conversation/`から仮説を選び、曜日名のworktreeで調査・実装・ローカル確認を行う。マージ指示を受けてmain側の担当が`wt`でmainへ取り込み、成功後に対象worktreeのHerdrタブを閉じる。その後mainでデプロイ・計測の調整と計測結果の分析・採否判断を進める。デプロイは明示的な指示後にmainから行い、ベンチはユーザーがmainから実行する。実装は並行して進めても、計測・評価は原則として一つの仮説ずつ行う。
+並行して改善を実装する場合は`isucon-worktree`を使う。ユーザーが`docs/conversation/`から仮説を選び、曜日名のworktreeで調査・実装・ローカル確認を行う。マージ指示を受けてmain側の担当が`wt`でmainへ取り込み、成功後に対象worktreeのHerdrタブを閉じる。その後mainでデプロイ・計測の調整と計測結果の分析・採否判断を進める。デプロイはデプロイ指示または自律改善の依頼範囲に従ってmainから行い、ベンチはmain側の担当が`task bench`で実行する。実装は並行して進めても、計測・評価は原則として一つの仮説ずつ行う。
 
-`isucon-agent`は相談の入口です。調べる範囲を会話で決め、提案した改善案にユーザーが合意したらローカルに実装し、差分・確認結果・想定する対象ホストと影響を報告します。deployを明示的に指示された場合だけ、AGENTS.mdとTaskfileに従って正規deployします。ベンチは実行しません。例: `$isucon-agent 今どこがスコアに効きそうか相談したい`、`$isucon-agent この変更を実装してdeployして`。
+`isucon-agent`への改善依頼は、必要なdeploy・ベンチ・競技DBの再作成等を含み、改善案ごとの確認を待たずに進めます。相談・調査のみなどの明示的な範囲指定は優先します。例: `$isucon-agent ベンチを回しながらスコアを改善して`、`$isucon-agent 今どこがスコアに効きそうか相談だけしたい`。
 
 資料を扱う3スキルは明示的に呼び出す。例: `$isucon-special-sauce`、`$isucon-use-solution docs/solutions/n-plus-one.md`、`$isucon-create-solution <文書化するテーマ>`。
 
