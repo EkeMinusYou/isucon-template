@@ -211,6 +211,9 @@ func (c *collector) poll(parent context.Context) {
 	snapshot, err := queryStatus(ctx, c.db)
 	cancel()
 	if err != nil {
+		if parent.Err() != nil {
+			return
+		}
 		fmt.Fprintf(os.Stderr, "MySQL status poll: %v\n", err)
 		return
 	}

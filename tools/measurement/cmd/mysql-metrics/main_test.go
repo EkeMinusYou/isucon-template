@@ -2,7 +2,11 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"database/sql"
 	"encoding/csv"
+	"io"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -58,6 +62,41 @@ func TestMySQLMetricsCollectorRows(t *testing.T) {
 	} {
 		if values[name] != want {
 			t.Fatalf("%s = %q, want %q", name, values[name], want)
+		}
+	}
+}
+
+func TestShutdownPollDoesNotReportCaptureFailure(t *testing.T) {
+	db, err := sql.Open("mysql", "root@unix(/nonexistent)/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	for _, canceled := range []bool{true, false} {
+		ctx, cancel := context.WithCancel(context.Background())
+		if canceled {
+			cancel()
+		}
+		read, write, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		original := os.Stderr
+		os.Stderr = write
+		(&collector{db: db, queryTimeout: time.Second}).poll(ctx)
+		os.Stderr = original
+		write.Close()
+		cancel()
+		output, err := io.ReadAll(read)
+		read.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if canceled && len(output) != 0 {
+			t.Fatalf("shutdown logged as failure: %s", output)
+		}
+		if !canceled && !bytes.Contains(output, []byte("MySQL status poll:")) {
+			t.Fatal("live capture error was hidden")
 		}
 	}
 }
