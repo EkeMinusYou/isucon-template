@@ -17,7 +17,7 @@
 
 初回は `isucon-setupで整備・疎通確認 → task benchで初回ベンチ → RUNの結果確認・計測補修` と進めます。その後は目的に応じた相談・資料照合、実装・正規deploy、`task bench`での計測へ進みます。依頼内容に応じて必要なスキルを呼び出します。例: `$isucon-agent 今どこがスコアに効きそうか相談したい`、`$isucon-special-sauce docs/special-sources/kernel-parameters.md`。
 
-並行して改善を実装する場合は`isucon-worktree`を使う。ユーザーが`docs/conversation/`から仮説を選び、曜日名のworktreeで調査・実装・ローカル確認を行う。マージ指示を受けてmain側の担当が`wt`でmainへ取り込み、成功後に対象worktreeのHerdrタブを閉じる。その後mainでデプロイ・計測の調整と計測結果の分析・採否判断を進める。デプロイはデプロイ指示または自律改善の依頼範囲に従ってmainから行い、ベンチはmain側の担当が`task bench`で実行する。実装は並行して進めても、計測・評価は原則として一つの仮説ずつ行う。
+並行して改善を実装する場合は`isucon-worktree`を使う。ユーザーが`docs/conversation/`から仮説を選び、曜日名のworktreeで調査・実装・ローカル確認を行う。マージ指示を受けてmain側の担当が`wt`でmainへ取り込み、成功後に対象worktreeのHerdrタブを閉じる。その後mainでデプロイ・計測の調整と計測結果の分析・採否判断を進める。デプロイはデプロイ指示または自律改善の依頼範囲に従ってmainから行い、ベンチはmain側の担当が`task bench`で実行する。
 
 `isucon-agent`への改善依頼は、必要なdeploy・ベンチ・競技DBの再作成等を含み、改善案ごとの確認を待たずに進めます。相談・調査のみなどの明示的な範囲指定は優先します。例: `$isucon-agent ベンチを回しながらスコアを改善して`、`$isucon-agent 今どこがスコアに効きそうか相談だけしたい`。
 
