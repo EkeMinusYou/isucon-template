@@ -11,6 +11,7 @@ semantic_schemas:
   # because they depend on that benchmarker's output format. Add score breakdowns
   # for the contest there as well; the view names stay the readers' contract.
   - ../contest/analysis-schema/bench-errors-semantic.sql
+  - ../contest/analysis-schema/bench-progress.sql
 
 reports:
   bottleneck_profile: queries/bottleneck-profile.sql
