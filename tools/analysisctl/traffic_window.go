@@ -19,8 +19,14 @@ import (
 const (
 	trafficStartRequests     int64 = 10
 	trafficStartConsecutives       = 2
-	trafficEndRequests       int64 = 5
-	trafficEndConsecutives         = 3
+	// The end threshold scales with the observed load so background requests
+	// (internal polling and similar) do not hide the end of the load phase.
+	trafficEndRequests     int64 = 5
+	trafficEndRelativeRate       = 0.05
+	trafficEndConsecutives       = 3
+	// A low run that reaches the collection end is accepted once it covers this
+	// many seconds, because collection often stops within seconds of the load.
+	trafficEndBoundarySeconds = 0.5
 )
 
 // analysisWindow is the derived window used to materialize time-series data.
@@ -187,6 +193,7 @@ func resolveAnalysisWindow(runDir string, phase loadPhaseConfig) analysisWindow 
 	window.EndedAt = end
 	window.Status = "ok"
 	window.Reason = reason
+	window.EndThreshold = trafficEndThreshold(collection, buckets)
 	window.RequestCount, window.ActiveSeconds = windowRequestStats(buckets, start, end)
 	return window
 }
@@ -384,17 +391,21 @@ func detectTrafficWindow(collection collectionWindow, buckets map[int64]int64) (
 		return time.Time{}, time.Time{}, false, "request rate never reached the start threshold for two consecutive seconds"
 	}
 
+	start := time.Unix(startSecCandidate, 0).UTC()
+	if start.Before(collection.StartedAt) {
+		start = collection.StartedAt
+	}
+	threshold := float64(trafficEndThreshold(collection, buckets))
 	var lowStart int64 = -1
+	var lowSeconds float64
 	for sec := startSecCandidate; sec <= lastBucketSec; sec++ {
-		if buckets[sec] < trafficEndRequests {
+		coverage := bucketCoverage(collection, sec)
+		if float64(buckets[sec]) < threshold*coverage {
 			if lowStart < 0 {
-				lowStart = sec
+				lowStart, lowSeconds = sec, 0
 			}
+			lowSeconds += coverage
 			if sec-lowStart+1 >= trafficEndConsecutives {
-				start := time.Unix(startSecCandidate, 0).UTC()
-				if start.Before(collection.StartedAt) {
-					start = collection.StartedAt
-				}
 				end := time.Unix(lowStart, 0).UTC()
 				if end.After(start) {
 					return start, end, true, "traffic threshold window detected"
@@ -404,12 +415,46 @@ func detectTrafficWindow(collection collectionWindow, buckets map[int64]int64) (
 		}
 		lowStart = -1
 	}
+	if lowStart >= 0 && lowSeconds >= trafficEndBoundarySeconds {
+		end := time.Unix(lowStart, 0).UTC()
+		if end.After(start) {
+			return start, end, true, "traffic end detected at the collection end"
+		}
+	}
 
-	start := time.Unix(startSecCandidate, 0).UTC()
 	if collection.EndedAt.After(start) {
 		return start, collection.EndedAt, true, "traffic start detected; collection end used because the end threshold was not observed"
 	}
 	return time.Time{}, time.Time{}, false, "detected traffic start is not before collection end"
+}
+
+// trafficEndThreshold is the larger of the fixed floor and a fraction of the
+// median per-second rate among seconds that reached the start threshold.
+func trafficEndThreshold(collection collectionWindow, buckets map[int64]int64) int64 {
+	var rates []int64
+	for sec := collection.StartedAt.Unix(); sec <= collection.EndedAt.Unix(); sec++ {
+		if bucketCoverage(collection, sec) == 1 && buckets[sec] >= trafficStartRequests {
+			rates = append(rates, buckets[sec])
+		}
+	}
+	if len(rates) == 0 {
+		return trafficEndRequests
+	}
+	sort.Slice(rates, func(i, j int) bool { return rates[i] < rates[j] })
+	threshold := int64(math.Ceil(float64(rates[len(rates)/2]) * trafficEndRelativeRate))
+	if threshold < trafficEndRequests {
+		return trafficEndRequests
+	}
+	return threshold
+}
+
+// bucketCoverage is the fraction of a one-second bucket inside the collection
+// window; only the final, partially collected second is below one.
+func bucketCoverage(collection collectionWindow, sec int64) float64 {
+	if sec == collection.EndedAt.Unix() {
+		return float64(collection.EndedAt.Nanosecond()) / float64(time.Second)
+	}
+	return 1
 }
 
 func windowRequestStats(buckets map[int64]int64, start, end time.Time) (int64, int64) {

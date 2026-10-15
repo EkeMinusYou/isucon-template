@@ -49,6 +49,8 @@ func TestDetectTrafficWindowFallsBackWhenEndThresholdIsMissing(t *testing.T) {
 		109: 7,
 		110: 7,
 		111: 7,
+		// The final half-collected second keeps the same rate.
+		112: 4,
 	}
 
 	start, end, ok, reason := detectTrafficWindow(collection, buckets)
@@ -61,8 +63,54 @@ func TestDetectTrafficWindowFallsBackWhenEndThresholdIsMissing(t *testing.T) {
 	if !end.Equal(collection.EndedAt) {
 		t.Fatalf("end=%s, want collection end %s", end, collection.EndedAt)
 	}
-	if !strings.Contains(reason, "collection end") {
+	if !strings.Contains(reason, "collection end used") {
 		t.Fatalf("reason=%q does not describe the fallback", reason)
+	}
+}
+
+func TestDetectTrafficWindowAcceptsLowRunReachingCollectionEnd(t *testing.T) {
+	collection := collectionWindow{
+		StartedAt: time.Unix(100, 0).UTC(),
+		EndedAt:   time.Unix(112, 700_000_000).UTC(),
+	}
+	buckets := map[int64]int64{}
+	for sec := int64(101); sec <= 110; sec++ {
+		buckets[sec] = 200
+	}
+	buckets[111] = 2
+	buckets[112] = 1
+
+	_, end, ok, reason := detectTrafficWindow(collection, buckets)
+	if !ok {
+		t.Fatalf("detectTrafficWindow failed: %s", reason)
+	}
+	if want := time.Unix(111, 0).UTC(); !end.Equal(want) {
+		t.Fatalf("end=%s, want %s (%s)", end, want, reason)
+	}
+}
+
+func TestDetectTrafficWindowScalesEndThresholdAboveBackgroundRequests(t *testing.T) {
+	collection := collectionWindow{
+		StartedAt: time.Unix(100, 0).UTC(),
+		EndedAt:   time.Unix(120, 0).UTC(),
+	}
+	buckets := map[int64]int64{}
+	for sec := int64(100); sec < 120; sec++ {
+		buckets[sec] = 6
+	}
+	for sec := int64(101); sec <= 110; sec++ {
+		buckets[sec] = 200
+	}
+
+	_, end, ok, reason := detectTrafficWindow(collection, buckets)
+	if !ok {
+		t.Fatalf("detectTrafficWindow failed: %s", reason)
+	}
+	if want := time.Unix(111, 0).UTC(); !end.Equal(want) {
+		t.Fatalf("end=%s, want %s (%s)", end, want, reason)
+	}
+	if got := trafficEndThreshold(collection, buckets); got != 10 {
+		t.Fatalf("end threshold=%d, want 10", got)
 	}
 }
 
