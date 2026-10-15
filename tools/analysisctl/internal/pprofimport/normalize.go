@@ -16,7 +16,6 @@ import (
 )
 
 var runIDPattern = regexp.MustCompile(`^[0-9]{8}-[0-9]{6}$`)
-var smokeIDPattern = regexp.MustCompile(`^setup-smoke-[0-9]{8}-[0-9]{6}$`)
 
 type metadataRow struct {
 	period                                                     int64
@@ -126,7 +125,7 @@ func profileKind(path string) string {
 
 func profileIdentity(path string) (runID, host string, err error) {
 	runID = filepath.Base(filepath.Dir(path))
-	if !runIDPattern.MatchString(runID) && !smokeIDPattern.MatchString(runID) {
+	if !runIDPattern.MatchString(runID) {
 		return "", "", fmt.Errorf("profile parent directory %q is not a RUN ID", runID)
 	}
 	base := filepath.Base(path)

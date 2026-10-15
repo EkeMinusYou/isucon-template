@@ -274,21 +274,10 @@ nginxのon-CPU profile、任意JSON endpointのsnapshot、ダッシュボード�
 
 計測結果は`runs/`へ保存します。調査・実装の判断根拠は完了報告と必要な再利用資料へ記録し、作業用の集計ファイルは一時ディレクトリに置きます。
 
-## Setup smoke analysis
+## Setup postflight
 
-`task setup-smoke-analysis SMOKE_DIR=.task/setup-smoke-...` indexes diagnostic
-captures with the configured DuckDB source readers. It does not create a RUN,
-score history or benchmark quality judgment. The diagnostic database stays
-inside the smoke directory, and its materialized tables use the `smoke_` prefix.
-
-`task dashboard-smoke-server SMOKE_DIR=.task/setup-smoke-...` serves that capture
-with the regular dashboard API, without registering it in the RUN history.
-`SMOKE_DASHBOARD_ADDR` changes its listening address (default 127.0.0.1:8091).
 `task setup-postflight` checks the configured roles, connections, deployed
-contents and collector cleanup. `task setup-smoke-fgprof SMOKE_DIR=...` checks
-the optional fgprof endpoint with a three-second capture using `FGPROF_URL`.
-These tasks contain no competition-specific routes, services or host names;
-the smoke request flow and API classification remain under `tools/contest/`.
+contents and collector cleanup.
 
 <!--
 # >>> contest values >>>

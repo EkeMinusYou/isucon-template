@@ -29,7 +29,6 @@ webapp/go/default.pgo
 /tools/user-transition-metrics/user-transition-metrics
 /tools/dashboard/server/dashboardserver
 /tools/measurement/cmd/sql-pool-metrics/sql-pool-metrics
-/tools/contest/smoke/smoke
 
 # Node dependencies and browser state
 node_modules/

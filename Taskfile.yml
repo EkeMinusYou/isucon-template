@@ -91,8 +91,6 @@ vars:
     -var tls_forward_hosts={{splitList " " .TLS_FORWARD_HOSTS | join ","}}
     -var app_ip={{index .IP (splitList " " .APP_HOSTS | first)}}
     -var extra_service_roles=isuride-matcher:matcher,isuride-payment_mock:payment_mock,isuride-tls-forward:tls_forward,isuride-matching-worker:solver
-  # Arguments passed to the contest smoke binary on ENTRY_HOST.
-  SMOKE_ARGS: '-base https://isuride.xiv.isucon.net'
   # Optional extra measurectl roles referenced by contest collectors/digesters.
   # CONTEST_MEASURECTL_ROLES: >-
   #   -role matcher={{splitList " " .MATCHER_HOSTS | join ","}}
@@ -137,9 +135,6 @@ vars:
   JSON_METRICS_COLLECTOR_DIR: '{{.MEASUREMENT_DIR}}/cmd/json-metrics-collector'
   SQL_POOL_METRICS_DIR: '{{.MEASUREMENT_DIR}}/cmd/sql-pool-metrics'
   USER_TRANSITION_METRICS_DIR: tools/user-transition-metrics
-  # The smoke flow itself is contest specific; only its location is fixed here.
-  SMOKE_TOOL_DIR: tools/contest/smoke
-  SMOKE_REMOTE_DIR: /tmp/isucon-smoke
   MEASURECTL_DIR: tools/measurectl
   DEPLOYCTL_DIR: tools/deployctl
   ANALYSISCTL_DIR: tools/analysisctl
@@ -463,13 +458,6 @@ tasks:
     generates: [sql-pool-metrics]
     cmds: ['{{.GO_BUILD_ENV}} go build -trimpath -ldflags "-s -w" -o sql-pool-metrics .']
 
-  build-smoke:
-    internal: true
-    dir: '{{.SMOKE_TOOL_DIR}}'
-    sources: ['*.go', go.mod]
-    generates: [smoke]
-    cmds: ['{{.GO_BUILD_ENV}} go build -trimpath -ldflags "-s -w" -o smoke .']
-
   build-nginx-backend-report:
     internal: true
     silent: true
@@ -700,61 +688,6 @@ tasks:
       - task: deploy-app-dry
       - task: deploy-all-dry
 
-  setup-smoke:
-    desc: ベンチを実行せず短いprofile・全ホストcollector・認証APIを確認（RUNは作成しない）
-    preconditions:
-      - sh: test ! -f '{{.RUN_STATE_FILE}}'
-        msg: active benchmark exists
-    deps: [build-measurectl, build-proc-metrics, build-mysql-metrics, build-sql-pool-metrics, build-user-transition-metrics, build-nginx-backend-report, build-smoke]
-    vars:
-      SMOKE_PROFILE_VARS: '-var profile_seconds=5 -var snapshot_profile_delay=1s -var profile_timeout_seconds=20 -var fgprof_url=http://127.0.0.1:6060/debug/fgprof?seconds=5'
-      SMOKE_ID: 'setup-smoke-{{.RUN_ID}}'
-      SMOKE_DIR: '{{.ROOT_DIR}}/.task/{{.SMOKE_ID}}'
-    cmds:
-      - |
-        {{.OPERATION_LOCK}} bash <<'BASH'
-        set -eu
-        mkdir -p '{{.SMOKE_DIR}}'
-        {{.MEASURECTL_DIR}}/measurectl collect check-clean -config {{.MEASURECTL_COLLECTORS_CONFIG}} {{.MEASURECTL_REMOTE}}
-        {{.MEASURECTL_DIR}}/measurectl collect prepare -config {{.MEASURECTL_COLLECTORS_CONFIG}} {{.MEASURECTL_REMOTE}}
-        profiles_pid=''
-        trap 'if [ -n "$profiles_pid" ]; then wait "$profiles_pid" || true; fi; {{.MEASURECTL_DIR}}/measurectl collect stop -config {{.MEASURECTL_COLLECTORS_CONFIG}} -run-id "{{.SMOKE_ID}}" -run-dir "{{.SMOKE_DIR}}" {{.MEASURECTL_REMOTE}}' EXIT
-        {{.MEASURECTL_DIR}}/measurectl collect start -config {{.MEASURECTL_COLLECTORS_CONFIG}} -run-id '{{.SMOKE_ID}}' {{.MEASURECTL_REMOTE}}
-        {{.MEASURECTL_DIR}}/measurectl collect oneshot -config {{.MEASURECTL_COLLECTORS_CONFIG}} -group profiles -run-id '{{.SMOKE_ID}}' -run-dir '{{.SMOKE_DIR}}' {{.MEASURECTL_REMOTE}} {{.SMOKE_PROFILE_VARS}} &
-        profiles_pid=$!
-        {{.MEASURECTL_DIR}}/measurectl collect ready -config {{.MEASURECTL_COLLECTORS_CONFIG}} -group profiles -run-id '{{.SMOKE_ID}}' {{.MEASURECTL_REMOTE}}
-        started_at=$(task --silent bench-timestamp </dev/null)
-        printf '%s\tBENCHMARK_START\n' "$started_at" > '{{.SMOKE_DIR}}/bench.log'
-        {{.SSH}} {{.SSH_USER}}@{{.ENTRY_HOST}} 'mkdir -p {{.SMOKE_REMOTE_DIR}}' </dev/null
-        {{.RSYNC}} '{{.SMOKE_TOOL_DIR}}/smoke' {{.SSH_USER}}@{{.ENTRY_HOST}}:{{.SMOKE_REMOTE_DIR}}/smoke
-        {{.SSH}} {{.SSH_USER}}@{{.ENTRY_HOST}} '{{.SMOKE_REMOTE_DIR}}/smoke {{.SMOKE_ARGS}}' </dev/null
-        task setup-smoke-probes </dev/null
-        ended_at=$(task --silent bench-timestamp </dev/null)
-        printf '%s\tBENCHMARK_END\n' "$ended_at" >> '{{.SMOKE_DIR}}/bench.log'
-        wait "$profiles_pid"
-        profiles_pid=''
-        {{.MEASURECTL_DIR}}/measurectl digest -config {{.MEASURECTL_DIGESTERS_CONFIG}} -run-dir '{{.SMOKE_DIR}}' -raw-dir '{{.SMOKE_DIR}}/raw' {{.MEASURECTL_REMOTE}}
-        echo 'Smoke artifacts: {{.SMOKE_DIR}} (not a benchmark RUN)'
-        BASH
-
-  setup-smoke-stop:
-    desc: 指定したsetup疎通確認のcollectorだけを停止・回収
-    requires:
-      vars: [SMOKE_ID]
-    preconditions:
-      - sh: case '{{.SMOKE_ID}}' in setup-smoke-*) exit 0;; *) exit 1;; esac
-        msg: SMOKE_ID must identify a setup smoke session
-    deps: [build-measurectl]
-    cmds:
-      - '{{.OPERATION_LOCK}} {{.MEASURECTL_DIR}}/measurectl collect stop -config {{.MEASURECTL_COLLECTORS_CONFIG}} -run-id "{{.SMOKE_ID}}" -run-dir "{{.ROOT_DIR}}/.task/{{.SMOKE_ID}}" {{.MEASURECTL_REMOTE}}'
-
-  setup-smoke-analysis:
-    desc: Index smoke artifacts using the production DuckDB readers
-    requires: {vars: [SMOKE_DIR]}
-    deps: [build-analysisctl]
-    cmds:
-      - '{{.ANALYSISCTL_DIR}}/analysisctl smoke -config {{.ANALYSIS_CONFIG}} "{{.SMOKE_DIR}}"'
-
   setup-postflight:
     desc: Check roles, internal connectivity, deployed files and collector cleanup
     deps: [build-deployctl, build-measurectl]
@@ -763,35 +696,6 @@ tasks:
       - task: check-network
       - '{{.DEPLOYCTL_DIR}}/deployctl verify -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
       - '{{.MEASURECTL_DIR}}/measurectl collect check-clean -config {{.MEASURECTL_COLLECTORS_CONFIG}} {{.MEASURECTL_REMOTE}}'
-
-  setup-smoke-fgprof:
-    desc: Verify the optional fgprof endpoint with a short diagnostic capture
-    requires: {vars: [SMOKE_DIR]}
-    preconditions:
-      - sh: test ! -f '{{.RUN_STATE_FILE}}'
-        msg: active benchmark exists
-      - sh: case '{{.SMOKE_DIR}}' in *setup-smoke-*) exit 0;; *) exit 1;; esac
-        msg: expected a setup smoke directory
-    deps: [build-measurectl]
-    vars:
-      SMOKE_CAPTURE_ID:
-        sh: basename '{{.SMOKE_DIR}}'
-    cmds:
-      - >-
-        {{.OPERATION_LOCK}} {{.MEASURECTL_DIR}}/measurectl collect oneshot -config {{.MEASURECTL_COLLECTORS_CONFIG}} -only fgprof
-        -run-id '{{.SMOKE_CAPTURE_ID}}' -run-dir '{{.SMOKE_DIR}}' {{.MEASURECTL_REMOTE}}
-        -var 'fgprof_url={{regexReplaceAll "seconds=[0-9]+" .FGPROF_URL "seconds=3"}}'
-        -var profile_timeout_seconds=18
-
-  dashboard-smoke-server:
-    desc: Serve setup smoke artifacts with the regular dashboard API
-    requires: {vars: [SMOKE_DIR]}
-    dir: tools/dashboard/server
-    cmds:
-      - >-
-        go run . -root '{{.ROOT_DIR}}'
-        -smoke-dir '{{if hasPrefix "/" .SMOKE_DIR}}{{.SMOKE_DIR}}{{else}}{{.ROOT_DIR}}/{{.SMOKE_DIR}}{{end}}'
-        -addr '{{default "127.0.0.1:8091" .SMOKE_DASHBOARD_ADDR}}'
 
   gen:
     desc: 役割定義からnginx upstreamを生成

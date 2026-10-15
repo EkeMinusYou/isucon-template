@@ -7,45 +7,27 @@ import (
 	"flag"
 	"log"
 	"net/http"
-	"os"
 	"path/filepath"
-	"strings"
 )
 
 type app struct {
 	root       string
 	runsDir    string
 	analysisDB string
-	smokeDir   string
 }
 
 func main() {
 	root := flag.String("root", ".", "repository root directory")
 	analysisDB := flag.String("analysis-db", "", "path to analysis.duckdb")
 	addr := flag.String("addr", "127.0.0.1:8091", "listen address")
-	smokeDir := flag.String("smoke-dir", "", "serve setup smoke artifacts without registering a RUN")
 	flag.Parse()
-	if *smokeDir != "" {
-		resolved, err := filepath.Abs(*smokeDir)
-		if err != nil || !strings.HasPrefix(filepath.Base(resolved), "setup-smoke-") {
-			log.Fatal("invalid setup smoke directory")
-		}
-		if info, err := os.Stat(resolved); err != nil || !info.IsDir() {
-			log.Fatal("smoke directory is unavailable")
-		}
-		if _, err := os.Stat(filepath.Join(resolved, "run.json")); !os.IsNotExist(err) {
-			log.Fatal("smoke input must not have a RUN manifest")
-		}
-		*smokeDir = resolved
-	}
 
 	a := &app{
 		root:       *root,
-		smokeDir:   *smokeDir,
 		analysisDB: *analysisDB,
 		runsDir:    filepath.Join(*root, "runs"),
 	}
-	if a.analysisDB == "" && a.smokeDir == "" {
+	if a.analysisDB == "" {
 		a.analysisDB = filepath.Join(*root, "runs", "analysis.duckdb")
 	}
 	mux := http.NewServeMux()

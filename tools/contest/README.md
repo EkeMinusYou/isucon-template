@@ -14,13 +14,12 @@
 | `load-phase.yaml` | `tools/analysisctl` | 任意。ベンチログの実負荷開始・停止行の正規表現。`tools/analysis/sources.yaml`の`load_phase`で参照する |
 | `user-transition-routes.json` | `tools/user-transition-metrics` | Cookie列と正規化routeの宣言 |
 | `analysis-schema/` | `tools/analysis/sources.yaml` | ベンチログの解釈をDuckDBのviewにするschema。エラー行の意味ビュー、score集計、進捗行の推移 |
-| `smoke/` | `task setup-smoke` | ベンチを使わず計測経路を確認する、当日のセッションフローのGo実装 |
 | `deployments.yaml` | `tools/deployctl` | 汎用graphをincludeし、解法固有のdeploymentとplanを置き換えるoverlay。追加seedもここに置く |
 
 templateに置いてあるのは`bench-patterns.json`、`user-transition-routes.json`、
-`analysis-schema/bench-errors-semantic.sql`、`analysis-schema/bench-progress.sql`、`smoke/`のプレースホルダーだけである。setupで当日の形式へ書き換え、
+`analysis-schema/bench-errors-semantic.sql`、`analysis-schema/bench-progress.sql`のプレースホルダーだけである。setupで当日の形式へ書き換え、
 必要になった解法固有の宣言だけをこのディレクトリへ足す。`Taskfile.contest.yml`のhookタスク
-（`build-contest-assets`、`prepare-db-assets`、`gen-contest-routing`、`setup-contest-assets`、`setup-smoke-probes`、`check-contest-network`）も同じ考え方で、該当する処理がなければ空のままにする。
+（`build-contest-assets`、`prepare-db-assets`、`gen-contest-routing`、`setup-contest-assets`、`check-contest-network`）も同じ考え方で、該当する処理がなければ空のままにする。
 
 `analysis-schema/`のviewは、dashboardとREADMEが名前と列で参照する契約である。書式に合わせて
 本体を書き換えるときも、view名と列は変えない。書き換えなければ0行を返す。

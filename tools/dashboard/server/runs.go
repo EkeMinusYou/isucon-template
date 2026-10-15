@@ -182,11 +182,6 @@ func (a *app) resolveRunDir(runID string) (string, bool) {
 	return "", false
 }
 
-// artifactDirs exposes smoke data only in explicit smoke mode. It never writes
-// a score history or a finalized RUN manifest.
 func (a *app) artifactDirs() ([]runDir, error) {
-	if a.smokeDir != "" {
-		return []runDir{{ID: filepath.Base(a.smokeDir), Path: a.smokeDir}}, nil
-	}
 	return listRunDirs(a.runsDir)
 }

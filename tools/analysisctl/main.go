@@ -87,7 +87,7 @@ func main() {
 
 func runCLI(args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: analysisctl <sync|rebuild|status|profile|smoke> [flags] [arguments]")
+		return errors.New("usage: analysisctl <sync|rebuild|status|profile> [flags] [arguments]")
 	}
 	command := args[0]
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
@@ -111,11 +111,6 @@ func runCLI(args []string, stdout, stderr io.Writer) error {
 	}
 	r := runner{options: opts, config: cfg}
 	switch command {
-	case "smoke":
-		if len(arguments) != 1 {
-			return errors.New("usage: analysisctl smoke [flags] SETUP_SMOKE_DIR")
-		}
-		return r.smoke(arguments[0])
 	case "sync":
 		if len(arguments) != 0 {
 			return fmt.Errorf("unexpected arguments: %s", strings.Join(arguments, " "))

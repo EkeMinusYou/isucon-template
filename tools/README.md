@@ -193,7 +193,7 @@ nginxの`flush=1s`でバッファに残る末尾の行が書き出されるの�
 finalized RUN直下の `{host}-fgprof.pprof`、`{host}-go-cpu.pprof`、
 `{host}-go-heap.pprof`、`{host}-go-allocs.pprof`、`{host}-go-goroutine.pprof` を
 `task q` が取り込む。既存DBは取り込みschema versionの変更時に自動再構築する。
-RUNのない疎通確認ファイルは取り込まない。取得完了を待ってからRUNをfinalizeする。
+取得完了を待ってからRUNをfinalizeする。
 
 | table | 内容 |
 | --- | --- |
@@ -257,11 +257,6 @@ scoreには1つのcapture groupを持たせ、該当する行がない項目は�
 安全にログへ出せない場合は、この集計を無効にする。access logの時系列bucket
 （`tools/analysis/schema/access-log.sql`の`# >>> contest values >>>`区画）と`alp.yml`の
 `matching_groups`にも同じ正規化を入れる。
-
-`tools/contest/smoke`のリクエストフローを当日のセッションフロー（登録・ログイン・認証つきの読み取り数本）へ
-合わせる。`task setup-smoke`が`TARGET_OS`/`TARGET_ARCH`へビルドし、ENTRY_HOSTへ配置してloopbackに対して実行する。
-ベンチを使わずにaccess log・slow query・profile・user-transitionが出ることを確認するためのものなので、
-更新は最小限にとどめ、セッション識別子や認証情報を出力しない。
 
 `tools/contest/analysis-schema/bench-errors-semantic.sql`の`bench_errors`・`bench_warning_events`・
 `bench_error_counts`を当日のベンチ出力の書式へ合わせる。bench.logの読み込み自体は汎用の

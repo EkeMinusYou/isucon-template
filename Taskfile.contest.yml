@@ -5,7 +5,7 @@
 # collide with the generic file: Go Task rejects duplicates instead of
 # overriding them. The generic side reaches this file only through hook tasks
 # it declares (currently build-contest-assets, prepare-db-assets, gen-contest-routing,
-# setup-contest-assets, setup-smoke-probes and check-contest-network); a contest
+# setup-contest-assets and check-contest-network); a contest
 # that has nothing to do defines the hook here with no commands.
 version: '3'
 
@@ -21,9 +21,6 @@ tasks:
 
   setup-contest-assets:
     desc: 標準の取得対象外にある競技固有の資材を取得する（setupのhook、既定は何もしない）
-
-  setup-smoke-probes:
-    desc: smoke実行中に競技固有の経路を追加で確認する（setup-smokeのhook、既定は何もしない）
 
   check-contest-network:
     desc: 競技固有の内部経路を読み取り確認する（check-networkのhook、既定は何もしない）

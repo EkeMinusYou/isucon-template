@@ -60,8 +60,7 @@ RUN回収時も、バッファに残る末尾の行が書き出されてから�
 ## 設定反映と確認
 
 nginxのJSON設定を変えたら、生成物の`nginx/conf.d/upstream.conf`には触れず、管理対象の設定を編集して
-`task deploy-nginx`で反映する。`nginx -t`の成功と設定読込みを確認する。`task setup-smoke`を使うと、
-ベンチを実行せずにaccess log・upstream集計・user-transitionの入力が作られることを確認できる。
+`task deploy-nginx`で反映する。`nginx -t`の成功と設定読込みを確認する。
 
 空ログはtrafficがなかった状態として圧縮・保存される。必須列やJSONが不正な場合はRUNの成果物検査が失敗する。
 識別情報を安全に出せない競技ではuser-transitionを無効化する理由を残す。詳細なアクセスログ回収・集計設定は
