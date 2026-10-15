@@ -40,7 +40,7 @@
 - [bulk upsertのqueryを作成](bulk-upsert-query.md) — 複数レコードをまとめて更新するSQL実装例
 - [DBに適切なインデックスを追加する](database-index.md) — WHERE/JOIN/ORDER BY に沿った単一・複合インデックスの設計
 - [DBのロック保持時間と競合範囲を短縮する](database-lock-duration.md) — トランザクション境界、ロック対象、索引、ロック順を整理する実装パターン
-- [オンメモリ化](in-memory.md) — DBの読み取りや再計算をキャッシュ・read modelへ移す例
+- [オンメモリ化](in-memory.md) — キャッシュ・read modelと、メモリを実行時の正本とする状態処理の選択
 - [WAL付きオンメモリ状態と遅延DB投影](wal-backed-in-memory-state.md) — キー単位の状態遷移をWALへ追記し、DB投影をbatch化する実装パターン
 - [N+1クエリを解消する](n-plus-one.md) — 関連データを一括取得する実装パターン
 - [Unix Domain Socketでnginxとアプリケーションを接続する](unix-domain-socket.md) — 同一ホスト内の接続をUDSへ変更する例
