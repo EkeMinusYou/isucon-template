@@ -17,8 +17,7 @@ LimitNOFILE=1006500
 `fs.nr_open` がこの値以上であることを確認する。実際の FD 使用量とメモリー使用量は別途確認する。
 
 反映には `task deploy-mysql` を使う。この Task は設定ファイルを `MYSQL_HOSTS` へ配布し、
-`daemon-reload` の後に MySQL を restart する。バッファプールが温まる前に一時的な性能低下が起こり得るため、
-ベンチマーク実行中には反映しない。
+`daemon-reload` の後に MySQL を restart する。バッファプールが温まる前に一時的な性能低下が起こり得る。
 
 この設定だけを反映する場合は、他サービスも再反映する `deploy-all` ではなく `deploy-mysql` を使う。
 初期化処理を別途定義している場合も、この設定の反映には使わない。
