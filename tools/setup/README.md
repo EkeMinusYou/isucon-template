@@ -14,8 +14,9 @@
 ## webappの取得対象
 
 `SETUP_WEBAPP_EXCLUDES`はrsyncの`--exclude-from`へ渡すファイルです。
-既定の[webapp-excludes.txt](webapp-excludes.txt)は従来と同じ`node_modules/`だけを除外します。
-大会のソース配置を確認した後、生成される実行ファイルやビルドディレクトリを追加してください。
+既定の[webapp-excludes.txt](webapp-excludes.txt)は、参考実装の依存・ビルドディレクトリ
+（`node_modules/`、`/rust/target/`、`/python/.venv/`、`/perl/local/`、`/php/vendor/`）を除外します。
+大会のソース配置を確認した後、生成される実行ファイルを追加してください。
 先頭の`/`は取得対象である`webapp/`を基準にします。例えば`/go/app`はその実行ファイルだけを除外します。
 `vendor/`はオフラインビルドに必要なことがあるので、一律には除外しません。
 SQL、初期化スクリプト、画像などの実行時依存は残してください。除外対象が後で必要になった場合は、
