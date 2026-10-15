@@ -105,6 +105,55 @@ upstream のアプリケーションが keepalive を受け付ける必要があ
 `multi_accept on` はイベント通知1回で複数の待機接続を受け付ける設定である。バースト時の接続受付を改善する
 場合がある一方、worker が受付処理に偏ることもある。設定は上記の `events` ブロックに含める。
 
+## 静的ファイルのキャッシュと圧縮
+
+nginx が `root`・`try_files` で直接返している静的ファイル（フロントエンドの HTML・JavaScript・CSS・画像など）の
+`location` に、有効期限・ファイル情報のキャッシュ・圧縮を追加する。API へ proxy する `location` には追加しない。
+
+```nginx
+location / {
+  expires 1d;
+  open_file_cache max=1024 inactive=60s;
+  open_file_cache_valid 60s;
+  open_file_cache_min_uses 2;
+  try_files $uri /index.html;
+}
+```
+
+```nginx
+http {
+  gzip on;
+  gzip_vary on;
+  gzip_min_length 1024;
+  gzip_types text/css application/javascript image/svg+xml;
+}
+```
+
+- `expires 1d` は `Cache-Control: max-age` と `Expires` を付け、クライアントの条件付き再取得（304 応答）を減らす。
+  競技中に静的ファイルを差し替えない前提の値である。
+- `open_file_cache` はファイルディスクリプタと stat 結果を保持し、同じファイルへの open・stat を減らす。
+- `gzip_types` は静的ファイルの型に限る。`text/html` は既定で圧縮対象に含まれる。JSON の API 応答まで
+  圧縮すると、アプリの応答ごとに CPU を使う。
+- `try_files` と `root` は既存の設定を維持する。上の `location` は追加する行の例で、既存の `location` へ統合する。
+
+## HTTP/2
+
+TLS を終端する `server` の `listen` に `http2` を付け、クライアントが一つの接続で複数のリクエストを
+並行して送れるようにする。
+
+```nginx
+server {
+  listen 443 ssl http2;
+}
+```
+
+- nginx 1.25.1 以降では、`listen` に付ける代わりに `server` ブロックへ `http2 on;` を書く。`nginx -v` で
+  バージョンを確認し、どちらかの書き方にする。
+- 同じ IP・ポートを使う `server` ブロックは、HTTP/2 の有効・無効をそろえる。
+- 平文の HTTP（TLS なし）で受ける `server` には付けない。
+
+反映後は `curl -sI --http2 https://<host>/` の応答行が `HTTP/2` になることを確認する。
+
 ## このリポジトリでの注意点と確認
 
 `nginx/conf.d/upstream.conf` は `task gen` の生成物である。`APP_TRAFFIC_HOSTS` を変更する
