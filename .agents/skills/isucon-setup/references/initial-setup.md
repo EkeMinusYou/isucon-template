@@ -4,18 +4,17 @@
 
 ## ベンチ前とベンチ後の分担
 
-ベンチ前は、公式資料・現行コード・実効設定と短い疎通試験で確認できる範囲を完了する。実出力・実負荷が必要な項目だけを後段へ残す。
+ベンチ前は、公式資料・現行コード・実効設定で確認できる範囲を完了する。実出力・実負荷が必要な項目だけを後段へ残す。
 
 | 対象 | ベンチ前に完了すること | 実RUNで確認すること |
 | --- | --- | --- |
-| 環境・deploy・DB再作成 | 全ホストの構成調査、資材取得、役割・接続先・build設定、正規deploy、role・配布物・内部疎通、DB再作成経路とdry-run | 公式ベンチの初期化・整合性チェックの結果 |
+| 環境・deploy・DB再作成 | 全ホストの構成調査、資材取得、役割・接続先・build設定、正規deploy、role・配布物・内部疎通、DB再作成経路 | 公式ベンチの初期化・整合性チェックの結果 |
 | スコア・合否・結果原文 | 公式採点仕様、ポータル設定による自動取得手順、原文保存、RUNへの紐付け、保存からDuckDB分析までの経路 | 実結果との一致、初めて得られた書式に対する変換・内訳・ペナルティ・エラーの解釈 |
 | 参加者向け進捗行 | 原文保存と分析取り込み、資料や提供済み出力で確定できる解釈 | 初回出力で確定する時系列解釈ビューと負荷中の推移 |
-| profile・ログ・メトリクス・user-transition | endpoint・ログ列・API分類・collector/digester・読み手の整備、短い採取で生成から分析までの疎通 | 実負荷中の内容・被覆・欠損、profileの採取時刻、各系列と`load_windows`の対応 |
-| RUN制御・成果物検査 | 通常ベンチへの自動収集接続、開始・停止・回収待ち・finalizeと欠損検出を既存テストやsmokeで確認 | 実RUNのmanifest・artifact status・missing、失敗時も含む回収結果 |
+| profile・ログ・メトリクス・user-transition | endpoint・ログ列・API分類・collector/digester・読み手の整備 | 実負荷中の内容・被覆・欠損、profileの採取時刻、各系列と`load_windows`の対応 |
+| RUN制御・成果物検査 | 通常ベンチへの自動収集接続、開始・停止・回収待ち・finalizeと欠損検出を既存テストで確認 | 実RUNのmanifest・artifact status・missing、失敗時も含む回収結果 |
 
 当日の出力書式が未取得なら推測でparserや解釈ビューを作らず、その部分だけをベンチ待ちにする。既に公式資料やユーザー提供の出力で確定できる部分は先に対応する。
-疎通成果物は`.task/`等へ保存し、通常RUN・スコア履歴へ登録しない。RUNがない状態で`task artifacts-run`や通常の`task q-sync`を通すために架空のRUNを作らない。疎通用の分析経路で同じ読み手を確認する。
 
 ## DB再作成と通常デプロイ
 
@@ -25,7 +24,7 @@
 - 対象ホスト・DB・schemaはTaskfileの役割定義と取得済み資産から決める。共有DBは正本ホストで一度だけ再作成する。
 - 主schema以外にDB構築や初期化が読むローカル資材は`RESET_INPUTS`へ列挙し、deploy設定のuploadと実行順も揃える。不要と確認した場合だけ`none`にする。
 - build等の準備と`task setup-preflight`を先に済ませる。DB再作成前に書込み元を停止し、途中で失敗したら後続処理へ進まない。
-- READMEに破棄対象と実行方法を記載し、dry-runで対象と順序を確認する。実DBの状態も読み取り専用で確認する。
+- READMEに破棄対象と実行方法を記載する。実DBの状態も読み取り専用で確認する。
 
 ## 標準計測
 
@@ -48,10 +47,9 @@
    管理対象のアプリ・設定・unit・schemaを`task setup-*`で取得し、対象外は理由を残す。
 3. Taskfileの役割・IP・service名・TARGET_OS/ARCH・schema取得先・構文検査を実環境へ合わせる。
 4. `task db-recreate`を上記の要件で整備し、全管理対象を正規deploy・role収束・計測・分析・RUNの役割記録へ組み込む。Go計測は`tools/measurement`の共通moduleを接続し、DB pool・service・接続先と競技固有の指標だけを設定する。標準計測のadapterと通常ベンチの起動・回収待ちも揃える。
-5. 必要な修正を揃えてから`task setup-check`を通す。生成、DB再作成・deployのdry-run、build・テスト・成果物契約の確認はTaskfileの依存タスクに従い、含まれている検査は重ねて実行しない。転送先とactivationを確認して正規deployする。
-6. `task setup-smoke`等の短い採取と最小限のAPI操作で疎通を確認する。同じsmoke成果物で生成からDuckDBの取り込み・意味ビュー・queryまでを確認する。`task setup-smoke-analysis SMOKE_DIR=...`があれば利用し、未対応の競技では必要なadapterを`tools/contest/`と競技固有taskへ置く。collectorの起動・停止・timeout・欠損検出は既存テストと疎通で必要な範囲を確認する。ベンチの負荷走行を再現する試験へ広げない。
-7. smokeの書込み・計測プロセス等の後処理を済ませ、`task check-roles`・`task check-network`・配布物一致・collector終了を確認する。`task setup-postflight`があれば利用する。初期状態を戻す必要がある場合は既存の初期化・`task db-recreate`を使う。
-8. 標準計測の設定・疎通を確認したら、次節に従って初回ベンチを実行する。実出力に依存する書式対応や計測不足は、その結果を使って続けて整える。
+5. 必要な修正を揃えてから`task setup-check`を通す。build・テスト・成果物契約の確認はTaskfileの依存タスクに従い、含まれている検査は重ねて実行しない。転送先とactivationを確認して正規deployする。
+6. `task check-roles`・`task check-network`・配布物一致を確認する。`task setup-postflight`があれば利用する。
+7. 標準計測を設定したら、次節に従って初回ベンチを実行する。実出力に依存する書式対応や計測不足は、その結果を使って続けて整える。
 
 確認後の再実行は、追加変更・失敗・未解決の懸念がある範囲に絞る。
 
@@ -79,7 +77,7 @@
 
 ベンチ終了後、同じsetupの後段として続けて行う。既存環境では計測確認の依頼範囲に従う。
 
-1. 対象RUNの合否・結果原文・`run.json`のartifact statusとmissingを確認し、`task artifacts-run RUN=...`、内容・ホスト・`load_windows`、DuckDBでの分析結果を照合する。ベンチ前の疎通成功を実負荷確認の代用にしない。
+1. 対象RUNの合否・結果原文・`run.json`のartifact statusとmissingを確認し、`task artifacts-run RUN=...`、内容・ホスト・`load_windows`、DuckDBでの分析結果を照合する。ベンチ前の確認を実負荷確認の代用にしない。
    通常の回収は失敗RUNも`after-bench`でfinalizeする。自動ローカルcommitの確認は、commit処理を変更した場合、commitに失敗した場合、差分に異常がある場合に絞る。`abort-run`を通常回収の代用にしない。
 2. ベンチ前に保留した出力書式を参加者向け原文から確定し、結果変換とスコア・合否・内訳・ペナルティ・エラーの読み手を対応させる。保存済みRUNは上書きせず、分析側で原文との一致を確認する。負荷中の取得不足を修正した場合は正規deploy・疎通まで進め、読み手だけの修正は既存RUNで確認し、収集条件を変更した項目など実負荷の再確認が必要なら`task bench`で次RUNを取得して確認する。
 3. 進捗行の解釈ビューが未作成なら、対象RUNの`bench.log`や`benchmark-result.txt`から負荷中に繰り返し出る進捗行を特定し、負荷開始からの経過秒・指標名・値（累計・割合・単発の区別付き）を返すビューを`tools/contest/analysis-schema/`に作って`sources.yaml`へ登録する。運営向け出力やベンチマーカー内部の情報は使わず、保存済みRUNで負荷中の推移が読めることを確認する。原文が不足していれば推測で補わず、必要な出力を示す。
