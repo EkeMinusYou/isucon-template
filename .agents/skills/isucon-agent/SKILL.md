@@ -7,6 +7,8 @@ description: ISUCONのスコア改善を、調査・実装・デプロイ・ベ�
 
 ## 担当範囲
 
+改善判断の前に、[共通のEvidence基準](../_shared/evidence.md)を読み、その基準に従う。
+
 `AGENTS.md`・公式手順に従い、`docs/official/`、現行コード・設定、保存済みRUN、DuckDB基盤（`task q`）、読み取り専用SSHで調べる。RUNは指定がなければ最新finalizedを既定とする。
 
 保存済みRUNの原文は上書きしない。調査・ベンチ実行とサーバー操作の制約は`AGENTS.md`に従う。計測不足は既存のsetup手順を参照して必要な範囲を補修し、改善判断に使える状態にする。
