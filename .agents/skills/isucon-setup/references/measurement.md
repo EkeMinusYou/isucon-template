@@ -8,7 +8,7 @@
 | --- | --- |
 | スコア記録 | 公式の採点仕様と出力形式を確認し、生成元、自動取得の手順、RUNへの紐付け、保存先・形式を整える。最終スコア、成功・失敗判定、公式出力にある内訳・ペナルティが元の結果と一致し、DuckDBのqueryで読めることを確認する。未取得・未判定を0点や成功に置き換えない。 |
 | nginx access log | 実際のtrafficを受けるserver/locationの`access_log`と継承・無効化、JSONのescape、出力先・権限、buffer/flush、ローテート後のreopenを確認。共通列とupstream列がToolsの契約を満たし、alp・upstream集計まで読めるかを見る。正常なHTTP応答だけでログ出力を確認済みにしない。 |
-| Go pprof・fgprof | CPU・heap・allocs・goroutineを標準で自動収集し、fgprofはendpointだけ整備して既定無効（`task fgprof-collect`で明示収集）とする。endpointの実装・handler登録と実際のlistener、collectorの取得URL・実行ホスト、有効宣言と起動経路を確認。`Taskfile.yml`にURLがあるだけでは公開済みとしない。取得ファイルを`go tool pprof -top`等で解析する。 |
+| Go pprof | CPU・heap・allocs・goroutineを標準で自動収集し、endpointの実装・handler登録と実際のlistener、collectorの取得URL・実行ホスト、有効宣言と起動経路を確認。`Taskfile.yml`にURLがあるだけでは公開済みとしない。取得ファイルを`go tool pprof -top`等で解析する。 |
 | MySQL | slow logの実効設定・閾値・出力先・ローテートとdigest、performance_schemaの有効性・権限・version、status・接続・lock waitを確認。`MYSQL_HOSTS`と詳細計測先`MYSQL_HOST`の差による未被覆を残す。空のslow logは低負荷・閾値未満・収集失敗を区別する。 |
 | ホスト・service | 全対象ホストのCPU・メモリ・disk・ネットワークと、実際のunit/process/cgroupの対応を確認。追加serviceや別ホストのDBも対象に含める。欠損、counter reset、単位、sampling間隔を確認する。 |
 | 障害・整合性 | app/nginxのjournal・error log、kernel/OOM、panic、service再起動が同じload windowで追えるか確認する。正常系のprofileだけで網羅済みにしない。 |
