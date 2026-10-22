@@ -14,7 +14,7 @@
 | 障害・整合性 | app/nginxのjournal・error log、kernel/OOM、panic、service再起動が同じload windowで追えるか確認する。正常系のprofileだけで網羅済みにしない。 |
 | その他の依存サービス | 競技ごとの公式資料と稼働serviceから依存経路を列挙する。既存service metrics・journalで見える範囲と、処理件数・失敗・遅延など追加観測が必要な範囲を分ける。 |
 | user-transition | 標準対象。アプリのセッション仕様に合わせた識別列と有限個のAPI分類を整える。実ログに識別列があり、認証済みリクエストを結び付けられ、集計結果をDuckDBのqueryで読めることを確認する。未設定はoptionalではない。 |
-| アプリ内部・追加計測 | DB pool待ち、queue、処理件数などは既存profile・標準計測で説明できない問いがある場合に追加する。高頻度task-state、lock wait、nginx on-CPUも目的・負荷・停止方法を確認して選ぶ。 |
+| アプリ内部・追加計測 | DB pool待ち、queue、処理件数などは既存profile・標準計測で説明できない問いがある場合に追加する。fgprof、高頻度task-state、lock wait、nginx on-CPUも目的・負荷・停止方法を確認して選ぶ。 |
 | RUN全体 | load windowと各計測の開始・終了、ホスト時計、取得遅延・欠落、roles/source、artifact status、rawから集計・分析への対応を確認。ヘッダーだけのfallbackと実測値を区別する。 |
 
 ## スコア記録を整えるとき
@@ -33,9 +33,9 @@
 - proc・MySQL・SQL pool・JSON collectorとoptional nginx on-CPU profilerは同moduleの`cmd/`を既存Taskfileでビルド・配布する。分析ツールをアプリの依存へ追加しない。
 
 - 計測用listenerはloopbackなど必要な範囲へ限定し、公開traffic用routerへ無条件に登録しない。remote curlがどのホストで動くかとbind先を照合する。
-- 標準pprofとfgprofは別のendpoint・実装として確認する。handler未登録、timeout、HTTPエラー本文の保存を取得成功に数えない。
+- 標準pprofのendpoint・実装を確認する。fgprofは任意で既定無効とし、利用する場合だけ別endpoint・実装を確認する。setupの完了のためにfgprofを有効化しない。handler未登録、timeout、HTTPエラー本文の保存を取得成功に数えない。
 - `PROFILE_DELAY`、`SNAPSHOT_PROFILE_DELAY`、取得秒数、timeoutと実際の起動時刻を照合する。負荷終了後に手動タスクを呼んでも負荷中のprofileにはならない。
-- CPUとfgprofは初期化・チェック・負荷・終了処理と余裕を覆う時間、snapshotは負荷中になる遅延を設定する。特定の秒数を競技共通の保証値としない。通常ベンチが採取開始を確認し、回収完了を待ってfinalizeすることを確認する。
+- CPUは初期化・チェック・負荷・終了処理と余裕を覆う時間、snapshotは負荷中になる遅延を設定する。fgprofを利用する場合も、調査対象の時間窓を覆うように設定する。特定の秒数を競技共通の保証値としない。通常ベンチが採取開始を確認し、回収完了を待ってfinalizeすることを確認する。
 - 同じプロセスへのCPU profile取得が重複しないようにする。fgprofとの同時利用も実装・負荷を確認する。block/mutexのような追加profileはsampling設定と負荷を確認してから使う。
 - CPU時間、wall-clock、heapの時点値、allocsの累積値を区別する。profileに紐づくソース・binaryと採取時間を追えるようにし、空または疎なprofileから負荷中の有用性を断定しない。
 

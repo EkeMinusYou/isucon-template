@@ -908,7 +908,7 @@ tasks:
       - '{{.MEASURECTL_DIR}}/measurectl artifacts -recorded -run-dir {{.RESULT_DIR}}/{{.FINISH_RUN_ID}}'
 
   profiles-collect:
-    desc: 進行中RUNへ標準Go profileとfgprofを収集
+    desc: 進行中RUNへ有効宣言のprofileを収集
     deps: [build-measurectl]
     vars:
       ACTIVE_RUN_ID:
@@ -916,7 +916,7 @@ tasks:
     cmds: ['{{.MEASURECTL_DIR}}/measurectl collect oneshot -config {{.MEASURECTL_COLLECTORS_CONFIG}} -group profiles -run-id {{.ACTIVE_RUN_ID}} -run-dir {{.RESULT_DIR}}/{{.ACTIVE_RUN_ID}} {{.MEASURECTL_REMOTE}}']
 
   profiles-ready:
-    desc: 進行中RUNのCPU・fgprof開始を全APP_HOSTSで確認
+    desc: 進行中RUNの有効なprofileの開始を全APP_HOSTSで確認
     silent: true
     deps: [build-measurectl]
     vars:
@@ -925,7 +925,7 @@ tasks:
     cmds: ['{{.MEASURECTL_DIR}}/measurectl collect ready -config {{.MEASURECTL_COLLECTORS_CONFIG}} -group profiles -run-id {{.ACTIVE_RUN_ID}} {{.MEASURECTL_REMOTE}}']
 
   profiles-stop:
-    desc: 進行中RUNのCPU・fgprofへ停止を通知し、採取中のHTTP応答で書き出す
+    desc: 進行中RUNの有効なprofileへ停止を通知し、採取中のHTTP応答で書き出す
     deps: [build-measurectl]
     vars:
       ACTIVE_RUN_ID:

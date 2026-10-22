@@ -32,11 +32,13 @@
 
 - スコアの記録方法（生成元、自動取得手順、RUNへの紐付け、保存形式）と、成功・失敗判定、公式出力にある内訳・ペナルティの保存・分析。必要に応じたDuckDBの取り込みschema・意味ビューの対応。
 - 参加者向けベンチ出力が負荷中に定期的に出す進捗行（負荷の増減とその理由など）の時系列解釈ビュー。書式が未取得の部分は[ベンチ後の計測確認](#ベンチ後の計測確認)で作成する。
-- Go CPU・heap・allocs・goroutineのpprof、fgprof、採取開始確認endpoint。
+- Go CPU・heap・allocs・goroutineのpprof、採取開始確認endpoint。
 - nginxアクセスログの必要列、ローテート、全NGINX_HOSTSの回収、alp・upstream集計。
 - user-transitionの識別方法・ログ列・アプリ固有API分類・集計。
 - DB・ホスト・全管理対象serviceと依存サービスの標準メトリクス、app/nginx・kernel/OOM等の障害ログ。
 - 通常ベンチへの自動収集接続、ホスト別の必須成果物・内容・時間窓の検査、対応するDuckDBの取り込み・意味ビュー・query。
+
+fgprofは任意の追加計測で、既定無効とする。導入・取得・解析は初回setupの完了条件に含めず、必要な調査でのみ明示的に採取する。
 
 有効宣言と対象外判断は[標準計測の確認手順](measurement.md#有効宣言と対象外判断)に従う。
 

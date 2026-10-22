@@ -4,7 +4,7 @@
 
 ## 構成
 
-- `isucon-setup` — 初期環境・標準計測の整備と既存環境の計測補修。pprof・fgprof・nginxログ・user-transitionの収集から分析・dashboardまで確認。ベンチを実行し、結果を確認して計測不足を補修
+- `isucon-setup` — 初期環境・標準計測の整備と既存環境の計測補修。pprof・nginxログ・user-transitionの収集から分析・dashboardまで確認。fgprofは任意の追加計測。ベンチを実行し、結果を確認して計測不足を補修
 - `isucon-special-sauce` — 設定資料の値を現行構成に合わせて適用し、正規deploy
 - `isucon-use-solution` — 指定された一つの `docs/solutions/` 文書の適用条件を現行環境と照合して報告
 - `isucon-create-solution` — 再利用できる実装パターンを `docs/solutions/` に新規作成・更新

@@ -1,23 +1,24 @@
 # Go profileを通常のRUNへ自動収集する
 
-profileは標準計測として既定で有効。テンプレートはアプリ実装を持たないため、setupでendpointを導入する。
+CPU・heap・allocs・goroutineのpprofは標準計測として既定で有効。テンプレートはアプリ実装を持たないため、setupでendpointを導入する。
+fgprofは任意の追加計測で既定無効。setupの完了条件には含めず、必要な場合に`task fgprof-collect`で明示的に採取する。
 [共通計測module](../../tools/measurement/README.md)をアプリから読み込み、起動時に明示的に開始する。
 競技ルールは `docs/official/` を確認し、ローカルのGoアプリに追加して正規deploy経路で反映する。
 アプリ固有のハンドラー・DB・nginx構成は含まない。
 
 ## 有効化する条件
 
-全APP_HOSTSで次のendpointをloopbackに公開する。テンプレートではSSH経由でアクセスする。
+全APP_HOSTSで標準pprofと開始確認・停止通知のendpointをloopbackに公開する。fgprofのendpointは利用する場合に確認する。テンプレートではSSH経由でアクセスする。
 
 | endpoint | 用途 |
 |---|---|
 | `/debug/pprof/profile?seconds=N&run_id=ID` | CPU profile |
-| `/debug/fgprof?seconds=N&run_id=ID` | goroutineのwall-clock profile |
+| `/debug/fgprof?seconds=N&run_id=ID` | 任意のgoroutine wall-clock profile |
 | `/debug/pprof/heap`、`allocs`、`goroutine` | snapshot |
 | `/debug/profiles/status` | 実行中の種類とRUN IDをJSONで返す |
 | `POST /debug/profiles/stop?kind=cpu\|fgprof&run_id=ID` | 指定RUNの採取へ停止を通知する |
 
-開始確認は `{"cpu":"RUN_ID","fgprof":"RUN_ID"}` のような空白なしのJSONを前提とする。
+開始確認は `{"cpu":"RUN_ID","fgprof":""}` のような空白なしのJSONを前提とし、有効な採取対象だけを確認する。
 未実行の種類は空文字を返す。標準`net/http/pprof`だけではこのendpointは存在しない。
 独自adapterを使う場合は`collectors.yaml`の`ready`もその形式に合わせる。
 同じ種類の並行収集は拒否し、CPUとfgprofの併用は許容する。
