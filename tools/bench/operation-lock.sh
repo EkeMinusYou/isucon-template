@@ -1,10 +1,10 @@
 #!/bin/sh
 
-# Serializes server-changing operations and benchmark runs across every
-# worktree of this repository. The kernel releases the lock when the holder
-# exits, so a crashed operation never leaves a stale lock behind. Commands run
-# under the lock inherit ISUCON_OPERATION_LOCK_HELD, so nested task calls from
-# the holder pass through instead of deadlocking.
+# Serializes server-changing operations and benchmark runs for this
+# repository. The kernel releases the lock when the holder exits, so a crashed
+# operation never leaves a stale lock behind. Commands run under the lock
+# inherit ISUCON_OPERATION_LOCK_HELD, so nested task calls from the holder pass
+# through instead of deadlocking.
 set -eu
 
 if [ "$#" -eq 0 ]; then

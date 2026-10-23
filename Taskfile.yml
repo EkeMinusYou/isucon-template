@@ -171,7 +171,7 @@ vars:
   MEASURECTL_REMOTE: '{{.MEASURECTL_SSH}} {{.MEASURECTL_ROLES}} {{.MEASURECTL_VARS}}'
   MEASURECTL_COMMON: '{{.MEASURECTL_FLAGS}} {{.MEASURECTL_REMOTE}}'
 
-  # Server-changing commands and benchmark runs share one lock across all worktrees.
+  # Server-changing commands and benchmark runs share one lock.
   OPERATION_LOCK: sh tools/bench/operation-lock.sh
   PORTAL_BENCH_CONFIG: '{{default "" .CONTEST_PORTAL_BENCH_CONFIG}}'
 
@@ -619,7 +619,7 @@ tasks:
     desc: app deployの転送先・role・activationを実行せず表示
     deps: [gen, build-deployctl]
     cmds:
-      # Contest hook; keep the dry-run input complete in clean worktrees.
+      # Contest hook; keep the dry-run input complete in a clean checkout.
       - task: prepare-db-assets
       - '{{.DEPLOYCTL_DIR}}/deployctl apply app -dry-run -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
 
@@ -627,7 +627,7 @@ tasks:
     desc: deploy-allの転送先・role・activation graphを実行せず表示
     deps: [build-deployctl]
     cmds:
-      # Contest hook; keep the dry-run input complete in clean worktrees.
+      # Contest hook; keep the dry-run input complete in a clean checkout.
       - task: prepare-db-assets
       - task: gen
       - task: build
@@ -738,7 +738,7 @@ tasks:
     silent: true
     deps: [build-measurectl, build-proc-metrics, build-mysql-metrics, build-sql-pool-metrics, build-nginx-oncpu-profiler, build-deployctl]
     cmds:
-      # Measure only what this worktree deployed: other worktrees share the servers.
+      # Measure only what was deployed from the local source.
       - '{{.DEPLOYCTL_DIR}}/deployctl verify -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
       - '{{.DEPLOYCTL_DIR}}/deployctl check-roles {{.DEPLOYCTL_COMMON}}'
       - |

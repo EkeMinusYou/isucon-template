@@ -137,9 +137,9 @@ profile対象は`collectors.yaml`の`group: profiles`と`enabled_by_default`か�
 `task bench`は、ベンチ失敗や割り込みでも可能な限り`after-bench`を実行し、
 失敗RUNをEvidenceとしてfinalizeします。共通の開始・終了・trap処理は`tools/bench/run.sh`、
 RUN状態遷移とcollector・digest・manifest処理は`measurectl run begin/finalize`が担当します。
-`current-run-id`は1行目にRUN ID、2行目に開始元worktreeの正規化した絶対パスを記録します。
+`current-run-id`は1行目にRUN ID、2行目に開始元リポジトリの正規化した絶対パスを記録します。
 回収・profile操作・中断は開始元でのみ実行でき、不一致なら操作前に開始元を表示して停止します。
-進行中RUNがある場合のデプロイ禁止は全worktreeに適用します。
+進行中RUNがある場合はデプロイを禁止します。
 開始・終了マーカーは`task bench-timestamp`でENTRY_HOSTのUTC時刻を取得し、ローカルPCの時計を
 profileやアクセスログの時間窓へ混ぜません。取得失敗時はエラーとしてRUNをfinalizeします。
 競技サーバー間の時計差はsetupで別途確認してください。

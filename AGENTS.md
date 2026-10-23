@@ -48,5 +48,5 @@
 - Goアプリとcollectorは、実ホストで確認した`TARGET_OS` / `TARGET_ARCH`へローカルでクロスコンパイルする
 - `nginx/conf.d/upstream.conf`は`task gen`の生成物なので手編集しない
 - `task deploy-*`はreload/restart、`task apply-roles`はサービスのenable/disableを伴う。実行前に対象ホストと影響を確認する
-- サーバーの状態を変えるtaskは競技固有taskも含めて`{{.OPERATION_LOCK}}`を通し、ベンチRUNと全worktree共通の操作ロック（`tools/bench/operation-lock.sh`）で直列化する。ロック中で失敗したら表示された保持者の終了を待ち、ロックを手で消さない。読み取り専用の確認は並行してよい
-- ベンチ開始時に、各ホストの配布物が計測するworktreeの内容と一致するか（`deployctl verify`）とservice状態（`check-roles`）を検査し、不一致ならRUNを始めない。止まったら計測するworktreeからdeployし直す
+- サーバーの状態を変えるtaskは競技固有taskも含めて`{{.OPERATION_LOCK}}`を通し、ベンチRUNと共通の操作ロック（`tools/bench/operation-lock.sh`）で直列化する。ロック中で失敗したら表示された保持者の終了を待ち、ロックを手で消さない。読み取り専用の確認は並行してよい
+- ベンチ開始時に、各ホストの配布物がローカルの内容と一致するか（`deployctl verify`）とservice状態（`check-roles`）を検査し、不一致ならRUNを始めない。止まったらローカルからdeployし直す
