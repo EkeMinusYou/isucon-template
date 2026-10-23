@@ -140,10 +140,9 @@ RUN状態遷移とcollector・digest・manifest処理は`measurectl run begin/fi
 `.config/wt.toml`の`pre-start`は`task worktree-link-raw`を呼び、新しいworktreeのルート`raw`を
 primary worktreeへのディレクトリリンクにします。`runs/<RUN_ID>/raw`は各worktreeに保持します。
 `raw`は`copy-ignored`の対象外です。リンク先が違う場合や既存の`raw`が空でない場合は作成を止めます。
-`pre-merge`はペインの作業ディレクトリから対象HerdrタブのIDを記録します。
-`post-merge`は分析DBを同期し、記録したタブがあれば閉じます。
-削除時のディレクトリ移動に影響されず、別worktreeのペインが混在するタブは残します。
-Herdr外でのマージや該当タブがない場合は、タブ終了処理をスキップします。
+並行改善は[isucon-worktree](.agents/skills/isucon-worktree/SKILL.md)に従い、app-server上の独立したCodexタスクと
+専用worktreeへ実装を分担します。mainがタスクIDで指示・進捗・結果を確認し、順次統合・計測します。
+Herdrのタブ操作は行わず、`post-merge`は`task q-sync`で分析DBを同期します。
 `current-run-id`は1行目にRUN ID、2行目に開始元worktreeの正規化した絶対パスを記録します。
 回収・profile操作・中断は開始元でのみ実行でき、不一致なら操作前に開始元を表示して停止します。
 進行中RUNがある場合のデプロイ禁止は全worktreeに適用します。

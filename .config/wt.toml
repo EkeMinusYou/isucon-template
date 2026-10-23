@@ -7,10 +7,5 @@ exclude = ["/raw"]
 [pre-remove]
 preserve-run-raw = "task worktree-save-run-raw PRIMARY_WORKTREE='{{ primary_worktree_path }}'"
 
-[pre-merge]
-capture-herdr-tab = "task worktree-close-herdr-tab TAB_ACTION=capture WORKTREE={{ worktree_path }} TARGET_WORKTREE={{ target_worktree_path }}"
-
 [post-merge]
-# Isolate sync from Herdr's shutdown of the source pane's session.
-qsync = """python3 -c 'import os; os.setsid(); os.execvp("task", ["task", "q-sync"])'"""
-close-herdr-tab = "task worktree-close-herdr-tab WORKTREE={{ worktree_path }} TARGET_WORKTREE={{ cwd }}"
+qsync = "task q-sync"
