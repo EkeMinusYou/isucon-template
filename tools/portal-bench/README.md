@@ -36,7 +36,7 @@ task bench MEASURECTL_COLLECT_FLAGS=-no-collectors PROFILES_ENABLED=false
 既存の`before-bench`による配布物・service検査、operation lock、collector開始、`after-bench`によるfinalizeを使う。
 `runs/<RUN_ID>/bench.log`へ取得ログと結果marker、`benchmark-result.txt`へ抽出した原文を保存する。
 失敗時もRUNをfinalizeする。原文ファイルはmanifestの任意成果物として一覧に出る。
-スコア・合否・エラーの競技固有の解釈は、`tools/contest/bench-patterns.json`と`analysis-schema/`で設定する。ベンチマーカーの進捗ログは、取得できた場合に分析に利用する。
+スコア・進捗行の競技固有の意味は、従来どおり`tools/contest/bench-patterns.json`と`analysis-schema/`で設定する。
 
 他の設定へ切り替える例:
 
