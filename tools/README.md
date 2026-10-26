@@ -37,15 +37,15 @@
 | `contest/` | 毎回入れ替え | この競技だけで成立する設定・ツールの集約先。他のディレクトリはここを参照する側でも競技非依存に保つ。[一覧と置く基準](contest/README.md) |
 | `dashboard/` | 利用時 | 標準成果物なら変更不要。独自collector、独自スコア列、追加ロールを表示する場合はserver APIとweb UIを拡張する |
 | `deployctl/` | 毎回確認 | [デプロイ](#デプロイ) |
-| `json-metrics-collector/` | 利用時のみ実装 | [アプリ固有adapter](#アプリ固有adapter) |
+| `measurement/cmd/json-metrics-collector/` | 利用時のみ実装 | [アプリ固有adapter](#アプリ固有adapter) |
 | `measurectl/` | 毎回確認 | [計測と集計](#計測と集計) |
-| `mysql-metrics/` | 接続・互換性確認 | `-dsn`、認証、socket/port、MySQL version、`performance_schema.data_lock_waits`の利用可否を確認する |
+| `measurement/cmd/mysql-metrics/` | 接続・互換性確認 | `-dsn`、認証、socket/port、MySQL version、`performance_schema.data_lock_waits`の利用可否を確認する |
 | `nginx-backend-report/` | log列確認 | [access log](#access-log) |
-| `nginx-oncpu-profiler/` | 利用時のみ環境調整 | 既定では無効。`perf`権限、kernel package、worker数、delay、duration、frequency、出力上限を確認する |
+| `measurement/cmd/nginx-oncpu-profiler/` | 利用時のみ環境調整 | 既定では無効。`perf`権限、kernel package、worker数、delay、duration、frequency、出力上限を確認する |
 | `setup/` | 取得・構文検査の調整時 | [取得対象の除外、schemaの実体取得、設定構文検査の実装例](setup/README.md) |
 | `template/` | 大会後 | templateへ戻す差分の宣言と抽出。当日は変更しない。[backportの手順](template/README.md) |
-| `proc-metrics/` | service設定 | Linuxの`/proc`、`/sys`、cgroup v2を使う。`-services`へ実際のsystemd unitを渡し、sampling intervalを確認する |
-| `sql-pool-metrics/` | アプリadapter確認 | [collector README](sql-pool-metrics/README.md)に沿ってendpoint契約を合わせる |
+| `measurement/cmd/proc-metrics/` | service設定 | Linuxの`/proc`、`/sys`、cgroup v2を使う。`-services`へ実際のsystemd unitを渡し、sampling intervalを確認する |
+| `measurement/cmd/sql-pool-metrics/` | アプリadapter確認 | [endpoint契約](measurement/docs/sql-pool-metrics.md)に合わせる |
 | `topology-screen/` | 利用時に引数調整 | 配置候補を調べる場合だけ、key field・regex、route、hash、分割数、対象bucketを当日のデータモデルへ合わせる |
 | `user-transition-metrics/` | adapter設定 | [アプリ固有adapter](#アプリ固有adapter)・[access log](#access-log) |
 
@@ -263,13 +263,13 @@ scoreには1つのcapture groupを持たせ、該当する行がない項目は�
 `tools/analysis/schema/bench-errors.sql`が行い、ここは行の解釈だけを持つ。view名と列はdashboardと
 `task q`の契約なので変えない。書き換えるまでは0行を返す。
 
-`tools/json-metrics-collector`は、標準では利用しない。既存のHTTP・DB・profile計測では見えない、
+`tools/measurement/cmd/json-metrics-collector`は、標準では利用しない。既存のHTTP・DB・profile計測では見えない、
 スコアに直接関係するboundedなアプリ内部状態がある場合だけ導入する。高cardinalityのラベルや
 ユーザーIDを出力しない。利用時はアプリ側にboundedなenable/snapshot/disable endpointを実装し、metric・scope・上限を決めてcollector宣言を追加する。
 
-`tools/sql-pool-metrics`は、アプリのlocalhost debug endpointから`database/sql.DBStats`相当の接続プール状態を
+`tools/measurement/cmd/sql-pool-metrics`は、アプリのlocalhost debug endpointから`database/sql.DBStats`相当の接続プール状態を
 1秒間隔で収集する汎用collectorである。アプリ側は固定されたpool名・role・shardだけを返し、リクエストやユーザー識別子を返さない。
-実装するendpointの契約は[`tools/sql-pool-metrics/README.md`](sql-pool-metrics/README.md)を参照する。
+実装するendpointの契約は[SQL接続プールの計測](measurement/docs/sql-pool-metrics.md)を参照する。
 `in_use`、`wait_count`、`wait_duration`とその差分レートをMySQL側の`Threads_running`やCPUと同じ時間窓で比較し、
 接続プール待ちとDBサーバー飽和を切り分ける。
 MySQL status collectorはこの比較用に`max_connections`、`Max_used_connections`、
