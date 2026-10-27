@@ -249,11 +249,15 @@ nginxのon-CPU profile、任意JSON endpointのsnapshot、ダッシュボード�
 
 `.agents/skills/`では環境整備、対話による調査・実装、資料照合、資料作成を支援します。
 
-- `isucon-setup` — WebUIのHARに基づくポータル対応、初期構築・正規deploy・ベンチ実行と計測不足の補修
-- `isucon-special-sauce` — 設定資料を現行環境と照合し、適用できる改善を実装・正規deploy
-- `isucon-use-solution` — 指定されたsolution文書の適用条件を現行環境と照合して報告
-- `isucon-agent` — 必要な破壊的変更も含め、調査・実装・正規deploy・ベンチ・分析を自律的に繰り返す
-- `isucon-create-solution` — 再利用できる実装パターンを`docs/solutions/`へ文書化
+改善は次の3段階で進めます。
+
+1. [isucon-setup](.agents/skills/isucon-setup/SKILL.md) — 環境・ポータル・標準計測を整え、初回ベンチで回収・分析を確認する。
+2. [isucon-bootstrap](.agents/skills/isucon-bootstrap/SKILL.md) — 秘伝のタレ、適用可能なN+1解消・索引追加、nginx静的配信、全機能のメモリ＋WAL移行と計測整備を行い、移行後の基準RUNを引き継ぐ。
+3. [isucon-agent](.agents/skills/isucon-agent/SKILL.md) — 得点制約を診断し、改善対象の選定・実装・実測を指定目標まで自律的に繰り返す。
+
+対象・順序の指定を優先し、完了済みの段階は繰り返しません。初期対応だけならbootstrapで完了し、目標までの継続も依頼されていれば同じスレッドでagentへ進みます。呼び出し例と計測の分担は[共有Skills](.agents/skills/README.md)を参照してください。
+
+個別の資料作業には、`isucon-special-sauce`（設定資料の適用・deploy）、`isucon-use-solution`（solutionの適用評価）、`isucon-create-solution`（再利用資料の作成）を使います。
 
 デプロイはTaskfileの正規経路を使い、対象ホストと影響を確認します。ベンチは`task bench`で実行し、結果と計測成果物を確認します。
 

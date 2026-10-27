@@ -17,6 +17,12 @@
 | アプリ内部・追加計測 | DB pool待ち、queue、処理件数などは既存profile・標準計測で説明できない問いがある場合に追加する。fgprof、高頻度task-state、lock wait、nginx on-CPUも目的・負荷・停止方法を確認して選ぶ。 |
 | RUN全体 | load windowと各計測の開始・終了、ホスト時計、取得遅延・欠落、roles/source、artifact status、rawから集計・分析への対応を確認。ヘッダーだけのfallbackと実測値を区別する。 |
 
+## 段階ごとの計測分担
+
+setupでは既存構成のスコア・アクセスログ・user-transition等を整え、公式の得点条件と対応付けて使える情報源・識別の限界を示す。登録前後を追えない場合などは観測不能とし、メモリ＋WALへの移行や全段階の追跡をsetup完了の条件にしない。
+
+`isucon-bootstrap`は移行と同時に[WAL構成の計測](../../isucon-bootstrap/references/wal-measurement.md)を整え、`isucon-agent`は改善中の構成変更や診断に合わせて維持・補修する。個別の計測補修を依頼された場合は、どの段階でも本手順とsetupの補修手順を使う。
+
 ## スコア記録を整えるとき
 
 - 既存のTaskfileと記録経路を使い、`task bench`でポータルの結果原文とスコア・合否を同じRUNへ自動保存できるように設定する。
