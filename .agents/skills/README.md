@@ -8,7 +8,7 @@
 - `isucon-special-sauce` — 設定資料の値を現行構成に合わせて適用し、正規deploy
 - `isucon-use-solution` — 指定された一つの `docs/solutions/` 文書の適用条件を現行環境と照合して報告
 - `isucon-create-solution` — 再利用できる実装パターンを `docs/solutions/` に新規作成・更新
-- `isucon-agent` — 調査・実装・正規deploy・ベンチ・分析を自律的に繰り返して改善する。必要な破壊的変更も許可済みとして進める
+- `isucon-agent` — 調査・実装・正規deploy・ベンチ・分析を自律的に繰り返して改善する。必要な破壊的変更も許可済みとして進める。原因の説明や候補選定が進まない場合は、メインが[診断工程](isucon-agent/SKILL.md#診断工程)を担当し、必要に応じてサブエージェントへ独立診断を依頼する
 
 設定資料を使った変更は `isucon-special-sauce`、solution文書の適用評価は `isucon-use-solution`、自律的に調査から実測・改善まで進める場合は `isucon-agent` を使います。special-sauceは資料の値を適用して正規deployし、agentは改善案を選び、実装・deploy・ベンチ・採否判断を繰り返します。
 
