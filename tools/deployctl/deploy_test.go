@@ -303,3 +303,21 @@ func TestRunCheckRolesDoesNotRejectActiveBenchmark(t *testing.T) {
 		t.Fatalf("read-only role check rejected active benchmark: %v", err)
 	}
 }
+
+func TestAdditionalRemotePaths(t *testing.T) {
+	for _, target := range []string{"/etc/custom/", "/etc/custom/config", "/opt/bootstrap.sh"} {
+		if err := validateRemotePath(target, false, "/etc/custom/", "/opt/bootstrap.sh"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, target := range []string{"/etc/custom-other/config", "/opt/bootstrap.sh.old", "/etc/custom/../shadow"} {
+		if err := validateRemotePath(target, false, "/etc/custom/", "/opt/bootstrap.sh"); err == nil {
+			t.Fatalf("unexpectedly allowed %s", target)
+		}
+	}
+	for _, extra := range []string{"/", "/etc/", "/etc/custom/../", "relative/path"} {
+		if err := validateRemotePath("/etc/custom/config", false, extra); err == nil {
+			t.Fatalf("invalid root allowed: %s", extra)
+		}
+	}
+}

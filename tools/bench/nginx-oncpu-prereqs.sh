@@ -39,7 +39,7 @@ cleanup_prerequisites() {
 	set --
 	while IFS= read -r package; do
 		case "$package" in
-			linux-tools-*|linux-*-tools-*) set -- "$@" "$package" ;;
+			linux-tools-*|linux-*-tools-*|hwdata) set -- "$@" "$package" ;;
 			*) echo "refusing unexpected package: $package" >&2; exit 1 ;;
 		esac
 	done < "$state/added"

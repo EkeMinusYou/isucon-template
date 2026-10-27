@@ -125,7 +125,7 @@ func (r *deployRunner) uploadJobs(uploads []upload) ([]uploadJob, error) {
 			if err != nil {
 				return nil, fmt.Errorf("upload %q remote: %w", u.Label, err)
 			}
-			if err := validateRemotePath(remote, u.Delete); err != nil {
+			if err := validateRemotePath(remote, u.Delete, strings.Split(r.vars["allowed_remote_paths"], ",")...); err != nil {
 				return nil, fmt.Errorf("upload %q: %w", u.Label, err)
 			}
 			resolved := u
@@ -157,7 +157,7 @@ func (r *deployRunner) activationJobs(activations []activation) ([]activationJob
 	return jobs, nil
 }
 
-func validateRemotePath(remote string, delete bool) error {
+func validateRemotePath(remote string, delete bool, extraPaths ...string) error {
 	if !remotePathRE.MatchString(remote) {
 		return fmt.Errorf("remote path が許可された絶対パスではありません: %q", remote)
 	}
@@ -171,6 +171,20 @@ func validateRemotePath(remote string, delete bool) error {
 		strings.HasPrefix(remote, "/etc/nginx/") ||
 		strings.HasPrefix(remote, "/etc/mysql/") ||
 		strings.HasPrefix(remote, "/usr/local/bin/")
+	for _, extra := range extraPaths {
+		if extra == "" {
+			continue
+		}
+		normalized := path.Clean(extra)
+		if !remotePathRE.MatchString(extra) || normalized == "/" ||
+			len(strings.Split(strings.Trim(normalized, "/"), "/")) < 2 ||
+			strings.TrimSuffix(extra, "/") != normalized {
+			return fmt.Errorf("invalid allowed_remote_paths entry: %q", extra)
+		}
+		if remote == extra || (strings.HasSuffix(extra, "/") && strings.HasPrefix(remote, extra)) {
+			allowed = true
+		}
+	}
 	if !allowed {
 		return fmt.Errorf("remote path はデプロイ対象の許可済みパスに限定されます: %q", remote)
 	}

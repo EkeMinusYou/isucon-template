@@ -213,7 +213,7 @@ func validateSnapshot(current snapshot, maxPools, maxMetrics int, contentLength 
 	if current.Version != 1 || current.StartedUnixMS <= 0 || current.CapturedUnixMS < current.StartedUnixMS {
 		return errors.New("invalid snapshot metadata")
 	}
-	if len(current.Pools) == 0 || len(current.Pools) > maxPools {
+	if (len(current.Pools) == 0 && len(current.Metrics) == 0) || len(current.Pools) > maxPools {
 		return fmt.Errorf("invalid pool count %d", len(current.Pools))
 	}
 	seen := make(map[string]struct{}, len(current.Pools))

@@ -15,6 +15,9 @@ raw/
 # Contest application build artifacts
 webapp/go/default.pgo
 
+# nginx dynamic module build artifacts
+/nginx/modules/*.so
+
 # Tool build artifacts
 /tools/bench-output/bench-output
 /tools/portal-bench/portal-bench

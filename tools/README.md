@@ -95,6 +95,8 @@ MySQL status、slow log、performance_schema digest、lock waitは`mysql_all`の
 実際に使う宣言を指す。例えば`tools/contest/deployments.yaml`が汎用graphをincludeし、
 解法固有の`db-schema`だけを置き換える。
 
+追加サービスの配布先は`DEPLOYCTL_FLAGS`の`-var allowed_remote_paths=/etc/custom/,/opt/bootstrap.sh`で明示する。末尾`/`は配下を許可し、ファイルは完全一致のみ許可する。
+
 配布の`local`と`remote`には`{host}`を指定できます。例えば`local: 'etc/hosts/{host}/app.conf'`、
 `remote: '/home/isucon/app.conf'`でホスト別の設定を配布できます。全対象ホストのパスと転送元ファイルを
 転送開始前に検証します。既存の配布先パス制限は引き続き適用されます。

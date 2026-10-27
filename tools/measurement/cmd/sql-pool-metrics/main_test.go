@@ -130,3 +130,14 @@ func TestSnapshotMetricAndPoolLimitsAreIndependent(t *testing.T) {
 		t.Fatal("metric limit relaxed pool bound")
 	}
 }
+
+func TestSnapshotWithoutDatabasePoolsKeepsApplicationMetrics(t *testing.T) {
+	current := snapshot{Version: 1, StartedUnixMS: 1, CapturedUnixMS: 2, Metrics: map[string]float64{"state_owner": 1}}
+	if err := validateSnapshot(current, 128, 1024, 128); err != nil {
+		t.Fatal(err)
+	}
+	current.Metrics = nil
+	if err := validateSnapshot(current, 128, 1024, 128); err == nil {
+		t.Fatal("empty snapshot accepted")
+	}
+}
