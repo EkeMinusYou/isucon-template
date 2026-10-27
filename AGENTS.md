@@ -22,10 +22,10 @@
 ## 改善の3段階
 
 - [isucon-setup](.agents/skills/isucon-setup/SKILL.md)は環境・標準計測を整え、初回RUNで取得・分析を確認する。
-- [isucon-bootstrap](.agents/skills/isucon-bootstrap/SKILL.md)は初期改善とメモリ＋WAL移行、その計測整備を行い、移行後の基準RUNを引き継ぐ。対象・順序・完了条件は同スキルを正本とし、ユーザーの指定を優先する。
+- [isucon-bootstrap](.agents/skills/isucon-bootstrap/SKILL.md)は初期改善とメモリ＋WAL移行、その計測整備を行い、実RUNで成立を確認する。対象・順序・完了条件は同スキルを正本とし、ユーザーの指定を優先する。
 - [isucon-agent](.agents/skills/isucon-agent/SKILL.md)はその後の改善対象をEvidenceから選び、診断・実装・実測を繰り返す。改善中の計測維持も担当する。
 
-初期対応だけの依頼はbootstrapの完了条件で終了する。目標までの継続も依頼されている場合は同じスレッドで次段階へ進む。完了済みの段階は繰り返さず、別スレッドで再開する場合もコード・設定・RUNを照合する。
+初期対応だけの依頼はbootstrapの完了条件で終了する。目標までの継続も依頼されている場合は同じスレッドで次段階へ進む。完了済みの段階は繰り返さない。専用の引き継ぎ工程は設けず、agentは現行コード・設定・保存済みRUNから改善を始める。
 
 ## ISUCONでの変更方針
 

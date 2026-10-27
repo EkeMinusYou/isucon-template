@@ -252,7 +252,7 @@ nginxのon-CPU profile、任意JSON endpointのsnapshot、ダッシュボード�
 改善は次の3段階で進めます。
 
 1. [isucon-setup](.agents/skills/isucon-setup/SKILL.md) — 環境・ポータル・標準計測を整え、初回ベンチで回収・分析を確認する。
-2. [isucon-bootstrap](.agents/skills/isucon-bootstrap/SKILL.md) — 秘伝のタレ、適用可能なN+1解消・索引追加、nginx静的配信、全機能のメモリ＋WAL移行と計測整備を行い、移行後の基準RUNを引き継ぐ。
+2. [isucon-bootstrap](.agents/skills/isucon-bootstrap/SKILL.md) — 秘伝のタレ、適用可能なN+1解消・索引追加、nginx静的配信、全機能のメモリ＋WAL移行と計測整備を行い、実RUNで成立を確認する。
 3. [isucon-agent](.agents/skills/isucon-agent/SKILL.md) — 得点制約を診断し、改善対象の選定・実装・実測を指定目標まで自律的に繰り返す。
 
 対象・順序の指定を優先し、完了済みの段階は繰り返しません。初期対応だけならbootstrapで完了し、目標までの継続も依頼されていれば同じスレッドでagentへ進みます。呼び出し例と計測の分担は[共有Skills](.agents/skills/README.md)を参照してください。
