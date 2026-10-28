@@ -19,6 +19,14 @@ from manifests m left join load_windows w using(run_id)
 where m.run_id in (getvariable('base_run'),getvariable('new_run'))
 order by m.run_id;
 
+-- These sources remain RUN artifacts; absence is not a measured zero.
+select run_id,table_name as source,status,reason from measurement_sources
+where run_id in (getvariable('base_run'),getvariable('new_run')) and status='excluded'
+union all
+select run_id,source,status,reason from go_profile_import_scope
+where run_id in (getvariable('base_run'),getvariable('new_run')) and status='excluded'
+order by run_id,source;
+
 -- Empty output means no recorded quality warnings, not proof of completeness.
 select q.run_id,q.artifact_name,q.artifact_status,q.quality_status,q.reason,
  q.window_coverage_pct
@@ -35,7 +43,7 @@ where m.run_id in (getvariable('base_run'),getvariable('new_run'))
                  where q.run_id=m.run_id and q.artifact_name=required.name)
 order by run_id,artifact_name;
 
--- Buckets are 5 seconds wide. Boundaries have up to one bucket of uncertainty.
+-- Request starts are filtered before aggregation into up-to-5-second buckets.
 -- Rank the 20 routes with the largest request counts; detail remains in task q.
 with totals as (
  select h.run_id,h.method,h.route,sum(h.requests) as requests,

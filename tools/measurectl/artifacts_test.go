@@ -184,3 +184,22 @@ func TestCollectorDisabledModeStillRequiresLogsAndDigests(t *testing.T) {
 		t.Fatal("missing digester was hidden by collector mode")
 	}
 }
+
+func TestSnapshotArchiveKeepsHistoricalReadersWithoutRequiringOldArtifacts(t *testing.T) {
+	specs := []ArtifactSpec{{Pattern: "*-go-snapshots.tar"}}
+	for _, name := range []string{"-go-heap.pprof", "-go-allocs.pprof", "-go-goroutine.pprof"} {
+		if !matchesAnySpec(name, specs) {
+			t.Fatalf("historical reader rejected: %s", name)
+		}
+		if matchesAnySpec(name, nil) {
+			t.Fatalf("undeclared reader accepted: %s", name)
+		}
+	}
+	if matchesAnySpec("-unknown.pprof", specs) {
+		t.Fatal("unknown profile accepted")
+	}
+	names := artifactNamesIn(`"*-go-snapshots.tar"`, ".go")
+	if len(names) != 1 || names[0] != "*-go-snapshots.tar" {
+		t.Fatalf("archive not recognized: %v", names)
+	}
+}

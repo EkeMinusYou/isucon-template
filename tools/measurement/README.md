@@ -7,7 +7,7 @@
 
 | パス | 内容 |
 |---|---|
-| `app/` | CPU・fgprof・heap・allocs・goroutine、RUN別の開始確認・停止通知、SQL pool・内部指標の公開 |
+| `app/` | CPU・任意fgprof・2秒ごとのheap/goroutine、RUN別開始確認・停止通知、1秒のruntime・SQL pool・内部指標の公開 |
 | `cmd/proc-metrics/` | Linuxのホスト・service・disk・blocked task収集 |
 | `cmd/mysql-metrics/` | MySQL status・接続・lock wait収集 |
 | `cmd/sql-pool-metrics/` | アプリのSQL pool・内部指標をHTTPから収集 |
@@ -32,7 +32,6 @@ DBの接続が完成した後、アプリ起動時に一度だけ呼ぶ。
 import "github.com/EkeMinusYou/isucon-template/tools/measurement/app"
 
 server, err := app.Start(app.Options{
-    MaxProfileSeconds: 180,
     Pools: []app.Pool{{
         DB: db, DatabaseHost: "db.local", Name: "main", Role: "primary",
     }},

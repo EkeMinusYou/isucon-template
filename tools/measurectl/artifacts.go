@@ -249,7 +249,7 @@ var (
 // ファイルではないので入れない。
 var artifactExts = map[string]bool{
 	".tsv": true, ".csv": true, ".json": true, ".log": true, ".txt": true,
-	".pprof": true, ".stderr": true,
+	".pprof": true, ".stderr": true, ".tar": true,
 	".zst": true, ".gz": true, ".bz2": true, ".xz": true,
 }
 
@@ -328,6 +328,14 @@ func artifactNamesIn(body, ext string) []string {
 func matchesAnySpec(name string, specs []ArtifactSpec) bool {
 	for _, s := range specs {
 		base := filepath.Base(s.Pattern)
+		// Historical snapshot readers remain valid after standard collection
+		// moves into a series archive; they are not new required artifacts.
+		if base == "*-go-snapshots.tar" {
+			switch strings.TrimLeft(name, "*-") {
+			case "go-heap.pprof", "go-allocs.pprof", "go-goroutine.pprof":
+				return true
+			}
+		}
 		if base == name {
 			return true
 		}

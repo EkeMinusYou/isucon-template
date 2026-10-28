@@ -12,11 +12,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/EkeMinusYou/isucon-template/tools/measurement/profileseries"
 	"github.com/google/pprof/profile"
 )
 
 // Historical RUNs predate the frozen artifact contract and had optional profiles.
-var legacyProfiles = map[string]bool{"fgprof": true, "go-cpu": true, "go-heap": true, "go-allocs": true, "go-goroutine": true}
+var legacyProfiles = map[string]bool{"fgprof": true, "go-cpu": true, "go-heap": true, "go-allocs": true, "go-goroutine": true, "go-snapshots": true}
 
 func captureArtifactContract(m Manifest, collectors, digesters string) ([]ArtifactSpec, error) {
 	specs, err := loadArtifactSpecs(collectors, digesters)
@@ -188,7 +189,7 @@ func assessCaptureQuality(dir string, m Manifest, artifacts []Artifact) []Artifa
 			continue
 		}
 		switch {
-		case a.Name == "user-transitions.json", strings.HasSuffix(a.Name, ".pprof"):
+		case a.Name == "user-transitions.json", strings.HasSuffix(a.Name, ".pprof"), strings.HasSuffix(a.Name, "-go-snapshots.tar"):
 			inspected = append(inspected, i)
 		case isAccessLogArtifact(a.Name):
 			inspected = append(inspected, i)
@@ -202,6 +203,8 @@ func assessCaptureQuality(dir string, m Manifest, artifacts []Artifact) []Artifa
 		switch {
 		case a.Name == "user-transitions.json":
 			a.Quality = inspectUserTransitions(path)
+		case strings.HasSuffix(a.Name, "-go-snapshots.tar"):
+			a.Quality = inspectProfileSeries(path, m.LoadWindow)
 		case strings.HasSuffix(a.Name, ".pprof"):
 			a.Quality = inspectProfile(path, m.LoadWindow)
 		default:
@@ -402,6 +405,68 @@ func inspectAccessLog(path string, window LoadWindow) ArtifactQuality {
 	}
 	if waitErr != nil {
 		q.Reason = "access decompression failed: " + waitErr.Error()
+		return q
+	}
+	q.Status = "valid"
+	return q
+}
+
+// A recording must span collection and contain regularly spaced observations;
+// two endpoint snapshots alone do not prove continuous collection.
+func inspectProfileSeries(path string, window LoadWindow) ArtifactQuality {
+	q := ArtifactQuality{Expected: true, Status: "invalid", Monotonic: true, Finite: true}
+	index, err := profileseries.Read(path, nil)
+	if err != nil {
+		q.Reason = err.Error()
+		return q
+	}
+	start, err := time.Parse(time.RFC3339Nano, window.StartedAt)
+	end, endErr := time.Parse(time.RFC3339Nano, window.EndedAt)
+	if window.Status != "ok" || err != nil || endErr != nil || !end.After(start) {
+		q.Reason = "snapshot load window unavailable"
+		return q
+	}
+	var first, last int64
+	for _, kind := range []string{"go-heap", "go-goroutine"} {
+		previous := int64(0)
+		count := 0
+		for _, e := range index.Entries {
+			if profileseries.Kind(e.Name) != kind {
+				continue
+			}
+			count++
+			q.Rows++
+			if previous != 0 {
+				gap := e.CapturedAt - previous
+				if gap <= 0 {
+					q.Monotonic = false
+				}
+				if gap/int64(time.Millisecond) > q.MaxGapMS {
+					q.MaxGapMS = gap / int64(time.Millisecond)
+				}
+			} else if e.CapturedAt > first {
+				first = e.CapturedAt
+			}
+			previous = e.CapturedAt
+		}
+		if last == 0 || previous < last {
+			last = previous
+		}
+		if count < 2 {
+			q.Reason = "snapshot recording has fewer than two observations per kind"
+			return q
+		}
+	}
+	overlapStart, overlapEnd := start.UnixNano(), end.UnixNano()
+	if first > overlapStart {
+		overlapStart = first
+	}
+	if last < overlapEnd {
+		overlapEnd = last
+	}
+	q.WindowCoveragePct = math.Max(0, float64(overlapEnd-overlapStart)) / float64(end.Sub(start)) * 100
+	if !q.Monotonic || first > start.UnixNano() || last < end.UnixNano() || q.MaxGapMS > 3*index.IntervalNS/int64(time.Millisecond) {
+		q.Reason = "snapshot recording has missing coverage or excessive sampling gaps"
 		return q
 	}
 	q.Status = "valid"

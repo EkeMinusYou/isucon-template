@@ -31,7 +31,7 @@ type samplingStarter func(io.Writer) (stop func() error, err error)
 func profileHandlerWithStarters(maxSeconds int, startCPU, startFG samplingStarter) http.Handler {
 	mux := http.NewServeMux()
 	var stateMu sync.Mutex
-	active := map[string]string{"cpu": "", "fgprof": ""}
+	active := map[string]string{"cpu": "", "fgprof": "", "snapshots": ""}
 	stopRequests := make(map[string]chan struct{})
 	mux.HandleFunc("/debug/profiles/status", func(w http.ResponseWriter, r *http.Request) {
 		stateMu.Lock()
@@ -46,8 +46,8 @@ func profileHandlerWithStarters(maxSeconds int, startCPU, startFG samplingStarte
 			return
 		}
 		kind, runID := r.URL.Query().Get("kind"), r.URL.Query().Get("run_id")
-		if (kind != "cpu" && kind != "fgprof") || runID == "" {
-			http.Error(w, "kind must be cpu or fgprof and run_id is required", http.StatusBadRequest)
+		if (kind != "cpu" && kind != "fgprof" && kind != "snapshots") || runID == "" {
+			http.Error(w, "kind must be cpu, fgprof or snapshots and run_id is required", http.StatusBadRequest)
 			return
 		}
 		stateMu.Lock()
@@ -70,6 +70,9 @@ func profileHandlerWithStarters(maxSeconds int, startCPU, startFG samplingStarte
 		var sampling sync.Mutex
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			seconds := maxSeconds
+			if seconds > 30 {
+				seconds = 30
+			}
 			if value := r.URL.Query().Get("seconds"); value != "" {
 				var err error
 				seconds, err = strconv.Atoi(value)
@@ -122,6 +125,7 @@ func profileHandlerWithStarters(maxSeconds int, startCPU, startFG samplingStarte
 	}
 	mux.Handle("/debug/pprof/profile", bounded("cpu", startCPU))
 	mux.Handle("/debug/fgprof", bounded("fgprof", startFG))
+	mux.Handle("/debug/profiles/snapshots", bounded("snapshots", startProfileSeries))
 	for _, name := range []string{"heap", "allocs", "goroutine"} {
 		mux.Handle("/debug/pprof/"+name, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// These endpoints are snapshots; delta profiles need a separate policy.

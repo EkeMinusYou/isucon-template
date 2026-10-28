@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -21,6 +22,7 @@ import (
 )
 
 type sourceConfig struct {
+	Scope        string `yaml:"scope"`
 	Table        string `yaml:"table"`
 	Schema       string `yaml:"schema"`
 	Match        string `yaml:"match"`
@@ -30,9 +32,10 @@ type sourceConfig struct {
 }
 
 type profileConfig struct {
-	Match  string   `yaml:"match"`
-	Schema string   `yaml:"schema"`
-	Tables []string `yaml:"tables"`
+	SeriesMatch string   `yaml:"series_match"`
+	Match       string   `yaml:"match"`
+	Schema      string   `yaml:"schema"`
+	Tables      []string `yaml:"tables"`
 }
 
 type reportConfig struct {
@@ -79,7 +82,7 @@ var (
 )
 
 // Increment when persisted sources or analysis-window semantics change.
-const importSchemaVersion = "15"
+const importSchemaVersion = "16"
 
 func main() {
 	if err := runCLI(os.Args[1:], os.Stdout, os.Stderr); err != nil {
@@ -179,6 +182,9 @@ func loadConfig(path string) (config, error) {
 		return config{}, errors.New("base_schema and sources are required")
 	}
 	for i, source := range cfg.Sources {
+		if source.Scope != "" && source.Scope != "collection" {
+			return config{}, fmt.Errorf("invalid source scope %q", source.Scope)
+		}
 		if source.Table == "" || source.Schema == "" || source.Match == "" || source.View == "" {
 			return config{}, fmt.Errorf("sources[%d] requires table, schema, match, and view", i)
 		}
@@ -408,6 +414,13 @@ func (r runner) syncSelection(runGlob string, dirs, runIDs []string) error {
 		return err
 	}
 	windows := resolveAnalysisWindows(dirs, runIDs, r.config.loadPhase)
+	for id, w := range windows {
+		if w.Source == "collection-window-fallback" {
+			w.Status = "unavailable"
+			w.Reason = "load-only import unavailable: " + w.Reason
+			windows[id] = w
+		}
+	}
 	tempDir, err := os.MkdirTemp("", "isucon-analysis-")
 	if err != nil {
 		return err
@@ -424,7 +437,7 @@ func (r runner) syncSelection(runGlob string, dirs, runIDs []string) error {
 		return err
 	}
 	if len(r.config.Profiles.Tables) > 0 {
-		if err := r.prepareProfiles(profileDir, dirs); err != nil {
+		if err := r.prepareProfiles(profileDir, dirs, windows); err != nil {
 			return err
 		}
 	}
@@ -433,6 +446,14 @@ func (r runner) syncSelection(runGlob string, dirs, runIDs []string) error {
 	if err != nil {
 		return err
 	}
+	// Filter individual HTTP records before bucketing, not whole-run aggregates.
+	var declared []map[string]string
+	for _, id := range runIDs {
+		w := windows[id]
+		declared = append(declared, map[string]string{"run_id": id, "started_at": w.StartedAt.Format(time.RFC3339Nano), "ended_at": w.EndedAt.Format(time.RFC3339Nano), "status": w.Status})
+	}
+	encoded, _ := json.Marshal(declared)
+	schema = append([]byte("set variable analysis_windows = "+sqlString(string(encoded))+";\n"), schema...)
 	sql := r.buildImportSQL(active, runIDs, windows)
 	schemaPath := filepath.Join(tempDir, "schema.sql")
 	sqlPath := filepath.Join(tempDir, "import.sql")
@@ -446,20 +467,42 @@ func (r runner) syncSelection(runGlob string, dirs, runIDs []string) error {
 	return r.duckdbCommand(env, "-init", schemaPath, "-c", ".read "+sqlPath)
 }
 
-func (r runner) prepareProfiles(output string, dirs []string) error {
+func (r runner) prepareProfiles(output string, dirs []string, windows map[string]analysisWindow) error {
 	var paths []string
+	scopeFile, err := os.Create(filepath.Join(output, "go-profile-import-scope.rows"))
+	if err != nil {
+		return err
+	}
+	defer scopeFile.Close()
+	scopeWriter := csv.NewWriter(scopeFile)
+	scopeWriter.Comma = '\t'
+	scopeWriter.Write([]string{"run_id", "host", "source", "status", "reason"})
 	for _, dir := range dirs {
 		matches, err := filepath.Glob(filepath.Join(dir, r.config.Profiles.Match))
 		if err != nil {
 			return err
 		}
 		sort.Strings(matches)
-		paths = append(paths, matches...)
+		for _, path := range matches {
+			included := profileWithinWindow(path, windows[filepath.Base(dir)])
+			status, reason := "included", "capture fits load window"
+			if !included {
+				status = "excluded"
+				reason = "untimed, cumulative, or spans outside the load window; use original RUN profile for whole-capture analysis"
+			} else {
+				paths = append(paths, path)
+			}
+			scopeWriter.Write([]string{filepath.Base(dir), legacyProfileHost(path), filepath.Base(path), status, reason})
+		}
+	}
+	scopeWriter.Flush()
+	if err := scopeWriter.Error(); err != nil {
+		return err
 	}
 	if err := pprofimport.Run(output, paths, r.stderr); err != nil {
 		return fmt.Errorf("normalize profiles: %w", err)
 	}
-	return nil
+	return r.prepareSnapshotSeries(output, dirs, windows)
 }
 
 func (r runner) buildSchema(active []sourceConfig) ([]byte, error) {
@@ -542,8 +585,17 @@ func (r runner) buildImportSQL(active []sourceConfig, runIDs []string, windows m
 	out.WriteString("create table if not exists db.analysis_metadata (key varchar primary key, value varchar not null);\n")
 	fmt.Fprintf(&out, "insert or replace into db.analysis_metadata values ('import_schema_version', %s);\n", sqlString(importSchemaVersion))
 	out.WriteString("create table if not exists db.ingested (run_id varchar primary key);\n")
+	out.WriteString("create table if not exists db.measurement_sources(run_id varchar, table_name varchar, view_name varchar, status varchar, reason varchar);\n")
 	for _, source := range active {
+		if source.Scope == "collection" {
+			for _, id := range runIDs {
+				fmt.Fprintf(&out, "insert into db.measurement_sources values (%s,%s,%s,'excluded','whole-lifecycle aggregate has no separable load window; retained as RUN artifact');\n", sqlString(id), sqlString(source.Table), sqlString(source.View))
+			}
+		}
 		fmt.Fprintf(&out, "create table if not exists db.%s as select * from %s limit 0;\n", source.Table, source.View)
+		if source.Scope == "collection" {
+			continue
+		}
 		if source.Windowed {
 			column := source.WindowColumn
 			if column == "" {
@@ -556,7 +608,11 @@ func (r runner) buildImportSQL(active []sourceConfig, runIDs []string, windows m
 	}
 	for _, table := range r.config.Profiles.Tables {
 		fmt.Fprintf(&out, "create table if not exists db.%s as select * from %s_raw limit 0;\n", table, table)
-		fmt.Fprintf(&out, "insert into db.%s select * from %s_raw;\n", table, table)
+		if strings.HasPrefix(table, "pprof_") {
+			fmt.Fprintf(&out, "insert into db.%s select * from %s_raw where not (profile_type = 'go-heap' and sample_type in ('alloc_space','alloc_objects'));\n", table, table)
+		} else {
+			fmt.Fprintf(&out, "insert into db.%s select * from %s_raw;\n", table, table)
+		}
 	}
 	for _, runID := range runIDs {
 		fmt.Fprintf(&out, "insert or ignore into db.ingested values (%s);\n", sqlString(runID))

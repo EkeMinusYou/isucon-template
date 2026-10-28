@@ -70,35 +70,22 @@ oneshots:
     remote_out: /tmp/isucon-{run_id}-go-cpu.pprof
     output: '{host}-go-cpu.pprof'
 
-  - name: go-heap
-    label: Go heap profile
+  - name: go-snapshots
+    label: Go heap, allocation and goroutine time series
     group: profiles
     enabled_by_default: true
     hosts: app
-    delay: '{var:snapshot_profile_delay}'
-    run: curl -fsS --max-time 15 -o {remote_out} '{var:pprof_base_url}/heap'
-    remote_out: /tmp/isucon-{run_id}-go-heap.pprof
-    output: '{host}-go-heap.pprof'
-
-  - name: go-allocs
-    label: Go allocation profile
-    group: profiles
-    enabled_by_default: true
-    hosts: app
-    delay: '{var:snapshot_profile_delay}'
-    run: curl -fsS --max-time 15 -o {remote_out} '{var:pprof_base_url}/allocs'
-    remote_out: /tmp/isucon-{run_id}-go-allocs.pprof
-    output: '{host}-go-allocs.pprof'
-
-  - name: go-goroutine
-    label: Go goroutine profile
-    group: profiles
-    enabled_by_default: true
-    hosts: app
-    delay: '{var:snapshot_profile_delay}'
-    run: curl -fsS --max-time 15 -o {remote_out} '{var:pprof_base_url}/goroutine'
-    remote_out: /tmp/isucon-{run_id}-go-goroutine.pprof
-    output: '{host}-go-goroutine.pprof'
+    run: curl -fsS --max-time {var:profile_timeout_seconds} -o {remote_out} '{var:snapshot_profile_url}?seconds={var:profile_seconds}&run_id={run_id}'
+    stop: curl -fsS --max-time 5 -X POST '{var:profile_stop_url}?kind=snapshots&run_id={run_id}'
+    ready: |
+      set -eu
+      deadline=$(( $(date +%s) + {var:profile_ready_timeout_seconds} ))
+      until curl -fsS --max-time 1 '{var:profile_status_url}' | grep -Fq '"snapshots":"{run_id}"'; do
+        if [ "$(date +%s)" -ge "$deadline" ]; then echo 'snapshot recording did not start for this RUN' >&2; exit 1; fi
+        sleep 0.1
+      done
+    remote_out: /tmp/isucon-{run_id}-go-snapshots.tar
+    output: '{host}-go-snapshots.tar'
 
 collectors:
   - name: proc

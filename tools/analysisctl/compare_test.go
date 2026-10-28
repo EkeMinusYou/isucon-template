@@ -37,6 +37,8 @@ func TestCompareRunsReportsMissingDataWithoutZeroFill(t *testing.T) {
  timestamptz '2026-10-28 00:01:00Z' as ended_at,60.0 as duration_seconds,'' as reason from ingested;
  create table measurement_quality(run_id varchar,artifact_name varchar,artifact_status varchar,
  quality_status varchar,reason varchar,window_coverage_pct double);
+ create table measurement_sources(run_id varchar,table_name varchar,view_name varchar,status varchar,reason varchar);
+ create table go_profile_import_scope(run_id varchar,host varchar,source varchar,status varchar,reason varchar);
  create table http_traffic as select '20261028-110000' as run_id,'GET' as method,'/new-route' as route,
  10 as requests,0 as status_4xx,0 as status_5xx,0.1 as sum_time_sec,
  timestamptz '2026-10-28 00:00:30Z' as ts;

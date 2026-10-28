@@ -32,7 +32,7 @@ type Options struct {
 	// Address defaults to 127.0.0.1:6060. It must not expose private metrics
 	// to public traffic.
 	Address string
-	// MaxProfileSeconds defaults to 180 and must be between 1 and 3600.
+	// MaxProfileSeconds defaults to 3600 and must be between 1 and 3600.
 	MaxProfileSeconds int
 	Pools             []Pool
 	Snapshot          func() Snapshot
@@ -43,7 +43,7 @@ func normalize(options Options) (Options, error) {
 		options.Address = "127.0.0.1:6060"
 	}
 	if options.MaxProfileSeconds == 0 {
-		options.MaxProfileSeconds = 180
+		options.MaxProfileSeconds = 3600
 	}
 	if options.MaxProfileSeconds < 1 || options.MaxProfileSeconds > 3600 {
 		return options, fmt.Errorf("profile duration limit must be between 1 and 3600 seconds")
@@ -92,10 +92,15 @@ func NewHandler(options Options) (http.Handler, error) {
 		payload["started_unix_ms"] = started.UnixMilli()
 		payload["captured_unix_ms"] = time.Now().UnixMilli()
 		payload["pools"] = pools
-		if snapshot.Metrics == nil {
-			snapshot.Metrics = map[string]any{}
+		observations := make(map[string]any, len(snapshot.Metrics)+8)
+		for name, value := range snapshot.Metrics {
+			observations[name] = value
 		}
-		payload["metrics"] = snapshot.Metrics
+		for name, value := range runtimeMetrics() {
+			observations[name] = value
+		}
+		observations["go_process_started_unix_ms"] = started.UnixMilli()
+		payload["metrics"] = observations
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(payload); err != nil {
 			log.Printf("measurement snapshot export failed: %v", err)

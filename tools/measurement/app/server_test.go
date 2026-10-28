@@ -28,7 +28,7 @@ func TestStartReportsConfigurationAndBindErrors(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer server.Close()
-	if server.WriteTimeout != 195*time.Second {
+	if server.WriteTimeout != 3615*time.Second {
 		t.Fatalf("profile response timeout=%s", server.WriteTimeout)
 	}
 }

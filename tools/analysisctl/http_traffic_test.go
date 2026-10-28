@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestHTTPTrafficPreservesRoutesBucketsAndLogSelection(t *testing.T) {
@@ -115,5 +116,34 @@ from http_traffic_buckets;
 	}
 	if got := strings.TrimSpace(string(output)); got != "4|3|2|1|0.2|1" {
 		t.Fatalf("connection aggregate = %q, want 4|3|2|1|0.2|1", got)
+	}
+}
+
+func TestHTTPImportFiltersRequestsBeforeBucketing(t *testing.T) {
+	duckdb, err := exec.LookPath("duckdb")
+	if err != nil {
+		t.Skip("duckdb not installed")
+	}
+	schema, err := os.ReadFile("../analysis/schema/access-log.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(t.TempDir(), "runs", "20260901-120000")
+	writeTestFile(t, dir, "raw/access-host.log", `{"msec":"1800000000.9","response_time":0.1,"method":"GET","uri":"/outside","status":200}
+{"msec":"1800000001.2","response_time":0.1,"method":"GET","uri":"/inside","status":200}
+{"msec":"1800000004.2","response_time":0.1,"method":"GET","uri":"/outside","status":200}
+`)
+	script := "set variable run_glob=" + sqlString(filepath.ToSlash(dir)) + ";set variable analysis_windows=" + sqlString(`[{"run_id":"20260901-120000","started_at":"2027-01-15T08:00:01Z","ended_at":"2027-01-15T08:00:04Z","status":"ok"}]`) + ";\n" + string(schema) + "\nselect route,requests,bucket_seconds from http_traffic_buckets;"
+	// Use epoch-derived timestamps instead of relying on a hand-converted date.
+	script = strings.ReplaceAll(script, "2027-01-15T08:00:01Z", time.Unix(1800000001, 0).UTC().Format(time.RFC3339))
+	script = strings.ReplaceAll(script, "2027-01-15T08:00:04Z", time.Unix(1800000004, 0).UTC().Format(time.RFC3339))
+	cmd := exec.Command(duckdb, "-noheader", "-list")
+	cmd.Stdin = strings.NewReader(script)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("query: %v: %s", err, out)
+	}
+	if strings.TrimSpace(string(out)) != "/inside|1|3.0" {
+		t.Fatalf("outside requests leaked: %s", out)
 	}
 }

@@ -51,7 +51,7 @@ func TestEmptyArtifactDoesNotChangeRebuiltColumns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Fields(output); len(got) != 2 || got[0] != "0" || got[1] != "2" {
+	if got := strings.Fields(output); len(got) != 2 || got[0] != "0" || got[1] != "0" {
 		t.Fatalf("upstreams columns and rows: %q", output)
 	}
 }

@@ -304,11 +304,12 @@ func TestCollectorFreeRunCanBeImportedBeforeMeasuredRun(t *testing.T) {
 	if err := r.syncSelection(dir, []string{dir}, []string{"20260901-120100"}); err != nil {
 		t.Fatal(err)
 	}
-	check("select value from metrics", "1.5")
+	check("select count(*) from metrics", "0")
 	check("select source from analysis_windows where run_id='20260901-120100'", "collection-window-fallback")
 	check("select source || '|' || cast(duration_seconds as varchar) from load_windows where run_id='20260901-120100'", "collection-window-fallback|60.0")
-	check("select sum_time_sec from queries", "0.25")
-	check("select response_time_sum_ms from upstreams", "2.5")
+	check("select status from load_windows where run_id='20260901-120100'", "unavailable")
+	check("select count(*) from queries", "0")
+	check("select count(*) from upstreams", "0")
 	check("select collectors_disabled from manifests where run_id='20260901-120100'", "false")
 	check("select contains(content, '日本語の途中で出力が混在: \ufffd') from bench_error_logs where run_id='20260901-120100'", "true")
 	original, err := os.ReadFile(filepath.Join(dir, "bench.log"))

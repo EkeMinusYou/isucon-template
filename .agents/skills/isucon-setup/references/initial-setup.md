@@ -32,7 +32,7 @@
 
 - スコアの記録方法（生成元、自動取得手順、RUNへの紐付け、保存形式）と、成功・失敗判定、公式出力にある内訳・ペナルティの保存・分析。必要に応じたDuckDBの取り込みschema・意味ビューの対応。
 - 参加者向けに提供される負荷中の進捗行（負荷の増減とその理由など）の時系列解釈ビュー。提供有無や書式が未確認の部分は[ベンチ後の計測確認](#ベンチ後の計測確認)で確認する。
-- Go CPU・heap・allocs・goroutineのpprof、採取開始確認endpoint。
+- Go CPUの連続採取、2秒ごとのheap/goroutine、1秒のruntime指標、採取開始確認・停止通知endpoint。
 - nginxアクセスログの必要列、ローテート、全NGINX_HOSTSの回収、alp・upstream集計。
 - user-transitionの識別方法・ログ列・アプリ固有API分類・集計。
 - DB・ホスト・全管理対象serviceと依存サービスの標準メトリクス、app/nginx・kernel/OOM等の障害ログ。

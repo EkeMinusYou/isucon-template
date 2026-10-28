@@ -13,8 +13,17 @@ with routes as (
     ] as patterns
 ),
 requests as materialized (
+    with windows as (
+ select json_extract_string(value,'$.run_id') as run_id,
+  try_cast(json_extract_string(value,'$.started_at') as timestamptz) as started_at,
+  try_cast(json_extract_string(value,'$.ended_at') as timestamptz) as ended_at,
+  json_extract_string(value,'$.status') as status
+ from json_each(coalesce(getvariable('analysis_windows')::varchar,'[]'))
+)
     select
         regexp_extract(filename, 'runs/([^/]+)/', 1) as run_id,
+        (select max(started_at) from windows where run_id=regexp_extract(filename,'runs/([^/]+)/',1)) as analysis_started_at,
+        (select max(ended_at) from windows where run_id=regexp_extract(filename,'runs/([^/]+)/',1)) as analysis_ended_at,
         regexp_replace(regexp_extract(filename, '/access-([^/]+)$', 1),
                        '\.log(\.zst)?$', '') as ingress_host,
         ends_with(filename, '.zst') as compressed,
@@ -61,6 +70,12 @@ requests as materialized (
             'connection_requests': 'VARCHAR',
             'ssl_session_reused': 'VARCHAR'
         })
+    where getvariable('analysis_windows') is null or exists (
+      select 1 from windows w
+      where w.run_id=regexp_extract(filename,'runs/([^/]+)/',1) and w.status='ok'
+       and to_timestamp(try_cast(msec as double)-coalesce(try_cast(response_time as double),0))>=w.started_at
+       and to_timestamp(try_cast(msec as double)-coalesce(try_cast(response_time as double),0))<w.ended_at
+    )
 ),
 -- Parse each log once and normalize each distinct URI once. Repeated requests
 -- often share the same URI throughout a RUN.
@@ -76,9 +91,12 @@ buckets as (
         r.ingress_host,
         r.compressed,
         -- $msec は応答を書き出した時刻。traffic_window.go と同じく開始時刻へ戻す。
-        cast(to_timestamp(floor((r.logged_at_epoch - r.response_time_sec) / 5) * 5)
-             as timestamptz) as ts,
-        cast(5 as integer) as bucket_seconds,
+        greatest(to_timestamp(floor((r.logged_at_epoch-r.response_time_sec)/5)*5),
+                 coalesce(r.analysis_started_at,to_timestamp(floor((r.logged_at_epoch-r.response_time_sec)/5)*5))) as ts,
+        epoch(least(to_timestamp(floor((r.logged_at_epoch-r.response_time_sec)/5)*5+5),
+                    coalesce(r.analysis_ended_at,to_timestamp(floor((r.logged_at_epoch-r.response_time_sec)/5)*5+5)))
+             -greatest(to_timestamp(floor((r.logged_at_epoch-r.response_time_sec)/5)*5),
+                    coalesce(r.analysis_started_at,to_timestamp(floor((r.logged_at_epoch-r.response_time_sec)/5)*5)))) as bucket_seconds,
         r.method,
         g.route,
         count(*) as requests,

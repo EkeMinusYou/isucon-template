@@ -8,12 +8,12 @@
 | --- | --- |
 | スコア記録 | 公式の採点仕様と出力形式を確認し、生成元、自動取得の手順、RUNへの紐付け、保存先・形式を整える。最終スコア、成功・失敗判定、公式出力にある内訳・ペナルティが元の結果と一致し、DuckDBのqueryで読めることを確認する。未取得・未判定を0点や成功に置き換えない。 |
 | nginx access log | 実際のtrafficを受けるserver/locationの`access_log`と継承・無効化、JSONのescape、出力先・権限、buffer/flush、ローテート後のreopenを確認。共通列とupstream列がToolsの契約を満たし、alp・upstream集計まで読めるかを見る。正常なHTTP応答だけでログ出力を確認済みにしない。 |
-| Go pprof | CPU・heap・allocs・goroutineを標準で自動収集し、endpointの実装・handler登録と実際のlistener、collectorの取得URL・実行ホスト、有効宣言と起動経路を確認。`Taskfile.yml`にURLがあるだけでは公開済みとしない。取得ファイルを`go tool pprof -top`等で解析する。 |
-| MySQL | slow logの実効設定・閾値・出力先・ローテートとdigest、performance_schemaの有効性・権限・version、status・接続・lock waitを確認。`MYSQL_HOSTS`と詳細計測先`MYSQL_HOST`の差による未被覆を残す。空のslow logは低負荷・閾値未満・収集失敗を区別する。 |
+| Go pprof | CPUの連続採取・2秒ごとのheap/goroutine・1秒のruntime指標を標準で自動収集し、endpointの実装・handler登録と実際のlistener、collectorの取得URL・実行ホスト、有効宣言と起動経路を確認。`Taskfile.yml`にURLがあるだけでは公開済みとしない。取得ファイルを`go tool pprof -top`等で解析する。 |
+| MySQL | slow logの実効設定・閾値・出力先・ローテートとdigest、performance_schemaの有効性・権限・version、status・接続・lock waitを確認。`mysql_all`が`MYSQL_HOSTS`全台を覆うことを確認する。空のslow logは低負荷・閾値未満・収集失敗を区別する。 |
 | ホスト・service | 全対象ホストのCPU・メモリ・disk・ネットワークと、実際のunit/process/cgroupの対応を確認。追加serviceや別ホストのDBも対象に含める。欠損、counter reset、単位、sampling間隔を確認する。 |
 | 障害・整合性 | app/nginxのjournal・error log、kernel/OOM、panic、service再起動が同じload windowで追えるか確認する。正常系のprofileだけで網羅済みにしない。 |
 | その他の依存サービス | 競技ごとの公式資料と稼働serviceから依存経路を列挙する。既存service metrics・journalで見える範囲と、処理件数・失敗・遅延など追加観測が必要な範囲を分ける。 |
-| user-transition | 標準対象。アプリのセッション仕様に合わせた識別列と有限個のAPI分類を整える。実ログに識別列があり、認証済みリクエストを結び付けられ、集計結果をDuckDBのqueryで読めることを確認する。未設定はoptionalではない。 |
+| user-transition | 標準対象。アプリのセッション仕様に合わせた識別列と有限個のAPI分類を整える。実ログに識別列があり、認証済みリクエストを結び付けられ、RUNのJSON集計を読めることを確認する。集計全体を負荷期間のみのDuckDB値へ混ぜない。未設定はoptionalではない。 |
 | アプリ内部・追加計測 | DB pool待ち、queue、処理件数などは既存profile・標準計測で説明できない問いがある場合に追加する。fgprof、高頻度task-state、lock wait、nginx on-CPUも目的・負荷・停止方法を確認して選ぶ。 |
 | RUN全体 | load windowと各計測の開始・終了、ホスト時計、取得遅延・欠落、roles/source、artifact status、rawから集計・分析への対応を確認。ヘッダーだけのfallbackと実測値を区別する。 |
 
@@ -40,8 +40,9 @@ setupでは既存構成のスコア・アクセスログ・user-transition等を
 
 - 計測用listenerはloopbackなど必要な範囲へ限定し、公開traffic用routerへ無条件に登録しない。remote curlがどのホストで動くかとbind先を照合する。
 - 標準pprofのendpoint・実装を確認する。fgprofは任意で既定無効とし、利用する場合だけ別endpoint・実装を確認する。setupの完了のためにfgprofを有効化しない。handler未登録、timeout、HTTPエラー本文の保存を取得成功に数えない。
-- `PROFILE_DELAY`、`SNAPSHOT_PROFILE_DELAY`、取得秒数、timeoutと実際の起動時刻を照合する。負荷終了後に手動タスクを呼んでも負荷中のprofileにはならない。
-- CPUは初期化・チェック・負荷・終了処理と余裕を覆う時間、snapshotは負荷中になる遅延を設定する。fgprofを利用する場合も、調査対象の時間窓を覆うように設定する。特定の秒数を競技共通の保証値としない。通常ベンチが採取開始を確認し、回収完了を待ってfinalizeすることを確認する。
+- 採取上限・timeoutと実際の開始・停止を照合する。既定ではベンチ前から採取して終了通知で停止するため、負荷開始秒数に合わせたsnapshotの遅延調整は行わない。
+- heap・goroutineの負荷期間内の時系列と関数別の変化、runtime counterの差分・rateまで確認する。形式や採取時刻が正しいだけで完了とせず、メモリ増加やgoroutine増加を調べられるか、実際の間隔・欠測・export所要時間も見る。負荷開始前の値を混ぜず、GCによるallocation stackの反映遅れを区別する。
+- CPU等の採取全体の集計は負荷期間だけへ切り出せない。元のRUN成果物とDuckDBの除外理由を確認し、初期化の値を含むことを明示して読む。重い追加基盤をsetupの完了条件にしない。
 - 同じプロセスへのCPU profile取得が重複しないようにする。fgprofとの同時利用も実装・負荷を確認する。block/mutexのような追加profileはsampling設定と負荷を確認してから使う。
 - CPU時間、wall-clock、heapの時点値、allocsの累積値を区別する。profileに紐づくソース・binaryと採取時間を追えるようにし、空または疎なprofileから負荷中の有用性を断定しない。
 

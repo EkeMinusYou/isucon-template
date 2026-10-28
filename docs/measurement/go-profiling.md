@@ -1,70 +1,69 @@
 # Go profileを通常のRUNへ自動収集する
 
-CPU・heap・allocs・goroutineのpprofは標準計測として既定で有効。テンプレートはアプリ実装を持たないため、setupでendpointを導入する。
-fgprofは任意の追加計測で既定無効。setupの完了条件には含めず、必要な場合に`task fgprof-collect`で明示的に採取する。
-[共通計測module](../../tools/measurement/README.md)をアプリから読み込み、起動時に明示的に開始する。
-競技ルールは `docs/official/` を確認し、ローカルのGoアプリに追加して正規deploy経路で反映する。
-アプリ固有のハンドラー・DB・nginx構成は含まない。
+標準計測ではCPUを連続採取し、heap・goroutineのprofileを2秒ごとに保存する。
+Go runtimeのgoroutine数、heap量、allocation・GCのcounterは既存のSQL pool collectorで1秒ごとに記録する。
+固定秒数後の一回だけのsnapshotは使わず、採取後に負荷期間を選ぶ。
+fgprofは任意で既定無効。必要な問いがある場合に追加する。
 
-## 有効化する条件
+テンプレートはアプリ実装を持たないため、setupで[共通計測module](../../tools/measurement/README.md)を接続する。
+公式ルールを確認し、ローカルのGoアプリへ組み込み、正規deploy経路で反映する。
 
-全APP_HOSTSで標準pprofと開始確認・停止通知のendpointをloopbackに公開する。fgprofのendpointは利用する場合に確認する。テンプレートではSSH経由でアクセスする。
+## 開始・停止の契約
+
+全APP_HOSTSのloopbackに次を公開する。collectorはSSH経由でアクセスする。
 
 | endpoint | 用途 |
 |---|---|
-| `/debug/pprof/profile?seconds=N&run_id=ID` | CPU profile |
-| `/debug/fgprof?seconds=N&run_id=ID` | 任意のgoroutine wall-clock profile |
-| `/debug/pprof/heap`、`allocs`、`goroutine` | snapshot |
-| `/debug/profiles/status` | 実行中の種類とRUN IDをJSONで返す |
-| `POST /debug/profiles/stop?kind=cpu\|fgprof&run_id=ID` | 指定RUNの採取へ停止を通知する |
+| `/debug/pprof/profile?seconds=N&run_id=ID` | CPUを連続採取 |
+| `/debug/profiles/snapshots?seconds=N&run_id=ID` | heap・goroutineを2秒ごとにtarへ保存 |
+| `/debug/fgprof?seconds=N&run_id=ID` | 任意のwall-clock profile |
+| `/debug/pprof/heap`、`allocs`、`goroutine` | 個別調査用の一回のsnapshot |
+| `/debug/profiles/status` | `{"cpu":"ID","fgprof":"","snapshots":"ID"}` のようにRUN所有者を返す |
+| `POST /debug/profiles/stop?kind=cpu\|fgprof\|snapshots&run_id=ID` | 指定RUNの採取を終了 |
 
-開始確認は `{"cpu":"RUN_ID","fgprof":""}` のような空白なしのJSONを前提とし、有効な採取対象だけを確認する。
-未実行の種類は空文字を返す。標準`net/http/pprof`だけではこのendpointは存在しない。
-独自adapterを使う場合は`collectors.yaml`の`ready`もその形式に合わせる。
-同じ種類の並行収集は拒否し、CPUとfgprofの併用は許容する。
-停止通知はRUN IDを照合し、別RUNの採取には409を返す。停止済みの採取への再通知は204を返す。
-通知は採取ハンドラーへ伝え、profileの書き出しは採取中のHTTP応答で完了させる。
+同じ種類の並行収集は拒否する。別RUNへの停止要求は409、停止済みへの再通知は204。
+停止後の最終snapshotとindexは、採取中のHTTP応答へ書き出す。
+標準`net/http/pprof`だけでは開始確認・停止通知・連続snapshotのendpointは揃わない。
 
-## 時間と開始順序
+`task bench`は宣言上有効なprofileを開始し、全ホストの開始確認、CPU writerのための1秒の先行収録と再確認、
+ベンチ実行、終了マーカー、停止通知、回収、finalizeを行う。開始確認に失敗したら負荷を開始しない。
+終了時刻はENTRY_HOSTから取得する。競技サーバー同士の時計差も確認する。
 
-Taskfileの次の値を競技に合わせる。120秒・40秒は例であり、競技固有の保証値ではない。
-
-| 設定 | 意味 |
+| Taskfile設定 | 意味 |
 |---|---|
-| `PROFILES_ENABLED` | 既定true。比較等で採取を停止する場合だけfalseに変更 |
-| `PROFILE_SECONDS` | 初期化・整合性チェック・負荷本体・終了処理と余裕を覆う採取上限。通常はベンチ終了通知で早期停止 |
-| `PROFILE_DELAY` | 自動収集では通常0s。遅延を増やすなら開始確認timeoutも調整 |
-| `SNAPSHOT_PROFILE_DELAY` | 初期化後かつ負荷終了前にsnapshotを取得する遅延 |
-| `PROFILE_TIMEOUT_SECONDS` | 既定では取得秒数+15秒。アプリのWriteTimeoutも十分長くする |
-| `PROFILE_READY_TIMEOUT_SECONDS` | SSH到達後に採取開始を待つ秒数 |
-| `PPROF_BASE_URL` / `FGPROF_URL` / `PROFILE_STATUS_URL` | adapterの公開先。fgprofのsecondsはPROFILE_SECONDSに追従 |
-| `PROFILE_STOP_URL` | RUN IDを照合して採取へ停止を通知するendpoint |
+| `PROFILES_ENABLED` | 既定true。比較等で明示的に停止するときだけfalse |
+| `PROFILE_SECONDS` | 既定3600秒の安全上限。通常はベンチ終了通知で停止し、負荷開始秒数の調整は不要 |
+| `PROFILE_DELAY` | 既定0s。開始を遅らせない |
+| `PROFILE_TIMEOUT_SECONDS` | 上限+15秒。アプリのWriteTimeoutもこれを覆う |
+| `PROFILE_READY_TIMEOUT_SECONDS` | 採取開始確認のtimeout |
+| `PPROF_BASE_URL` / `SNAPSHOT_PROFILE_URL` / `FGPROF_URL` | 各採取先 |
+| `PROFILE_STATUS_URL` / `PROFILE_STOP_URL` | 開始確認・停止通知先 |
 
-通常の`task bench`が`group: profiles`の有効な宣言を選び、収集開始、全ホストの開始確認、
-1秒の先行収録、開始状態の再確認、負荷開始、終了時刻の記録、停止通知、profile回収待ち、finalizeを順に行う。
-停止通知は全APP_HOSTSの有効なCPU・fgprof宣言へ並列に送る。失敗した場合は採取上限まで待って回収・finalizeし、エラーを返す。
-ポータルの待機が長い場合など、採取窓が負荷を覆わなければartifact検査は失敗する。
-開始確認失敗時は負荷を開始せず、失敗RUNとして回収を試みる。
-開始通知はprofiler起動成功後に公開する。GoのCPU profile writerは非同期に起動するため、
-通知後も1秒の先行収録時間を取る。この余裕は任意の起動遅延や大きなホスト時計差を保証せず、
-収録時間にはこの1秒も含めて余裕を持たせる。artifactの時間窓検査は緩和しない。
+## 分析に使える情報と限界
 
-新しいRUNでは宣言上有効なprofile×APP_HOSTS、各NGINX_HOSTSの圧縮access log、user-transitionを必須にする。
-profileの形式・sample種別・時刻と、ログのzstd・JSON・必須列を検査する。
-ログは空でも保存し、trafficのないホストと回収失敗を区別する。
-データは `go tool pprof` と[DuckDBのpprof表](../../tools/README.md#go-profileのduckdb閲覧)で読む。
+- runtimeの1秒系列で、goroutine増加、heap増加、allocation量、GCの増減を見る。counterは同一プロセス内の差分・経過秒からrateを求める。`go_heap_live_bytes`は直前のGC時点の値。
+- 2秒ごとのheapで保持メモリを、goroutineで繰り返し現れるstackとその増減を見る。瞬間的な待ちや待ち時間そのものは測れない。必要ならblock/mutex/trace等を問いに合わせて追加する。
+- heap profileには累積allocationも含まれるため、allocsを重複採取しない。分析は負荷期間内の隣接heap profileの差分を使う。ただしGCにより反映が遅れ、サンプリング誤差もある。総allocation量はruntime counterを使い、stack差分は発生箇所の推定に使う。負の差分は無効として残す。
+- heapは観測時点の保持状態であり、負荷開始前に確保したオブジェクトも含む。
+- CPU・fgprofの通常の出力は初期化等を含む採取全体の集計。各sampleの実時刻がなく、保存後に負荷期間だけへ切り出せない。元のpprofをRUNへ残し、負荷期間のみのDuckDB集計へは混ぜない。CPUの分割採取は標準では追加しない。
+
+`{host}-go-snapshots.tar`には時刻付きpprofと`index.json`を保存する。開始直後・停止時にも採取する。
+indexの実際の採取間隔、各export所要時間、artifactの最大欠測間隔を確認する。
+遅いexportによる取りこぼしを、設定上の2秒間隔だけから正常と判断しない。
+1 profile 8MiB、1 recording 64MiB、4000 profileを上限とし、超過・途中切断・間隔が設定の3倍を超える欠測は検査を失敗させる。
+
+DuckDBには負荷期間内の時点値・関数別集計と、期間内に両端があるallocation差分を取り込む。
+全stackを毎回展開せず、詳細調査はtarを任意の一時ディレクトリへ展開して`go tool pprof`で読む。
+[テーブルとquery例](../../tools/README.md#go-profileのduckdb閲覧)を参照する。
 
 ## アプリへの組み込み
 
-profileの実装をアプリへコピーせず、`github.com/EkeMinusYou/isucon-template/tools/measurement/app`をimportする。
-このリポジトリではアプリのgo.modから`../../tools/measurement`へ`replace`して使う。
-新しい競技のアプリでも相対パスを合わせて共通moduleへ接続する。
+アプリのgo.modから`../../tools/measurement`へ`replace`し、共通moduleをimportする。実装をコピーしない。
 
 ```go
 import "github.com/EkeMinusYou/isucon-template/tools/measurement/app"
 
 server, err := app.Start(app.Options{
-    MaxProfileSeconds: 180,
     Pools: []app.Pool{{
         DB: db, DatabaseHost: "db.local", Name: "main", Role: "primary",
     }},
@@ -75,11 +74,9 @@ if err != nil {
 defer server.Close()
 ```
 
-`DB`は`Stats() sql.DBStats`を満たす値（`*sql.DB`や`*sqlx.DB`）。profileだけが必要なら`Pools`は省略できる。
-起動上限は1–3600秒、既定180秒。Taskfileの`PROFILE_SECONDS`以上に設定する。
-既定のlistenerは`127.0.0.1:6060`で、WriteTimeoutは上限+15秒。
-`Address`で変更する場合はTaskfileの取得URLも揃え、公開trafficから到達させない。
-起動失敗は呼び出し元へ同期的に返す。エラーを無視したまま自動収集を有効にしない。
-
-独自listenerがある場合は`app.NewHandler`を使う。プロセス内でhandlerを一つだけ作成する。
-アプリ固有の内部指標は`Snapshot` callbackで渡せる。詳細は[共通moduleのREADME](../../tools/measurement/README.md)を参照。
+`DB`は`Stats() sql.DBStats`を満たす値。`Pools`を省略してもruntime指標は出力する。
+採取上限`MaxProfileSeconds`は既定3600秒（設定範囲1–3600秒）で、Taskfileの上限と合わせる。
+個別HTTP要求でsecondsを省略した場合は最大30秒。
+既定のlistenerは`127.0.0.1:6060`、WriteTimeoutは上限+15秒。起動失敗は同期的に返す。
+`Address`を変える場合はcollector側も揃える。独自listenerでは`app.NewHandler`をプロセス内に一つだけ作る。
+アプリ固有指標は`Snapshot` callbackで渡す。

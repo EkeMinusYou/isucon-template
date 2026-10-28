@@ -28,8 +28,8 @@ sources:
     role: mysql_all
     remote: /var/log/mysql/mysql-slow.log
     # Keep one raw log per database so query costs remain attributable to a host.
-    local: '{raw_dir}/mysql-slow-{host}.log'
-    compress: false
+    local: '{run_dir}/raw/mysql-slow-{host}.log'
+    compress: true
 
 digesters:
   - name: mysql-error

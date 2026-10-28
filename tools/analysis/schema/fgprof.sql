@@ -88,3 +88,20 @@ select * from read_csv(getenv('ISUCON_PROFILE_DIR') || '/pprof-edges.rows',
         'sample_type':'VARCHAR', 'sample_unit':'VARCHAR', 'value_unit':'VARCHAR',
         'caller':'VARCHAR', 'callee':'VARCHAR', 'value':'DOUBLE', 'sample_occurrences':'BIGINT'
     });
+
+
+-- Recording metadata remains available when a series is incomplete. Analysis
+-- values below are emitted only for points/intervals fully inside load_windows.
+create or replace view go_profile_recordings_raw as
+select * from read_csv(getenv('ISUCON_PROFILE_DIR') || '/go-profile-recordings.rows',
+ delim='\t',header=true,columns={run_id:'VARCHAR',host:'VARCHAR',source:'VARCHAR',status:'VARCHAR',reason:'VARCHAR',interval_ns:'BIGINT',started_at_ns:'BIGINT',ended_at_ns:'BIGINT',captures:'BIGINT',max_capture_ns:'BIGINT'});
+create or replace view go_profile_points_raw as
+select * from read_csv(getenv('ISUCON_PROFILE_DIR') || '/go-profile-points.rows',
+ delim='\t',header=true,columns={run_id:'VARCHAR',host:'VARCHAR',source:'VARCHAR',profile_type:'VARCHAR',sample_type:'VARCHAR',value_unit:'VARCHAR',captured_at_ns:'BIGINT',interval_start_ns:'BIGINT',interval_end_ns:'BIGINT',total_value:'BIGINT',valid:'BOOLEAN'});
+create or replace view go_profile_point_functions_raw as
+select * from read_csv(getenv('ISUCON_PROFILE_DIR') || '/go-profile-point-functions.rows',
+ delim='\t',header=true,columns={run_id:'VARCHAR',host:'VARCHAR',source:'VARCHAR',profile_type:'VARCHAR',sample_type:'VARCHAR',value_unit:'VARCHAR',captured_at_ns:'BIGINT',interval_start_ns:'BIGINT',interval_end_ns:'BIGINT',function:'VARCHAR',file:'VARCHAR',line:'BIGINT',flat_value:'BIGINT',cumulative_value:'BIGINT',valid:'BOOLEAN'});
+
+create or replace view go_profile_import_scope_raw as
+select * from read_csv(getenv('ISUCON_PROFILE_DIR') || '/go-profile-import-scope.rows',
+ delim='\t',header=true,columns={run_id:'VARCHAR',host:'VARCHAR',source:'VARCHAR',status:'VARCHAR',reason:'VARCHAR'});

@@ -54,15 +54,15 @@ func TestStandardCaptureSelectionAndFrozenContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(m.RequiredArtifacts) != 5 {
+	if len(m.RequiredArtifacts) != 4 {
 		t.Fatalf("requirements=%v", m.RequiredArtifacts)
 	}
 	selected, err := enabledOneshotsInGroup(cfg.Oneshots, "profiles")
-	if err != nil || len(selected) != 4 {
+	if err != nil || len(selected) != 2 {
 		t.Fatalf("selected=%v err=%v", selected, err)
 	}
 	for _, o := range selected {
-		if !strings.Contains(strings.Join(m.RequiredArtifacts, ","), "host-"+o.Name+".pprof") {
+		if !strings.Contains(strings.Join(m.RequiredArtifacts, ","), strings.ReplaceAll(o.Output, "{host}", "host")) {
 			t.Fatalf("capture missing for %s", o.Name)
 		}
 	}
@@ -87,7 +87,7 @@ func TestStandardCaptureSelectionAndFrozenContract(t *testing.T) {
 	}
 	m.ProfilesEnabled = false
 	m.RequiredArtifacts, err = captureRequirements(m, collectors, digesters)
-	if err != nil || len(m.RequiredArtifacts) != 1 {
+	if err != nil || len(m.RequiredArtifacts) != 2 {
 		t.Fatalf("override requirements=%v err=%v", m.RequiredArtifacts, err)
 	}
 	specs, err := captureArtifactContract(m, collectors, digesters)
@@ -119,12 +119,12 @@ func TestUserTransitionCaptureRequiresIdentity(t *testing.T) {
 }
 
 func TestCaptureRequirementsArePerHostAndFrozen(t *testing.T) {
-	m := Manifest{ProfilesEnabled: true, Roles: Roles{App: []string{"host-1", "host-2", "host-3"}, Nginx: []string{"host-1", "host-2", "host-3"}}}
+	m := Manifest{ProfilesEnabled: true, Roles: Roles{App: []string{"host-1", "host-2", "host-3"}, Nginx: []string{"host-1", "host-2", "host-3"}, Additional: map[string][]string{"mysql_all": {"host-1", "host-2", "host-3"}}}}
 	required, err := captureRequirements(m, "collectors.yaml", "digesters.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(required) != 16 {
+	if len(required) != 13 {
 		t.Fatalf("required=%v", required)
 	}
 	m.RequiredArtifacts = required
@@ -153,7 +153,7 @@ func TestCaptureRequirementsArePerHostAndFrozen(t *testing.T) {
 	}
 	m.ProfilesEnabled = false
 	required, err = captureRequirements(m, "collectors.yaml", "digesters.yaml")
-	if err != nil || len(required) != 4 {
+	if err != nil || len(required) != 7 {
 		t.Fatalf("disabled profiles requirements=%v err=%v", required, err)
 	}
 	if got := appendCaptureSpecs(nil, Manifest{}); len(got) != 0 {

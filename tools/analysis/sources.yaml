@@ -7,6 +7,7 @@ base_schema: schema/00-base.sql
 semantic_schemas:
   - schema/semantic.sql
   - schema/bottleneck.sql
+  - schema/go-runtime.sql
   # Views over the contest's own benchmark log live under ../contest/analysis-schema/
   # because they depend on that benchmarker's output format. Add score breakdowns
   # for the contest there as well; the view names stay the readers' contract.
@@ -21,6 +22,7 @@ reports:
 
 profiles:
   match: "*.pprof"
+  series_match: "*-go-snapshots.tar"
   schema: schema/fgprof.sql
   tables:
     - profile_metadata
@@ -33,6 +35,10 @@ profiles:
     - pprof_frames
     - pprof_functions
     - pprof_edges
+    - go_profile_recordings
+    - go_profile_points
+    - go_profile_point_functions
+    - go_profile_import_scope
 
 sources:
   # Time-series collectors are physically filtered during import. Raw files
@@ -89,28 +95,33 @@ sources:
     schema: schema/slp.sql
     match: '*slp.tsv'
     view: queries_slp
+    scope: collection
   - table: queries
     schema: schema/digest.sql
     match: '*mysql-digest.tsv'
     view: queries_digest
+    scope: collection
   - table: upstreams
     schema: schema/upstreams.sql
     match: upstream-breakdown.tsv
     view: upstreams
+    scope: collection
   - table: upstreams_by_ingress
     schema: schema/upstreams-ingress.sql
     match: upstream-breakdown-by-ingress.tsv
     view: upstreams_by_ingress
+    scope: collection
   - table: endpoints
     schema: schema/endpoints.sql
     match: alp.json
     view: endpoints
+    scope: collection
   - table: endpoints_by_ingress
     schema: schema/endpoints-ingress.sql
     match: alp-by-ingress.tsv
     view: endpoints_by_ingress
-  # Already a bucket aggregate rather than a sample stream, so it keeps the
-  # whole lifecycle and load_windows narrows it at query time.
+    scope: collection
+  # Filter individual request starts to the load window before bucketing.
   - table: http_traffic
     schema: schema/access-log.sql
     match: "raw/access-*.log*"
@@ -119,14 +130,17 @@ sources:
     schema: schema/nginx-oncpu.sql
     match: "*-nginx-oncpu.folded"
     view: nginx_oncpu_stacks
+    scope: collection
   - table: user_transition_edges
     schema: schema/user-transitions.sql
     match: user-transitions.json
     view: user_transition_edges
+    scope: collection
   - table: user_transition_scenarios
     schema: schema/user-transitions.sql
     match: user-transitions.json
     view: user_transition_scenarios
+    scope: collection
   - table: manifests
     schema: schema/manifest.sql
     match: run.json
@@ -154,3 +168,4 @@ sources:
     schema: schema/runtime-logs.sql
     match: '*-*.log'
     view: runtime_logs_raw
+    scope: collection

@@ -26,7 +26,8 @@ create table if not exists upstreams (
 );
 
 -- analysisctl derives this window from ingress request-rate transitions. The
--- manifest and bench.log markers remain the wider collection-window fallback.
+-- Collection markers are a historical fallback only when no analysis result
+-- exists. Never override an explicitly unavailable analysis window.
 create or replace view load_windows as
 select
     m.run_id,
@@ -38,15 +39,13 @@ select
         date_diff('millisecond', b.started_at, b.ended_at) / 1000.0
     ) as duration_seconds,
     case
-        when a.status = 'ok' and a.started_at is not null and a.ended_at > a.started_at then a.source
+        when a.run_id is not null then a.source
         when m.load_window_status = 'ok' then m.load_window_source
         when b.started_at is not null and b.ended_at > b.started_at then 'bench.log-backfill'
         else coalesce(m.load_window_source, b.source, 'unavailable')
     end as source,
     case
-        when a.status = 'ok'
-             and a.started_at is not null
-             and a.ended_at > a.started_at then 'ok'
+        when a.run_id is not null then a.status
         when m.load_window_status = 'ok'
              and m.load_started_at is not null
              and m.load_ended_at > m.load_started_at then 'ok'
@@ -54,7 +53,7 @@ select
         else 'unavailable'
     end as status,
     case
-        when a.status = 'ok' then a.reason
+        when a.run_id is not null then a.reason
         when m.load_window_status = 'ok'
              and m.load_started_at is not null
              and m.load_ended_at > m.load_started_at then ''

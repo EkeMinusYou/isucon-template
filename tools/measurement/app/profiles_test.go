@@ -54,7 +54,7 @@ func TestProfileStopOwnsRunAndPreservesExport(t *testing.T) {
 	awaitProfile(t, fgStarted)
 	// Wait for ownership publication after the starter has returned.
 	deadline := time.Now().Add(3 * time.Second)
-	for profileRequest(h, "GET", "/debug/profiles/status").Body.String() != "{\"cpu\":\"run-a\",\"fgprof\":\"run-a\"}\n" {
+	for profileRequest(h, "GET", "/debug/profiles/status").Body.String() != "{\"cpu\":\"run-a\",\"fgprof\":\"run-a\",\"snapshots\":\"\"}\n" {
 		if time.Now().After(deadline) {
 			t.Fatal("RUN ownership was not published")
 		}
@@ -92,7 +92,7 @@ func TestProfileStopOwnsRunAndPreservesExport(t *testing.T) {
 	if fgStops.Load() != 1 || fg.Body.String() != "complete profile" {
 		t.Fatalf("fgprof stops=%d output=%q", fgStops.Load(), fg.Body.String())
 	}
-	if status := profileRequest(h, "GET", "/debug/profiles/status").Body.String(); status != "{\"cpu\":\"\",\"fgprof\":\"\"}\n" {
+	if status := profileRequest(h, "GET", "/debug/profiles/status").Body.String(); status != "{\"cpu\":\"\",\"fgprof\":\"\",\"snapshots\":\"\"}\n" {
 		t.Fatalf("status after export=%s", status)
 	}
 }
@@ -110,7 +110,7 @@ func TestProfileStopProducesParseableProfiles(t *testing.T) {
 				close(done)
 			}()
 			deadline := time.Now().Add(3 * time.Second)
-			for profileRequest(h, "GET", "/debug/profiles/status").Body.String() == "{\"cpu\":\"\",\"fgprof\":\"\"}\n" {
+			for profileRequest(h, "GET", "/debug/profiles/status").Body.String() == "{\"cpu\":\"\",\"fgprof\":\"\",\"snapshots\":\"\"}\n" {
 				if time.Now().After(deadline) {
 					t.Fatal("profiler did not start")
 				}

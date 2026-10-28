@@ -27,9 +27,8 @@ vars:
   TARGET_ARCH: amd64
   # Optional Go PGO profile path for build/build-pgo; unset uses -pgo=auto (default.pgo).
   # PGO_PROFILE: '{{.ROOT_DIR}}/runs/<RUN_ID>/isucon-1-go-cpu.pprof'
-  # Example budget: initialization + checks + load + margin. Tune for the contest.
-  PROFILE_SECONDS: '120'
-  SNAPSHOT_PROFILE_DELAY: 40s
+  # Safety cap; normal collection stops with the benchmark, regardless of load timing.
+  PROFILE_SECONDS: '3600'
   # Additional local files read during DB recreation or initialization; use 'none' if empty.
   RESET_INPUTS: ''
   # Adapt these reset assets and endpoint to the acquired official implementation.
@@ -124,6 +123,7 @@ vars:
   NGINX_ONCPU_PROBE_URL: http://127.0.0.1/
   PPROF_BASE_URL: http://127.0.0.1:6060/debug/pprof
   PROFILE_STATUS_URL: http://127.0.0.1:6060/debug/profiles/status
+  SNAPSHOT_PROFILE_URL: http://127.0.0.1:6060/debug/profiles/snapshots
   PROFILE_STOP_URL: http://127.0.0.1:6060/debug/profiles/stop
   # Standard measurement; setup must install the endpoint adapter before a RUN.
   PROFILES_ENABLED: 'true'
@@ -165,7 +165,7 @@ vars:
     -var profile_ready_timeout_seconds={{.PROFILE_READY_TIMEOUT_SECONDS}}
     -var fgprof_url={{.FGPROF_URL}}
     -var profile_delay={{.PROFILE_DELAY}}
-    -var snapshot_profile_delay={{.SNAPSHOT_PROFILE_DELAY}}
+    -var snapshot_profile_url={{.SNAPSHOT_PROFILE_URL}}
     -var profile_seconds={{.PROFILE_SECONDS}}
     -var profile_timeout_seconds={{.PROFILE_TIMEOUT_SECONDS}}
   MEASURECTL_REMOTE: '{{.MEASURECTL_SSH}} {{.MEASURECTL_ROLES}} {{.MEASURECTL_VARS}}'
@@ -347,7 +347,7 @@ tasks:
     internal: true
     silent: true
     dir: '{{.MEASURECTL_DIR}}'
-    sources: ['*.go', go.mod, go.sum, collectors.yaml, digesters.yaml]
+    sources: ['*.go', go.mod, go.sum, ../measurement/profileseries/*.go, collectors.yaml, digesters.yaml]
     generates: [measurectl]
     cmds: ['go build -trimpath -ldflags "-s -w" -o measurectl .']
 
@@ -379,7 +379,7 @@ tasks:
     internal: true
     silent: true
     dir: '{{.ANALYSISCTL_DIR}}'
-    sources: ['*.go', internal/pprofimport/*.go, go.mod, go.sum, ../analysis/sources.yaml, ../analysis/schema/*.sql, ../contest/analysis-schema/*.sql]
+    sources: ['*.go', internal/pprofimport/*.go, ../measurement/profileseries/*.go, go.mod, go.sum, ../analysis/sources.yaml, ../analysis/schema/*.sql, ../contest/analysis-schema/*.sql]
     generates: [analysisctl]
     cmds: ['go build -trimpath -ldflags "-s -w" -o analysisctl .']
 

@@ -143,7 +143,7 @@ digesterも`enabled_by_default: false`で既定の実行対象から外せます
 直接`manifest begin`を使う場合は`-role cache=host-a,host-b`を渡してください。
 古いRUNの未記録roleは推測で補いません。
 
-Go CPU・heap・allocs・goroutineは`group: profiles`かつ`enabled_by_default: true`。
+Go CPUと2秒ごとのheap・goroutine recordingは`group: profiles`かつ`enabled_by_default: true`。
 fgprofは既定無効で、必要な場合は`task fgprof-collect`で明示的に収集する。
 `bench/run.sh`がこの宣言から収集対象を選び、同じ対象を開始確認・必須成果物判定で使う。
 [Go profile導入例](../docs/measurement/go-profiling.md)に沿ってsetupでendpointを用意する。
@@ -155,7 +155,7 @@ fgprofは既定無効で、必要な場合は`task fgprof-collect`で明示的�
 ローカルPCの時計をサーバーのprofile・アクセスログと混ぜない。時刻取得に失敗した場合は
 マーカーを出さずにエラーとし、通常のfinalize処理で取得済み成果物を保存する。
 競技サーバー同士の時計差は別途確認する必要がある。
-時間・snapshotの遅延・HTTP timeout・開始確認timeoutはTaskfileで競技に合わせる。
+採取上限・HTTP timeout・開始確認timeoutはTaskfileで設定する。負荷開始に合わせたsnapshotの遅延調整は不要。
 endpointはloopbackで公開する。`PROFILES_ENABLED=false`またはno-collectorsタスクで停止できる。
 各RUNの`required_artifacts`に有効なホスト別profile・圧縮access log・user-transitionを固定し、内容・計測窓・欠損を検査する。
 `artifact_contract`には開始時の成果物宣言も保存し、途中で既定値が変わってもRUNの検査条件を維持する。
@@ -216,58 +216,40 @@ WAL分析の方針は[WALの分析と保存](../docs/measurement/wal-analysis.md
 
 ### Go profileのDuckDB閲覧
 
-finalized RUN直下の `{host}-fgprof.pprof`、`{host}-go-cpu.pprof`、
-`{host}-go-heap.pprof`、`{host}-go-allocs.pprof`、`{host}-go-goroutine.pprof` を
-`task q` が取り込む。既存DBは取り込みschema versionの変更時に自動再構築する。
-取得完了を待ってからRUNをfinalizeする。
+標準収集は`{host}-go-cpu.pprof`と`{host}-go-snapshots.tar`をRUNへ保存する。
+既存DBはschema version変更時に自動再構築する。元の成果物は変更しない。
+採取方法・限界・上限は[Go profile](../docs/measurement/go-profiling.md)、
+他の計測を含む期間の扱いは[標準計測の一覧](../docs/measurement/README.md#標準計測で答えられる問い)を参照する。
 
-| table | 内容 |
-| --- | --- |
-| `pprof_metadata` | profile種別・sample種別・単位、SHA-256、採取時刻、duration、総量、sample数、不完全なstack数 |
-| `pprof_samples` | stackごとの値、変換前の整数値 `raw_value`、stack深さ |
-| `pprof_frames` | sampleごとのleafからrootへのframe列 |
-| `pprof_functions` | 関数別 `flat_value` と `cumulative_value` |
-| `pprof_edges` | caller/callee別の値と出現数 |
-
-`profile_type` は `fgprof` / `go-cpu` / `go-heap` / `go-allocs` / `go-goroutine`。
-複数のsample種別をすべて保持する。CPUは `sample_type='cpu'`、fgprofは `time`、
-heapの使用中メモリは `inuse_space`、累積allocationは `alloc_space`、
-goroutine数は `goroutine` を選ぶ。heap/allocsは両方のprofileに使用中・累積の値が含まれるため、
-同じ意味の値を複数profileから足し合わせない。
-
-時間の `value_unit` は `seconds`、容量は `bytes`、個数は `count`。
-`sample_unit` と `raw_value` は元の単位・整数値を保持する。
-CPU秒、goroutineのwall-clock秒、バイト数、個数は互換ではない。
-必ずRUN・host・profile_type・sample_typeを選んでから比較・集計する。
-table間のjoinには `(run_id, host, source, sample_type)`、sampleとframeのjoinにはさらに `sample_id` を使う。
-`duration_seconds` は採取窓であり、総CPU時間・全goroutineの時間合計とは異なる。
-snapshotのduration=0は正常。採取時刻 `time_unix_nano=0` は不明として扱う。
-
-取得状況:
+| table / view | 内容 |
+|---|---|
+| `go_runtime_series` / `go_runtime_window` | 1秒のruntime指標と期間集計。counterは再起動をまたがない差分・rate |
+| `go_profile_recordings` | recordingの完全性、採取数、設定間隔、最大export所要時間 |
+| `go_profile_points` | 負荷期間内の時刻・sample種別・単位・総量・valid。allocationは隣接時点の差分 |
+| `go_profile_point_functions` | 時点別・関数別flat/cumulative値 |
+| `go_profile_function_window` | 状態の平均・最大、allocation差分の合計・毎秒量 |
+| `go_profile_import_scope` | 個別pprofの取り込み可否と理由 |
+| `measurement_sources` | 期間を分離できないsourceの除外理由 |
 
 ```sh
-task q -- "SELECT run_id, host, profile_type, sample_type, value_unit, total_value, sample_count, duration_seconds, make_timestamp_ns(nullif(time_unix_nano, 0)) AS captured_at FROM pprof_metadata ORDER BY run_id DESC, host, profile_type, sample_type;"
+task q -- "SELECT * FROM go_runtime_window WHERE run_id='RUN_ID' ORDER BY host,metric;"
+task q -- "SELECT host,profile_type,sample_type,value_unit,make_timestamp_ns(captured_at_ns) AS captured_at,total_value,valid FROM go_profile_points WHERE run_id='RUN_ID' ORDER BY host,captured_at,profile_type,sample_type;"
+task q -- "SELECT host,function,mean_observed,max_observed FROM go_profile_function_window WHERE run_id='RUN_ID' AND profile_type='go-goroutine' AND sample_type='goroutine' ORDER BY mean_observed DESC LIMIT 20;"
+task q -- "SELECT * FROM go_profile_recordings WHERE run_id='RUN_ID';"
 ```
 
-CPUの重い関数（RUN_IDは実際のRUNへ置換）:
+関数が存在しない時点も平均の母数に含める。goroutineの値は観測された個数であり、待ち秒数ではない。
+`inuse_space`はbytes、`alloc_space_delta`は区間内の割当bytes、`alloc_objects_delta`は個数。
+時点の量を合計して消費量とみなさない。RUN・host・profile_type・sample_type・単位を揃えて比較する。
+allocationの負の差分は`valid=false`で集計から除外する。GCによる反映遅れがあるためruntime counterも併せて読む。
 
-```sh
-task q -- "SELECT function, flat_value AS cpu_seconds, cumulative_value FROM pprof_functions WHERE run_id='RUN_ID' AND host='isucon-1' AND profile_type='go-cpu' AND sample_type='cpu' ORDER BY flat_value DESC LIMIT 20;"
-```
-
-使用中メモリの大きい関数:
-
-```sh
-task q -- "SELECT function, flat_value AS inuse_bytes, cumulative_value FROM pprof_functions WHERE run_id='RUN_ID' AND host='isucon-1' AND profile_type='go-heap' AND sample_type='inuse_space' ORDER BY flat_value DESC LIMIT 20;"
-```
-
-サンプルが0件でも `pprof_metadata` は存在する。ファイルの欠損とは区別し、
-`run.json` / `artifacts` の状態も確認する。不正protobufや未知の単位は取り込みエラーとなり、
-再構築に失敗した場合は旧DBを保持する。関数名はprofileに埋め込まれた情報を使い、
-不明frameは `[unknown]` とする。別binaryによる補完やソース一致の保証は行わない。
-
-既存の `profile_*` と `bottleneck_profile_*` はfgprofのwall-clock秒専用の互換table/viewとして維持する。
-`analysisctl profile` の既存レポートもfgprof専用。標準pprofは上記 `task q` で閲覧する。
+既存の単体pprofは採取時刻とdurationが負荷期間内に収まる場合だけ`pprof_metadata`、
+`pprof_samples`、`pprof_frames`、`pprof_functions`、`pprof_edges`へ展開する。
+heapの累積allocationと旧allocs profileは負荷区間の量にできないため除外する。
+連続snapshotの時系列は上記DuckDBのqueryで読む。dashboardの単体pprof表示は過去のsnapshot用として残す。
+通常の全期間CPUはRUN上で`go tool pprof -top runs/RUN_ID/HOST-go-cpu.pprof`として読む。
+`profile_*`と`bottleneck_profile_*`、`analysisctl profile`はfgprof専用で、同じ期間条件に従う。
+不明frameは`[unknown]`。binary・ソースの一致を自動保証せず、欠測は0とみなさない。
 
 ### アプリ固有adapter
 

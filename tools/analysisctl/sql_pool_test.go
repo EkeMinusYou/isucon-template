@@ -29,7 +29,11 @@ func TestSQLPoolHeaderOnlyRunsKeepDeclaredTypes(t *testing.T) {
 			r := runner{
 				options: options{db: filepath.Join(tmp, "analysis.duckdb"), results: results, duckdb: duckdb, stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}},
 				config: config{Version: 1, BaseSchema: "base.sql", baseDir: tmp,
-					Sources: []sourceConfig{{Table: "metrics", Schema: schema, Match: "*-sql-pool-metrics.tsv", View: "metrics_sql_pool", Windowed: true, WindowColumn: "ts"}}},
+					loadPhase: loadPhaseConfig{StartPattern: "BENCHMARK_START", EndPattern: "BENCHMARK_END"},
+					Sources:   []sourceConfig{{Table: "metrics", Schema: schema, Match: "*-sql-pool-metrics.tsv", View: "metrics_sql_pool", Windowed: true, WindowColumn: "ts"}}},
+			}
+			if err := r.config.loadPhase.compile(); err != nil {
+				t.Fatal(err)
 			}
 			for i, runID := range []string{"run-1", "run-2"} {
 				dir := filepath.Join(results, runID)
