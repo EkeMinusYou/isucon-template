@@ -8,22 +8,6 @@ create table if not exists metrics (
     source varchar, entity varchar, metric varchar, value double
 );
 
-create table if not exists upstreams (
-    run_id varchar,
-    upstream_addr varchar,
-    upstream_status varchar,
-    cache_status varchar,
-    requests bigint,
-    status_2xx bigint,
-    status_3xx bigint,
-    status_4xx bigint,
-    status_5xx bigint,
-    status_other bigint,
-    response_time_sum_ms double,
-    response_time_avg_ms double,
-    upstream_time_sum_ms double,
-    upstream_time_avg_ms double
-);
 
 -- analysisctl derives this window from ingress request-rate transitions. The
 -- Collection markers are a historical fallback only when no analysis result
@@ -68,7 +52,7 @@ create or replace view measurement_quality as
 with periodic_points as (
     select distinct run_id, source, host, ts
     from metrics
-    where source in ('proc', 'service', 'disk', 'mysql', 'sql_pool')
+    where source in ('proc', 'service', 'disk', 'runtime')
 ),
 window_points as (
     select
@@ -88,7 +72,7 @@ periodic_values as (
     join load_windows w using (run_id)
     where w.status = 'ok'
       and m.ts >= w.started_at and m.ts < w.ended_at
-      and m.source in ('proc', 'service', 'disk', 'mysql', 'sql_pool')
+      and m.source in ('proc', 'service', 'disk', 'runtime')
     group by all
 ),
 periodic as (
@@ -110,17 +94,7 @@ derived as (
             when 'proc' then p.host || '-proc-metrics.tsv'
             when 'service' then p.host || '-service-metrics.tsv'
             when 'disk' then p.host || '-disk-metrics.tsv'
-            when 'mysql' then
-                case
-                    when exists (
-                        select 1
-                        from artifacts a
-                        where a.run_id = p.run_id
-                          and a.name = p.host || '-mysql-status.tsv'
-                    ) then p.host || '-mysql-status.tsv'
-                    else 'mysql-status.tsv'
-                end
-            when 'sql_pool' then p.host || '-sql-pool-metrics.tsv'
+            when 'runtime' then p.host || '-runtime-metrics.tsv'
         end as artifact_name,
         p.in_window_samples,
         greatest(1, floor(w.duration_seconds)::bigint) as expected_samples,
@@ -139,12 +113,10 @@ classified as (
             -- artifacts -check reads SQL string literals as artifact names, and
             -- a wildcard pattern there looks like an undeclared artifact to it.
             when ends_with(lower(a.name), '.pprof') then 'profile'
-            when lower(a.name) = 'mysql-status.tsv'
-              or lower(a.name) like '%-mysql-status.tsv'
-              or lower(a.name) like '%-proc-metrics.tsv'
+            when lower(a.name) like '%-proc-metrics.tsv'
               or lower(a.name) like '%-service-metrics.tsv'
               or lower(a.name) like '%-disk-metrics.tsv'
-              or lower(a.name) like '%-sql-pool-metrics.tsv' then 'periodic'
+              or lower(a.name) like '%-runtime-metrics.tsv' then 'periodic'
             else 'capture'
         end as measurement_kind
     from artifacts a
@@ -258,23 +230,6 @@ create table if not exists endpoints_by_ingress (
     status_5xx bigint
 );
 
-create table if not exists upstreams_by_ingress (
-    run_id varchar,
-    ingress_host varchar,
-    upstream_addr varchar,
-    upstream_status varchar,
-    cache_status varchar,
-    requests bigint,
-    status_2xx bigint,
-    status_3xx bigint,
-    status_4xx bigint,
-    status_5xx bigint,
-    status_other bigint,
-    response_time_sum_ms double,
-    response_time_avg_ms double,
-    upstream_time_sum_ms double,
-    upstream_time_avg_ms double
-);
 
 create or replace view endpoint_cost as
 select
@@ -299,34 +254,6 @@ select
     'benchmark-lifecycle' as scope,
     'alp.json' as source_artifact
 from endpoints e
-left join load_windows w using (run_id);
-
--- Whole-RUN nginx routing/cache breakdown. Like endpoint_cost, this is an
--- access-log aggregate for the benchmark lifecycle rather than a periodic
--- load-window sample. NONE means that nginx logged no upstream for the group;
--- it does not by itself prove an application response or a cache hit.
-create or replace view upstream_cost as
-select
-    u.run_id,
-    u.upstream_addr,
-    u.upstream_status,
-    u.cache_status,
-    u.requests,
-    u.status_2xx,
-    u.status_3xx,
-    u.status_4xx,
-    u.status_5xx,
-    u.status_other,
-    u.response_time_sum_ms / 1000.0 as response_time_sum_seconds,
-    u.response_time_avg_ms,
-    u.upstream_time_sum_ms / 1000.0 as upstream_time_sum_seconds,
-    u.upstream_time_avg_ms,
-    u.response_time_sum_ms / nullif(sum(u.response_time_sum_ms) over (partition by u.run_id), 0) as response_time_share,
-    u.upstream_time_sum_ms / nullif(sum(u.upstream_time_sum_ms) over (partition by u.run_id), 0) as upstream_time_share,
-    w.duration_seconds as load_window_seconds,
-    'benchmark-lifecycle' as scope,
-    'upstream-breakdown.tsv' as source_artifact
-from upstreams u
 left join load_windows w using (run_id);
 
 create or replace view endpoint_cost_by_ingress as
@@ -354,29 +281,6 @@ select
 from endpoints_by_ingress e
 left join load_windows w using (run_id);
 
-create or replace view upstream_cost_by_ingress as
-select
-    u.run_id,
-    u.ingress_host,
-    u.upstream_addr,
-    u.upstream_status,
-    u.cache_status,
-    u.requests,
-    u.status_2xx,
-    u.status_3xx,
-    u.status_4xx,
-    u.status_5xx,
-    u.status_other,
-    u.response_time_sum_ms / 1000.0 as response_time_sum_seconds,
-    u.response_time_avg_ms,
-    u.upstream_time_sum_ms / 1000.0 as upstream_time_sum_seconds,
-    u.upstream_time_avg_ms,
-    u.response_time_sum_ms / nullif(sum(u.response_time_sum_ms) over (partition by u.run_id, u.ingress_host), 0) as ingress_response_time_share,
-    w.duration_seconds as load_window_seconds,
-    'benchmark-lifecycle' as scope,
-    'upstream-breakdown-by-ingress.tsv' as source_artifact
-from upstreams_by_ingress u
-left join load_windows w using (run_id);
 
 create table if not exists http_traffic (
     run_id varchar,
@@ -392,8 +296,6 @@ create table if not exists http_traffic (
     status_5xx bigint,
     sum_time_sec double,
     max_time_sec double,
-    sum_upstream_time_sec double,
-    upstream_time_samples bigint,
     sum_body_bytes double,
     connection_samples bigint,
     new_connections bigint,
@@ -418,14 +320,12 @@ select
     t.sum_time_sec as response_time_sum_seconds,
     t.sum_time_sec * 1000 / nullif(t.requests, 0) as response_time_avg_ms,
     t.max_time_sec * 1000 as response_time_max_ms,
-    t.sum_upstream_time_sec * 1000 / nullif(t.upstream_time_samples, 0) as upstream_time_avg_ms,
-    t.upstream_time_samples,
     t.status_2xx,
     t.status_3xx,
     t.status_4xx,
     t.status_5xx,
     t.sum_body_bytes,
-    -- 接続列は nginx の log_format に接続番号を入れた RUN だけにある。旧 RUN は母数 0。
+    -- Connection columns are available only when emitted by the Go HTTP listener.
     t.connection_samples,
     t.new_connections,
     t.new_connections / nullif(t.connection_samples, 0) as new_connection_share,
@@ -509,30 +409,6 @@ from service_summary s
 join host_summary h using (run_id, host)
 join load_windows w using (run_id);
 
-create or replace view query_cost as
-select
-    q.run_id,
-    q.host,
-    q.source,
-    q.query as query_fingerprint,
-    q.count as calls,
-    q.sum_time_sec as sum_time_seconds,
-    q.sum_time_sec * 1000 / nullif(q.count, 0) as avg_time_ms,
-    q.p95_time_sec * 1000 as p95_time_ms,
-    q.max_time_sec * 1000 as max_time_ms,
-    q.sum_lock_sec as lock_time_seconds,
-    q.rows_examined,
-    q.rows_sent,
-    q.rows_affected,
-    q.no_index_used,
-    q.no_good_index_used,
-    q.tmp_disk_tables,
-    q.tmp_tables,
-    q.sort_merge_passes,
-    q.errors,
-    q.sum_time_sec / nullif(sum(q.sum_time_sec) over (partition by q.run_id, q.source, q.host), 0) as query_time_share,
-    case q.source when 'slp' then 'slp.tsv' when 'digest' then 'mysql-digest.tsv' else q.source end as source_artifact
-from queries q;
 
 -- Host saturation signals that need two metrics compared inside one sample, so
 -- they cannot be derived from a single-metric aggregate. Core-seconds follow

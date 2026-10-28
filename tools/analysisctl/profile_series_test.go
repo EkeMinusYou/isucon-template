@@ -107,13 +107,13 @@ func TestRuntimeCounterRatesDoNotCrossProcessRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, source := range cfg.Sources {
-		if source.View == "metrics_sql_pool" {
+		if source.View == "metrics_runtime" {
 			r.config.Sources = append(r.config.Sources, source)
 		}
 	}
 	r.config.SemanticSchemas = []string{"schema/go-runtime.sql"}
 	writeTestFile(t, filepath.Dir(filepath.Dir(dir)), "base.sql", "set variable run_glob = getenv('ISUCON_RUN_GLOB');\ncreate view runs as select '20260906-120000'::varchar as run_id;")
-	header := "sample\ttimestamp\telapsed_ms\tdatabase_host\tpool\trole\tshard\tmetric\tvalue\n"
+	header := "sample\ttimestamp\telapsed_ms\tmetric\tvalue\n"
 	body := header
 	for i, v := range []int{100, 120, 500, 530, 5} {
 		generation := 1
@@ -121,10 +121,10 @@ func TestRuntimeCounterRatesDoNotCrossProcessRestart(t *testing.T) {
 			generation = 2
 		}
 		at := fmt.Sprintf("2026-09-06T12:00:%02dZ", i+1)
-		body += fmt.Sprintf("%d\t%s\t%d\t-\tapp\t-\t0\tgo_process_started_unix_ms\t%d\n", i, at, (i+1)*1000, generation)
-		body += fmt.Sprintf("%d\t%s\t%d\t-\tapp\t-\t0\tgo_alloc_bytes_total\t%d\n", i, at, (i+1)*1000, v)
+		body += fmt.Sprintf("%d\t%s\t%d\tgo_process_started_unix_ms\t%d\n", i, at, (i+1)*1000, generation)
+		body += fmt.Sprintf("%d\t%s\t%d\tgo_alloc_bytes_total\t%d\n", i, at, (i+1)*1000, v)
 	}
-	writeTestFile(t, dir, "host-sql-pool-metrics.tsv", body)
+	writeTestFile(t, dir, "host-runtime-metrics.tsv", body)
 	if err := r.sync(); err != nil {
 		t.Fatal(err)
 	}

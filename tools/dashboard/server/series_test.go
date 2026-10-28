@@ -23,9 +23,7 @@ func TestSeriesHandlersReturnEmptyArrayWhenUnavailable(t *testing.T) {
 		handler http.HandlerFunc
 		field   string
 	}{
-		{name: "mysql", path: "mysql", handler: a.handleMysql, field: "hosts"},
 		{name: "alp", path: "alp", handler: a.handleAlp, field: "rows"},
-		{name: "upstream", path: "upstream", handler: a.handleUpstream, field: "rows"},
 		{name: "user-transitions", path: "user-transitions", handler: a.handleUserTransitions, field: "edges"},
 	}
 

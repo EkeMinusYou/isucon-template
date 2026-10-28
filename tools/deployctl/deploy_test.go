@@ -118,22 +118,22 @@ func TestApplyPlanUploadsEverythingBeforeActivationAndSkipsDependent(t *testing.
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chdir(oldWorkingDirectory) })
-	for _, filename := range []string{"mysql", "app"} {
+	for _, filename := range []string{"worker", "app"} {
 		if err := os.WriteFile(filename, []byte("artifact"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
-	fake := &planExecutor{failScriptPattern: "restart mysql"}
+	fake := &planExecutor{failScriptPattern: "restart worker"}
 	runner := deployRunner{
 		sshUser:  "ubuntu",
-		roles:    map[string][]string{"mysql": {"isucon-1"}, "app": {"isucon-2"}},
+		roles:    map[string][]string{"worker": {"isucon-1"}, "app": {"isucon-2"}},
 		parallel: 2,
 		exec:     fake,
 	}
 	cfg := &config{Deployments: map[string]deployment{
-		"mysql": {
-			Uploads:     []upload{{Label: "mysql", Role: "mysql", Local: "mysql", Remote: "/etc/mysql/mysql.cnf"}},
-			Activations: []activation{{Label: "restart", Role: "mysql", Script: "sudo systemctl restart mysql"}},
+		"worker": {
+			Uploads:     []upload{{Label: "worker", Role: "worker", Local: "worker", Remote: "/home/isucon/worker/config"}},
+			Activations: []activation{{Label: "restart", Role: "worker", Script: "sudo systemctl restart worker"}},
 		},
 		"app": {
 			Uploads:     []upload{{Label: "app", Role: "app", Local: "app", Remote: "/home/isucon/app"}},
@@ -141,11 +141,11 @@ func TestApplyPlanUploadsEverythingBeforeActivationAndSkipsDependent(t *testing.
 		},
 	}}
 	p := plan{Deployments: map[string]planDeployment{
-		"mysql": {},
-		"app":   {Needs: []string{"mysql"}},
+		"worker": {},
+		"app":    {Needs: []string{"worker"}},
 	}}
 	if err := runner.applyPlan(cfg, p); err == nil {
-		t.Fatal("applyPlan succeeded, want MySQL activation failure")
+		t.Fatal("applyPlan succeeded, want Worker activation failure")
 	}
 	firstSSH := len(fake.calls)
 	for i, call := range fake.calls {
@@ -153,7 +153,7 @@ func TestApplyPlanUploadsEverythingBeforeActivationAndSkipsDependent(t *testing.
 			firstSSH = i
 		}
 		if strings.Contains(call.stdin, "restart app") {
-			t.Fatal("dependent app activation ran after MySQL activation failure")
+			t.Fatal("dependent app activation ran after Worker activation failure")
 		}
 	}
 	if firstSSH != 2 {
@@ -209,7 +209,7 @@ func TestValidateRemotePath(t *testing.T) {
 		"/tmp/app",
 		"/etc/",
 		"/usr/local/",
-		"/etc/nginx/../shadow",
+		"/home/isucon/ingress/../shadow",
 		"/home/isucon/../../etc/passwd",
 	} {
 		if err := validateRemotePath(remote, false); err == nil {
@@ -219,8 +219,8 @@ func TestValidateRemotePath(t *testing.T) {
 	for _, remote := range []string{
 		"/home/isucon/webapp/go/",
 		"/etc/systemd/system/app.service",
-		"/etc/nginx/",
-		"/etc/mysql/",
+		"/home/isucon/ingress/",
+		"/home/isucon/worker/",
 		"/etc/sysctl.conf",
 	} {
 		if err := validateRemotePath(remote, false); err != nil {
@@ -234,7 +234,7 @@ func TestRepositoryConfigContainsEveryDeployTarget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"app", "nginx", "mysql", "sysctl"} {
+	for _, name := range []string{"app", "sysctl"} {
 		if _, ok := cfg.Deployments[name]; !ok {
 			t.Errorf("deployment %q is missing", name)
 		}
@@ -266,7 +266,7 @@ func TestCheckRolesBuildsExpectedServiceStates(t *testing.T) {
 		sshUser: "ubuntu",
 		roles: map[string][]string{
 			"all": {"isucon-1", "isucon-2"}, "app": {"isucon-1"},
-			"nginx": {"isucon-1"}, "mysql": {"isucon-2"},
+			"ingress": {"isucon-1"}, "worker": {"isucon-2"},
 		},
 		parallel: 2,
 		exec:     fake,
@@ -280,8 +280,6 @@ func TestCheckRolesBuildsExpectedServiceStates(t *testing.T) {
 	joined := fake.calls[0].stdin + "\n" + fake.calls[1].stdin
 	for _, expected := range []string{
 		"check_unit 'app' active", "check_unit 'app' inactive",
-		"check_unit nginx active", "check_unit nginx inactive",
-		"check_unit mysql active", "check_unit mysql inactive",
 	} {
 		if !strings.Contains(joined, expected) {
 			t.Errorf("role scripts do not contain %q:\n%s", expected, joined)
@@ -296,7 +294,7 @@ func TestRunCheckRolesDoesNotRejectActiveBenchmark(t *testing.T) {
 	}
 	err := runCheckRoles([]string{
 		"-run-state-file", marker, "-dry-run", "-ssh-user", "ubuntu",
-		"-role", "all=isucon-1", "-role", "app=isucon-1", "-role", "nginx=isucon-1", "-role", "mysql=isucon-1",
+		"-role", "all=isucon-1", "-role", "app=isucon-1", "-role", "ingress=isucon-1", "-role", "worker=isucon-1",
 		"-var", "service=app",
 	})
 	if err != nil {

@@ -1,6 +1,6 @@
 # user-transition-metrics
 
-nginx の構造化 access log を Cookie 由来の識別子で束ね、同じ識別子が叩いた
+Go HTTP server の構造化 access log を Cookie 由来の識別子で束ね、同じ識別子が叩いた
 正規化 API の連続する遷移とシナリオ群を集計するオフラインツールです。`after-bench` の
 `user-transitions` digesterから呼ばれ、`runs/<RUN_ID>/user-transitions.json` を作ります。
 

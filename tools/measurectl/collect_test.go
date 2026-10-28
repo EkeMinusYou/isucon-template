@@ -162,8 +162,8 @@ func TestCheckCleanScriptRejectsWorkDirectory(t *testing.T) {
 func TestAllHostsAreDeduplicatedAndIndependentOfCollectorRoles(t *testing.T) {
 	r := &runner{
 		roles: map[string][]string{
-			"all":           {"isucon-3", "isucon-1", "isucon-2", "isucon-1"},
-			"nginx_profile": {"isucon-2"},
+			"all":      {"isucon-3", "isucon-1", "isucon-2", "isucon-1"},
+			"profiler": {"isucon-2"},
 		},
 	}
 	got, err := r.allHosts()
@@ -176,7 +176,7 @@ func TestAllHostsAreDeduplicatedAndIndependentOfCollectorRoles(t *testing.T) {
 }
 
 func TestAllHostsRequiresAllRole(t *testing.T) {
-	r := &runner{roles: map[string][]string{"nginx_profile": {"isucon-2"}}}
+	r := &runner{roles: map[string][]string{"profiler": {"isucon-2"}}}
 	if _, err := r.allHosts(); err == nil {
 		t.Fatal("allHosts accepted missing role all")
 	}
@@ -193,7 +193,7 @@ func collectorNames(collectors []Collector) []string {
 func TestEnabledCollectorsDefaultsAndInclude(t *testing.T) {
 	collectors := []Collector{
 		{Name: "proc"},
-		{Name: "nginx-oncpu", EnabledByDefault: boolPointer(false)},
+		{Name: "optional-profiler", EnabledByDefault: boolPointer(false)},
 	}
 
 	got, err := enabledCollectors(collectors, nil)
@@ -204,11 +204,11 @@ func TestEnabledCollectorsDefaultsAndInclude(t *testing.T) {
 		t.Fatalf("default collectors = %v, want %v", collectorNames(got), want)
 	}
 
-	got, err = enabledCollectors(collectors, map[string]bool{"nginx-oncpu": true})
+	got, err = enabledCollectors(collectors, map[string]bool{"optional-profiler": true})
 	if err != nil {
 		t.Fatalf("enabledCollectors include: %v", err)
 	}
-	if want := []string{"proc", "nginx-oncpu"}; !reflect.DeepEqual(collectorNames(got), want) {
+	if want := []string{"proc", "optional-profiler"}; !reflect.DeepEqual(collectorNames(got), want) {
 		t.Fatalf("included collectors = %v, want %v", collectorNames(got), want)
 	}
 }
@@ -247,13 +247,13 @@ func TestEnabledOneshotsDefaultsAndInclude(t *testing.T) {
 func TestOnlyCanSelectDisabledCollector(t *testing.T) {
 	collectors := []Collector{
 		{Name: "proc"},
-		{Name: "nginx-oncpu", EnabledByDefault: boolPointer(false)},
+		{Name: "optional-profiler", EnabledByDefault: boolPointer(false)},
 	}
-	got, err := filterCollectors(collectors, map[string]bool{"nginx-oncpu": true})
+	got, err := filterCollectors(collectors, map[string]bool{"optional-profiler": true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"nginx-oncpu"}; !reflect.DeepEqual(collectorNames(got), want) {
+	if want := []string{"optional-profiler"}; !reflect.DeepEqual(collectorNames(got), want) {
 		t.Fatalf("only collectors = %v, want %v", collectorNames(got), want)
 	}
 }

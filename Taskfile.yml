@@ -21,25 +21,24 @@ vars:
   # setup-checkの前に、公式資料と実環境で全項目を確認する。
   APP_NAME: app
   SERVICE: app
-  DB_NAME: app
-  LISTEN_PORT: '8080'
+  LISTEN_PORT: '80'
   TARGET_OS: linux
   TARGET_ARCH: amd64
   # Optional Go PGO profile path for build/build-pgo; unset uses -pgo=auto (default.pgo).
   # PGO_PROFILE: '{{.ROOT_DIR}}/runs/<RUN_ID>/isucon-1-go-cpu.pprof'
   # Safety cap; normal collection stops with the benchmark, regardless of load timing.
   PROFILE_SECONDS: '3600'
-  # Additional local files read during DB recreation or initialization; use 'none' if empty.
+  # Files required for initialization; list all files, or use 'none'.
   RESET_INPUTS: ''
-  # Adapt these reset assets and endpoint to the acquired official implementation.
-  SQL_DIR: webapp/sql
-  SQL_SCHEMA_FILE: schema.sql
+  # The Go application implements this endpoint.
   INITIALIZE_PATH: /initialize
-  CONFIG_CHECK_COMMAND: ''
-  CONFIG_CHECK_CONFIG: tools/setup/config-check.yaml
+  CONFIG_CHECK_COMMAND: 'go -C {{.APP_DIR}} vet ./...'
   SETUP_SECRET_ALLOWLIST: ''
   # Services whose metrics and journals measurectl collects on every host.
-  MANAGED_SERVICES: '{{.SERVICE}},nginx,mysql'
+  MANAGED_SERVICES: '{{.SERVICE}}'
+  # Setup inventories middleware units to stop before deploying the Go runtime.
+  DISABLED_SERVICES: nginx,mysql,mariadb,redis,redis-server,memcached,pdns
+  ACCESS_LOG_PATH: '{{.REMOTE_HOME}}/log/access.log'
   # <<< contest values <<<
 
   SSH_USER: ubuntu
@@ -65,41 +64,16 @@ vars:
       isucon-3: 172.31.5.116
   APP_HOSTS: isucon-1
   APP_TRAFFIC_HOSTS: isucon-1
-  # The first nginx host owns the external entry; the matcher remains single.
-  NGINX_HOSTS: isucon-2 isucon-3
-  TLS_FORWARD_HOSTS: isucon-2
-  TLS_BACKEND_PORT: '8443'
-  TLS_ENTRY_INTERFACE: ens5
-  # MYSQL_HOST is the detailed measurement source and default DB connection.
-  MYSQL_HOST: isucon-3
-  # Deployment and service enable/disable targets.
-  MYSQL_HOSTS: '{{.MYSQL_HOST}}'
-  MATCHER_HOSTS: isucon-2
-  SOLVER_HOSTS: isucon-3
-  SOLVER_PORT: '9090'
-  PAYMENT_MOCK_HOSTS: '{{.APP_HOSTS}}'
   CONF_SRC: isucon-1
-  # Extra deployctl roles and vars for contest-specific deployments.
-  DEPLOYCTL_FLAGS: >-
-    -role sql_assets={{concat (splitList " " .APP_HOSTS) (splitList " " .MYSQL_HOSTS) | uniq | join ","}}
-    -role matcher={{splitList " " .MATCHER_HOSTS | join ","}}
-    -role solver={{splitList " " .SOLVER_HOSTS | join ","}}
-    -role payment_mock={{splitList " " .PAYMENT_MOCK_HOSTS | join ","}}
-    -role tls_forward={{splitList " " .TLS_FORWARD_HOSTS | join ","}}
-    -var matcher_hosts={{splitList " " .MATCHER_HOSTS | join ","}}
-    -var solver_hosts={{splitList " " .SOLVER_HOSTS | join ","}}
-    -var payment_mock_hosts={{splitList " " .PAYMENT_MOCK_HOSTS | join ","}}
-    -var tls_forward_hosts={{splitList " " .TLS_FORWARD_HOSTS | join ","}}
-    -var app_ip={{index .IP (splitList " " .APP_HOSTS | first)}}
-    -var extra_service_roles=isuride-matcher:matcher,isuride-payment_mock:payment_mock,isuride-tls-forward:tls_forward,isuride-matching-worker:solver
+  # Additional Go services can declare their roles and deployment variables here.
+  DEPLOYCTL_FLAGS: ''
   # Optional extra measurectl roles referenced by contest collectors/digesters.
   # CONTEST_MEASURECTL_ROLES: >-
   #   -role matcher={{splitList " " .MATCHER_HOSTS | join ","}}
   # <<< contest values <<<
 
-  ENTRY_HOST: '{{splitList " " .NGINX_HOSTS | first}}'
-  ENTRY_IP: '{{index .IP (splitList " " .NGINX_HOSTS | first)}}'
-  MYSQL_IP: '{{if .MYSQL_HOST}}{{index .IP .MYSQL_HOST}}{{end}}'
+  ENTRY_HOST: '{{splitList " " .APP_TRAFFIC_HOSTS | first}}'
+  ENTRY_IP: '{{index .IP .ENTRY_HOST}}'
   APP_IPS: '{{$ips := list}}{{range (splitList " " .APP_TRAFFIC_HOSTS)}}{{$ips = append $ips (index $.IP .)}}{{end}}{{join " " $ips}}'
   ALL_HOST_IPS: '{{range (splitList " " .ALL_HOSTS)}}{{.}}={{index $.IP .}} {{end}}'
 
@@ -114,15 +88,11 @@ vars:
   ANALYSIS_DB: runs/analysis.duckdb
   ANALYSIS_CONFIG: tools/analysis/sources.yaml
   # >>> contest values >>>
-  DEPLOYCTL_CONFIG: tools/contest/deployments.yaml
+  DEPLOYCTL_CONFIG: tools/deployctl/deployments.yaml
   # <<< contest values <<<
 
   MEASUREMENT_DIR: tools/measurement
   PROC_METRICS_DIR: '{{.MEASUREMENT_DIR}}/cmd/proc-metrics'
-  MYSQL_METRICS_DIR: '{{.MEASUREMENT_DIR}}/cmd/mysql-metrics'
-  NGINX_ONCPU_PROFILER_DIR: '{{.MEASUREMENT_DIR}}/cmd/nginx-oncpu-profiler'
-  NGINX_ONCPU_HOST: '{{.ENTRY_HOST}}'
-  NGINX_ONCPU_PROBE_URL: http://127.0.0.1/
   PPROF_BASE_URL: http://127.0.0.1:6060/debug/pprof
   PROFILE_STATUS_URL: http://127.0.0.1:6060/debug/profiles/status
   SNAPSHOT_PROFILE_URL: http://127.0.0.1:6060/debug/profiles/snapshots
@@ -133,9 +103,8 @@ vars:
   FGPROF_URL: 'http://127.0.0.1:6060/debug/fgprof?seconds={{.PROFILE_SECONDS}}'
   PROFILE_TIMEOUT_SECONDS: '{{add (int .PROFILE_SECONDS) 15}}'
   PROFILE_READY_TIMEOUT_SECONDS: '15'
-  NGINX_BACKEND_REPORT_DIR: tools/nginx-backend-report
   JSON_METRICS_COLLECTOR_DIR: '{{.MEASUREMENT_DIR}}/cmd/json-metrics-collector'
-  SQL_POOL_METRICS_DIR: '{{.MEASUREMENT_DIR}}/cmd/sql-pool-metrics'
+  RUNTIME_METRICS_DIR: '{{.MEASUREMENT_DIR}}/cmd/runtime-metrics'
   USER_TRANSITION_METRICS_DIR: tools/user-transition-metrics
   MEASURECTL_DIR: tools/measurectl
   DEPLOYCTL_DIR: tools/deployctl
@@ -151,17 +120,15 @@ vars:
     -role all={{splitList " " .ALL_HOSTS | join ","}}
     -role app={{splitList " " .APP_HOSTS | join ","}}
     -role app_traffic={{splitList " " .APP_TRAFFIC_HOSTS | join ","}}
-    -role nginx={{splitList " " .NGINX_HOSTS | join ","}}
+    -role ingress={{splitList " " .APP_TRAFFIC_HOSTS | join ","}}
     -role entry={{.ENTRY_HOST}}
-    -role nginx_profile={{.ENTRY_HOST}}
-    -role mysql={{.MYSQL_HOST}}
-    -role mysql_all={{splitList " " .MYSQL_HOSTS | join ","}}
     {{default "" .CONTEST_MEASURECTL_ROLES}}
   MEASURECTL_VARS: >-
     -var services={{.MANAGED_SERVICES}}
     -var app_service={{.SERVICE}}
     -var pprof_base_url={{.PPROF_BASE_URL}}
-    -var sql_pool_metrics_url=http://127.0.0.1:6060/debug/sql-pools
+    -var runtime_metrics_url=http://127.0.0.1:6060/debug/runtime
+    -var access_log_path={{.ACCESS_LOG_PATH}}
     -var profile_status_url={{.PROFILE_STATUS_URL}}
     -var profile_stop_url={{.PROFILE_STOP_URL}}
     -var profile_ready_timeout_seconds={{.PROFILE_READY_TIMEOUT_SECONDS}}
@@ -184,22 +151,15 @@ vars:
     -run-state-file {{.RUN_STATE_FILE}}
     -role all={{splitList " " .ALL_HOSTS | join ","}}
     -role app={{splitList " " .APP_HOSTS | join ","}}
-    -role nginx={{splitList " " .NGINX_HOSTS | join ","}}
-    -role mysql={{splitList " " .MYSQL_HOSTS | join ","}}
-    -role app_db={{.MYSQL_HOST}}
     -role app_init={{splitList " " .APP_HOSTS | first}}
-    -var db_name={{.DB_NAME}}
-    -var sql_dir={{.SQL_DIR}}
-    -var sql_schema_file={{.SQL_SCHEMA_FILE}}
     -var listen_port={{.LISTEN_PORT}}
     -var initialize_path={{.INITIALIZE_PATH}}
     -var remote_home={{.REMOTE_HOME}}
     -var isucon_user={{.ISUCON_USER}}
     -var service={{.SERVICE}}
     -var app_dir={{.APP_DIR}}
+    -var disabled_services={{.DISABLED_SERVICES}}
     -var app_hosts={{splitList " " .APP_HOSTS | join ","}}
-    -var nginx_hosts={{splitList " " .NGINX_HOSTS | join ","}}
-    -var mysql_hosts={{splitList " " .MYSQL_HOSTS | join ","}}
 
   SCORE: ''
   RUN_ID:
@@ -217,8 +177,7 @@ tasks:
       - |
         echo "現在の役割:"
         echo "  APP   : {{.APP_HOSTS}} (traffic={{.APP_TRAFFIC_HOSTS}})"
-        echo "  NGINX : {{.NGINX_HOSTS}} (entry={{.ENTRY_HOST}} {{.ENTRY_IP}})"
-        echo "  MYSQL : {{.MYSQL_HOSTS}} (metrics={{.MYSQL_HOST}} {{.MYSQL_IP}})"
+        echo "  ENTRY : {{.ENTRY_HOST}} {{.ENTRY_IP}}"
         echo "  最新RUN: {{if .RUN}}{{.RUN}}{{else}}なし{{end}}"
         echo
       - task --list
@@ -255,19 +214,9 @@ tasks:
       - mkdir -p '{{.REFERENCE_DIR}}/webapp'
       - '{{.RSYNC}} --exclude-from="{{.SETUP_WEBAPP_EXCLUDES}}" {{.SSH_USER}}@{{.CONF_SRC}}:{{.REMOTE_HOME}}/webapp/ {{.REFERENCE_DIR}}/webapp/'
 
-  setup-nginx:
-    desc: setupで振る舞いを調べるためのnginx設定をREFERENCE_DIRへ取得する
-    deps: [prepare-reference]
-    cmds:
-      - mkdir -p '{{.REFERENCE_DIR}}/nginx'
-      - '{{.RSYNC}} --exclude=tls/ {{.SSH_USER}}@{{.CONF_SRC}}:/etc/nginx/ {{.REFERENCE_DIR}}/nginx/'
 
-  setup-mysql:
-    desc: setupで振る舞いを調べるためのMySQL設定をREFERENCE_DIRへ取得する
-    deps: [prepare-reference]
-    cmds:
-      - mkdir -p '{{.REFERENCE_DIR}}/mysql'
-      - '{{.RSYNC}} --exclude=debian.cnf {{.SSH_USER}}@{{.MYSQL_HOST}}:/etc/mysql/ {{.REFERENCE_DIR}}/mysql/'
+
+
 
   setup-systemd:
     desc: setupで運用条件を調べるためのunitをREFERENCE_DIRへ取得する
@@ -305,21 +254,9 @@ tasks:
     generates: [proc-metrics]
     cmds: ['{{.GO_BUILD_ENV}} go build -trimpath -ldflags "-s -w" -o proc-metrics .']
 
-  build-mysql-metrics:
-    internal: true
-    silent: true
-    dir: '{{.MYSQL_METRICS_DIR}}'
-    sources: ['*.go', ../../go.mod, ../../go.sum]
-    generates: [mysql-metrics]
-    cmds: ['{{.GO_BUILD_ENV}} go build -trimpath -ldflags "-s -w" -o mysql-metrics .']
 
-  build-nginx-oncpu-profiler:
-    desc: optional nginx on-CPU profilerをTARGET_OS/TARGET_ARCHへビルド
-    silent: true
-    dir: '{{.NGINX_ONCPU_PROFILER_DIR}}'
-    sources: ['*.go', ../../go.mod, ../../go.sum]
-    generates: [nginx-oncpu-profiler]
-    cmds: ['{{.GO_BUILD_ENV}} go build -trimpath -ldflags "-s -w" -o nginx-oncpu-profiler .']
+
+
 
   build-json-metrics-collector:
     desc: optional JSON snapshot metrics collectorをTARGET_OS/TARGET_ARCHへビルド
@@ -328,21 +265,7 @@ tasks:
     generates: [json-metrics-collector]
     cmds: ['{{.GO_BUILD_ENV}} go build -trimpath -ldflags "-s -w" -o json-metrics-collector .']
 
-  build-sql-pool-metrics:
-    internal: true
-    silent: true
-    dir: '{{.SQL_POOL_METRICS_DIR}}'
-    sources: ['*.go', ../../go.mod, ../../go.sum]
-    generates: [sql-pool-metrics]
-    cmds: ['{{.GO_BUILD_ENV}} go build -trimpath -ldflags "-s -w" -o sql-pool-metrics .']
 
-  build-nginx-backend-report:
-    internal: true
-    silent: true
-    dir: '{{.NGINX_BACKEND_REPORT_DIR}}'
-    sources: ['*.go', go.mod]
-    generates: [nginx-backend-report]
-    cmds: ['go build -trimpath -ldflags "-s -w" -o nginx-backend-report .']
 
   build-user-transition-metrics:
     desc: Cookie由来のユーザー遷移集計ツールをローカルでビルド
@@ -392,9 +315,16 @@ tasks:
     generates: [analysisctl]
     cmds: ['go build -trimpath -ldflags "-s -w" -o analysisctl .']
 
+  build-runtime-metrics:
+    desc: Go runtime指標collectorを対象ホスト向けにビルド
+    dir: '{{.RUNTIME_METRICS_DIR}}'
+    sources: ['*.go', ../../go.mod, ../../go.sum]
+    generates: [runtime-metrics]
+    cmds: ['{{.GO_BUILD_ENV}} go build -trimpath -ldflags "-s -w" -o runtime-metrics .']
+
   build-measurement:
     desc: 共通moduleの全計測collectorをTARGET_OS/TARGET_ARCHへビルド
-    deps: [build-proc-metrics, build-mysql-metrics, build-sql-pool-metrics, build-json-metrics-collector, build-nginx-oncpu-profiler]
+    deps: [build-proc-metrics, build-runtime-metrics, build-json-metrics-collector]
 
   test-measurement:
     desc: 共通計測moduleのprofile・endpoint・collectorをローカルで検証
@@ -444,24 +374,19 @@ tasks:
           '
 
   setup-preflight:
-    desc: DB再作成前の高速なローカル資材・role・reset plan確認
+    desc: 初期化前のローカル資材・Go role・reset plan確認
     deps: [build-deployctl]
     env:
       ISUCON_ALL_HOSTS: '{{.ALL_HOSTS}}'
       ISUCON_APP_HOSTS: '{{.APP_HOSTS}}'
       ISUCON_APP_TRAFFIC_HOSTS: '{{.APP_TRAFFIC_HOSTS}}'
-      ISUCON_NGINX_HOSTS: '{{.NGINX_HOSTS}}'
-      ISUCON_MYSQL_HOST: '{{.MYSQL_HOST}}'
-      ISUCON_MYSQL_HOSTS: '{{.MYSQL_HOSTS}}'
       ISUCON_HOST_IPS: '{{.ALL_HOST_IPS}}'
       ISUCON_APP_DIR: '{{.APP_DIR}}'
       ISUCON_SERVICE: '{{.SERVICE}}'
       ISUCON_RESET_INPUTS: '{{.RESET_INPUTS}}'
-      ISUCON_SQL_DIR: '{{.SQL_DIR}}'
-      ISUCON_SQL_SCHEMA_FILE: '{{.SQL_SCHEMA_FILE}}'
     cmds:
-      # Contest hook may generate local DB inputs; it must not change remote state.
-      - task: prepare-db-assets
+      # Contest hook may generate local initialization inputs; it must not change remote state.
+      - task: prepare-initial-data
       - task: gen
       - |
         set -u
@@ -479,16 +404,9 @@ tasks:
         [ -n "$ISUCON_ALL_HOSTS" ] || fail "ALL_HOSTS is empty"
         [ -n "$ISUCON_APP_HOSTS" ] || fail "APP_HOSTS is empty"
         [ -n "$ISUCON_APP_TRAFFIC_HOSTS" ] || fail "APP_TRAFFIC_HOSTS is empty"
-        [ -n "$ISUCON_NGINX_HOSTS" ] || fail "NGINX_HOSTS is empty"
-        if [ -n "$ISUCON_MYSQL_HOSTS" ]; then
-          [ -n "$ISUCON_MYSQL_HOST" ] || fail "MYSQL_HOST is empty while MYSQL_HOSTS is assigned"
-        fi
-        for host in $ISUCON_APP_HOSTS $ISUCON_APP_TRAFFIC_HOSTS $ISUCON_NGINX_HOSTS $ISUCON_MYSQL_HOSTS $ISUCON_MYSQL_HOST; do
+        for host in $ISUCON_APP_HOSTS $ISUCON_APP_TRAFFIC_HOSTS; do
           contains_host "$ISUCON_ALL_HOSTS" "$host" || fail "role host is not in ALL_HOSTS: $host"
         done
-        if [ -n "$ISUCON_MYSQL_HOSTS" ]; then
-          contains_host "$ISUCON_MYSQL_HOSTS" "$ISUCON_MYSQL_HOST" || fail "MYSQL_HOST must belong to MYSQL_HOSTS"
-        fi
         for host in $ISUCON_ALL_HOSTS; do
           case " $ISUCON_HOST_IPS " in *" $host="*) ;; *) fail "IP is not configured for $host";; esac
         done
@@ -500,24 +418,21 @@ tasks:
         done
 
         [ -d "$ISUCON_APP_DIR" ] || fail "application directory is missing: $ISUCON_APP_DIR"
-        [ -d nginx ] || fail "nginx configuration has not been acquired"
-        if [ -n "$ISUCON_MYSQL_HOSTS" ]; then [ -d mysql ] || fail "MySQL configuration has not been acquired"; fi
         [ -f "etc/systemd/system/$ISUCON_SERVICE.service" ] || fail "application systemd unit is missing"
         [ -f etc/sysctl.conf ] || fail "sysctl configuration is missing"
-        [ -f "$ISUCON_SQL_DIR/$ISUCON_SQL_SCHEMA_FILE" ] || fail "database schema file is missing: $ISUCON_SQL_DIR/$ISUCON_SQL_SCHEMA_FILE"
 
         if [ "$ISUCON_RESET_INPUTS" = none ]; then
-          : # Explicitly confirmed: the primary schema is the only local reset input.
+          : # Explicitly confirmed: no file input is required.
         elif [ -n "$ISUCON_RESET_INPUTS" ]; then
           for reset_input in $ISUCON_RESET_INPUTS; do
             [ -f "$reset_input" ] || fail "declared reset input is missing or is not a file: $reset_input"
           done
         else
-          fail "list every additional local file read during schema creation or initialization in RESET_INPUTS, or set it to 'none' after checking"
+          fail "list every local file read during initialization in RESET_INPUTS, or set it to 'none' after checking"
         fi
 
         [ "$failures" -eq 0 ] || exit 1
-      - task: db-recreate-dry
+      - task: initialize-dry
 
   setup-check:
     desc: preflight後に設定構文・setup対象tool・成果物を確認
@@ -532,13 +447,12 @@ tasks:
         fail() { echo "setup-check: $*" >&2; failures=$((failures + 1)); }
         contains_host() { case " $1 " in *" $2 "*) return 0;; *) return 1;; esac; }
 
-        for tool in alp pt-query-digest zstd zstdcat duckdb; do
+        for tool in alp zstd zstdcat duckdb; do
           command -v "$tool" >/dev/null 2>&1 || fail "required local tool is missing: $tool"
         done
-        command -v slp >/dev/null 2>&1 || echo "setup-check: optional digester is unavailable: slp" >&2
 
         secret_candidates=''
-        for root in webapp nginx mysql etc; do
+        for root in webapp etc; do
           [ -e "$root" ] || continue
           found=$(find "$root" -type f \( -name .env -o -name '*.key' -o -name '*private*.pem' -o -name debian.cnf \) -print 2>/dev/null || true)
           for candidate in $found; do
@@ -551,7 +465,7 @@ tasks:
         done
         [ -z "$secret_candidates" ] || fail "credential-like files require an explicit keep/redact decision before commit:\n$secret_candidates"
 
-        [ -n "$ISUCON_CONFIG_CHECK_COMMAND" ] || fail "CONFIG_CHECK_COMMAND is empty; configure local nginx/MySQL/application syntax checks"
+        [ -n "$ISUCON_CONFIG_CHECK_COMMAND" ] || fail "CONFIG_CHECK_COMMAND is empty; configure local Go application checks"
         [ "$failures" -eq 0 ] || exit 1
       - sh -c "$ISUCON_CONFIG_CHECK_COMMAND"
       - task: build
@@ -572,24 +486,8 @@ tasks:
       - '{{.MEASURECTL_DIR}}/measurectl collect check-clean -config {{.MEASURECTL_COLLECTORS_CONFIG}} {{.MEASURECTL_REMOTE}}'
 
   gen:
-    desc: 役割定義からnginx upstreamを生成
-    silent: true
+    desc: Go構成の競技固有設定を生成
     cmds:
-      - mkdir -p nginx/conf.d
-      - |
-        {
-          echo "# GENERATED by 'task gen' — do not edit"
-          echo "upstream app {"
-          {{range (splitList " " .APP_TRAFFIC_HOSTS)}}
-          echo "  server {{index $.IP .}}:{{$.LISTEN_PORT}};"
-          {{end}}
-          # Values follow docs/special-sources/nginx.md (upstream keepalive).
-          echo "  keepalive 1024;"
-          echo "  keepalive_requests 100000;"
-          echo "}"
-        } > nginx/conf.d/upstream.conf
-      # Contest hook; appends solution-specific upstreams and generated per-host files.
-      # A contest that routes everything through this upstream defines it as a no-op.
       - task: gen-contest-routing
 
   deploy:
@@ -602,30 +500,30 @@ tasks:
       - task: deploy-app
 
   deploy-all:
-    desc: sysctl・MySQL・アプリ・nginxを初期化なしで反映
+    desc: 既製ミドルウェアを停止しGoアプリとOS設定を反映
     preconditions: *no_active_run
     cmds:
       # Contest hook; a contest without prepared assets defines it as a no-op.
-      - task: prepare-db-assets
+      - task: prepare-initial-data
       - task: gen
       - task: build
       - task: deploy-plan
         vars: { PLAN: deploy-all }
 
-  db-recreate:
-    desc: 競技DBをschemaから再作成してアプリを初期化
+  initialize:
+    desc: Goアプリの初期化APIで状態を初期化
     preconditions: *no_active_run
     deps: [setup-preflight]
     cmds:
       - task: deploy-plan
-        vars: { PLAN: db-recreate }
+        vars: { PLAN: initialize }
 
   deploy-app-dry:
     desc: app deployの転送先・role・activationを実行せず表示
     deps: [gen, build-deployctl]
     cmds:
       # Contest hook; keep the dry-run input complete in a clean checkout.
-      - task: prepare-db-assets
+      - task: prepare-initial-data
       - '{{.DEPLOYCTL_DIR}}/deployctl apply app -dry-run -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
 
   deploy-all-dry:
@@ -633,7 +531,7 @@ tasks:
     deps: [build-deployctl]
     cmds:
       # Contest hook; keep the dry-run input complete in a clean checkout.
-      - task: prepare-db-assets
+      - task: prepare-initial-data
       - task: gen
       - task: build
       - '{{.DEPLOYCTL_DIR}}/deployctl apply-plan deploy-all -dry-run -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
@@ -644,23 +542,12 @@ tasks:
     deps: [gen, build, build-deployctl]
     cmds:
       # Contest hook; the app initialize script consumes these generated files.
-      - task: prepare-db-assets
+      - task: prepare-initial-data
       - '{{.OPERATION_LOCK}} {{.DEPLOYCTL_DIR}}/deployctl apply app -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
 
-  deploy-nginx:
-    desc: nginx設定をNGINX_HOSTSへ配布・reload
-    preconditions: *no_active_run
-    deps: [build-deployctl]
-    cmds:
-      - task: gen
-      - '{{.OPERATION_LOCK}} {{.DEPLOYCTL_DIR}}/deployctl apply nginx -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
 
-  deploy-mysql:
-    desc: MySQL設定をMYSQL_HOSTSへ配布・restart
-    preconditions: *no_active_run
-    deps: [build-deployctl]
-    cmds:
-      - '{{.OPERATION_LOCK}} {{.DEPLOYCTL_DIR}}/deployctl apply mysql -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
+
+
 
   deploy-sysctl:
     desc: sysctl設定を全ホストへ配布・反映
@@ -683,34 +570,18 @@ tasks:
     cmds:
       - '{{.OPERATION_LOCK}} {{.DEPLOYCTL_DIR}}/deployctl apply-plan roles -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
 
-  deploy-nginx-oncpu-prereqs:
-    desc: optional profiler用perf packageをNGINX_ONCPU_HOSTへ一時導入
-    preconditions: *no_active_run
-    cmds:
-      - '{{.OPERATION_LOCK}} {{.SSH}} {{.SSH_USER}}@{{.NGINX_ONCPU_HOST}} "bash -s -- install {{.NGINX_ONCPU_HOST}}" < tools/bench/nginx-oncpu-prereqs.sh'
 
-  deploy-nginx-oncpu-prereqs-check:
-    desc: optional profilerをNGINX_ONCPU_HOSTでpreflight
-    preconditions: *no_active_run
-    deps: [build-nginx-oncpu-profiler]
-    cmds:
-      - '{{.RSYNC}} {{.NGINX_ONCPU_PROFILER_DIR}}/nginx-oncpu-profiler {{.SSH_USER}}@{{.NGINX_ONCPU_HOST}}:/tmp/isucon-nginx-oncpu-prereqs/profiler'
-      - '{{.SSH}} {{.SSH_USER}}@{{.NGINX_ONCPU_HOST}} "bash -s -- check {{.NGINX_ONCPU_HOST}} {{.NGINX_ONCPU_PROBE_URL}}" < tools/bench/nginx-oncpu-prereqs.sh'
 
-  deploy-nginx-oncpu-prereqs-cleanup:
-    desc: optional profiler用に追加したperf packageだけを撤去
-    preconditions: *no_active_run
-    cmds:
-      - '{{.OPERATION_LOCK}} {{.SSH}} {{.SSH_USER}}@{{.NGINX_ONCPU_HOST}} "bash -s -- cleanup {{.NGINX_ONCPU_HOST}}" < tools/bench/nginx-oncpu-prereqs.sh'
+
+
+
 
   check-network:
-    desc: nginx→appとapp→MySQLのTCP疎通を確認
+    desc: Goアプリの待受と競技固有のホスト間通信を確認
     silent: true
     cmds:
-      - for: { var: NGINX_HOSTS }
-        cmd: '{{.SSH}} {{.SSH_USER}}@{{.ITEM}} "for ip in {{.APP_IPS}}; do timeout 2 bash -c \"</dev/tcp/\$ip/{{.LISTEN_PORT}}\"; done" && echo "[{{.ITEM}}] app OK"'
-      - for: { var: APP_HOSTS }
-        cmd: '{{if .MYSQL_HOSTS}}{{.SSH}} {{.SSH_USER}}@{{.ITEM}} "timeout 2 bash -c \"</dev/tcp/{{if has .ITEM (splitList " " .MYSQL_HOSTS)}}127.0.0.1{{else}}{{.MYSQL_IP}}{{end}}/3306\"" && echo "[{{.ITEM}}] mysql OK"{{else}}true{{end}}'
+      - for: { var: APP_TRAFFIC_HOSTS }
+        cmd: '{{.SSH}} {{.SSH_USER}}@{{.ITEM}} "timeout 2 bash -c \"</dev/tcp/127.0.0.1/{{.LISTEN_PORT}}\"" && echo "[{{.ITEM}}] app OK"'
       - task: check-contest-network
 
   check-roles:
@@ -758,7 +629,7 @@ tasks:
   before-bench:
     desc: 差分をcommitしてRUNを採番し、ログローテートとcollector起動を行う
     silent: true
-    deps: [build-measurectl, build-proc-metrics, build-mysql-metrics, build-sql-pool-metrics, build-nginx-oncpu-profiler, build-deployctl]
+    deps: [build-measurectl, build-proc-metrics, build-runtime-metrics, build-deployctl]
     cmds:
       # Measure only what was deployed from the local source.
       - '{{.DEPLOYCTL_DIR}}/deployctl verify -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
@@ -776,7 +647,7 @@ tasks:
   after-bench:
     desc: 進行中RUNのcollector・ログ・集計・manifestを回収
     silent: true
-    deps: [build-measurectl, build-nginx-backend-report, build-user-transition-metrics, build-bench-output]
+    deps: [build-measurectl, build-user-transition-metrics, build-bench-output]
     vars:
       FINISH_RUN_ID:
         sh: sh tools/bench/active-run-id.sh '{{.RUN_STATE_FILE}}'
@@ -943,7 +814,7 @@ tasks:
       - for: { var: ALL_HOSTS }
         cmd: |
           {{.SSH}} {{.SSH_USER}}@{{.ITEM}} \
-            "systemctl is-active {{.SERVICE}} nginx mysql | tr '\n' ' '; echo; uptime"
+            "systemctl is-active {{.SERVICE}} | tr '\n' ' '; echo; uptime"
 
   logs:
     desc: APP_HOSTSのアプリログ
@@ -957,10 +828,7 @@ tasks:
     vars: { HOST: '{{.HOST | default "isucon-1"}}' }
     cmds: ['{{.SSH}} -t {{.SSH_USER}}@{{.HOST}} "sudo -u {{.ISUCON_USER}} -i"']
 
-  db:
-    desc: MYSQL_HOSTのMySQLへ接続
-    interactive: true
-    cmds: ['{{.SSH}} -t {{.SSH_USER}}@{{.MYSQL_HOST}} "sudo mysql {{.DB_NAME}}"']
+
 
   clear-cache:
     desc: 古いログとAPTキャッシュを削除（破壊的。明示指示時のみ）
@@ -968,46 +836,15 @@ tasks:
       - for: { var: ALL_HOSTS }
         cmd: '{{.OPERATION_LOCK}} {{.SSH}} {{.SSH_USER}}@{{.ITEM}} "sudo journalctl --vacuum-size=10M && sudo apt-get clean"'
 
-  rotate-mysql-logs:
-    desc: 全ホストの既存logrotate設定でMySQLログをローテート・圧縮
-    preconditions: *no_active_run
-    cmds:
-      - for: { var: ALL_HOSTS }
-        cmd: |
-          {{.OPERATION_LOCK}} {{.SSH}} {{.SSH_USER}}@{{.ITEM}} 'sudo bash -se' <<'REMOTE'
-          rotation_config=$(mktemp /tmp/isucon-logrotate.XXXXXX)
-          trap 'rm -f "$rotation_config"' EXIT
-          printf '%s\n' 'su root adm' 'include /etc/logrotate.d/mysql-server' > "$rotation_config"
-          logrotate --force --verbose "$rotation_config"
-          REMOTE
 
-  archive-rotated-mysql-log:
-    desc: HOSTのローテート済みスローログをローカル回収しSHA-256一致後に原本を削除
-    requires:
-      vars: [HOST]
-    preconditions: *no_active_run
-    cmds:
-      - |
-        {{.OPERATION_LOCK}} bash <<'BASH'
-        set -eu
-        set -o pipefail
-        mkdir -p '{{.RAW_DIR}}'
-        archive_path='{{.RAW_DIR}}/{{.HOST}}-mysql-slow-'$(date +%Y%m%d-%H%M%S)'.log.gz'
-        test ! -e "$archive_path"
-        expected=$({{.SSH}} {{.SSH_USER}}@{{.HOST}} 'sudo sha256sum /var/log/mysql/mysql-slow.log.1' | cut -d ' ' -f 1)
-        {{.SSH}} {{.SSH_USER}}@{{.HOST}} 'sudo gzip -1 -c /var/log/mysql/mysql-slow.log.1' > "$archive_path.partial"
-        actual=$(gzip -dc "$archive_path.partial" | shasum -a 256 | cut -d ' ' -f 1)
-        test "$actual" = "$expected"
-        mv "$archive_path.partial" "$archive_path"
-        {{.SSH}} {{.SSH_USER}}@{{.HOST}} "echo '$expected  /var/log/mysql/mysql-slow.log.1' | sudo sha256sum -c - && sudo rm /var/log/mysql/mysql-slow.log.1"
-        echo "Archived: $archive_path SHA-256: $expected"
-        BASH
 
-  db-recreate-dry:
-    desc: DB再作成の対象とactivationを実行せず表示
+
+
+  initialize-dry:
+    desc: Goアプリ初期化の対象とactivationを実行せず表示
     deps: [gen, build-deployctl]
     cmds:
-      - '{{.DEPLOYCTL_DIR}}/deployctl apply-plan db-recreate -dry-run -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
+      - '{{.DEPLOYCTL_DIR}}/deployctl apply-plan initialize -dry-run -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
 
 
   deploy-app-unit-dry:
@@ -1032,9 +869,6 @@ tasks:
 
 
   config-check:
-    desc: 設定を正規配布先へ転送し構文検査（reloadなし）
-    preconditions: *no_active_run
-    deps: [build-deployctl]
+    desc: Goアプリのローカル検査
     cmds:
-      - task: gen
-      - '{{.OPERATION_LOCK}} {{.DEPLOYCTL_DIR}}/deployctl apply config-check -config {{.CONFIG_CHECK_CONFIG}} {{.DEPLOYCTL_COMMON}}'
+      - '{{.CONFIG_CHECK_COMMAND}}'

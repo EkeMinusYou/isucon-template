@@ -67,8 +67,7 @@ func TestManifestBeginAndFinalizePreserveSourceAndRoles(t *testing.T) {
 		"-dir", runDir,
 		"-app", "isucon-1,isucon-2",
 		"-app-traffic", "isucon-1",
-		"-nginx", "isucon-2",
-		"-mysql", "isucon-3",
+		"-ingress", "isucon-2",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +105,7 @@ func TestManifestBeginAndFinalizePreserveSourceAndRoles(t *testing.T) {
 	if finalized.LoadWindow.Status != "ok" || finalized.LoadWindow.DurationMS != 60250 {
 		t.Fatalf("load window = %#v", finalized.LoadWindow)
 	}
-	if finalized.Source != started.Source || finalized.Roles.MySQL != "isucon-3" {
+	if finalized.Source != started.Source || finalized.Roles.Ingress[0] != "isucon-2" {
 		t.Fatalf("begin fields changed: started=%#v finalized=%#v", started, finalized)
 	}
 	artifactStatuses := map[string]string{}

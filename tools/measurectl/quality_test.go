@@ -55,7 +55,7 @@ func TestInspectPeriodicTSVMeasuresWindowCoverage(t *testing.T) {
 
 func TestInspectPeriodicTSVRejectsLargeGap(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "mysql-status.tsv")
+	path := filepath.Join(dir, "worker-status.tsv")
 	start := time.Date(2026, 9, 2, 2, 43, 19, 0, time.UTC)
 	body := "sample\ttimestamp\telapsed_ms\tthreads_running\n" +
 		"0\t" + start.Format(time.RFC3339Nano) + "\t0\t1\n" +

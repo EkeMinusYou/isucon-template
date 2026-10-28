@@ -208,16 +208,13 @@ func (o lifecycleOptions) manifestBeginArgs(runDir string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	mysql := ""
-	if hosts := o.roles["mysql"]; len(hosts) > 0 {
-		mysql = hosts[0]
-	}
+
 	args := []string{
 		"-dir", runDir, "-collector-clean",
 		"-capture-contract", "-profiles-enabled=" + strconv.FormatBool(o.profilesEnabled),
 		"-collectors", o.collectorConfig, "-digesters", o.digesterConfig,
 		"-app", strings.Join(o.roles["app"], ","), "-app-traffic", strings.Join(o.roles["app_traffic"], ","),
-		"-nginx", strings.Join(o.roles["nginx"], ","), "-entry", entry, "-mysql", mysql,
+		"-ingress", strings.Join(o.roles["ingress"], ","), "-entry", entry,
 	}
 	disabled := false
 	for _, token := range strings.Fields(o.collectorFlags) {
@@ -240,7 +237,7 @@ func (o lifecycleOptions) manifestBeginArgs(runDir string) ([]string, error) {
 	var additionalNames []string
 	for name := range o.roles {
 		switch name {
-		case "app", "app_traffic", "nginx", "entry", "mysql":
+		case "app", "app_traffic", "ingress", "entry":
 			continue
 		}
 		additionalNames = append(additionalNames, name)

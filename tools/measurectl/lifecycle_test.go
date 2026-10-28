@@ -22,10 +22,9 @@ func testLifecycleOptions(t *testing.T) lifecycleOptions {
 		scoresPath:   filepath.Join(root, "runs", "scores.tsv"), collectorConfig: "collectors.yaml", digesterConfig: "digesters.yaml",
 		roles: map[string][]string{
 			"all": {"isucon-1"}, "app": {"isucon-1"}, "app_traffic": {"isucon-1"},
-			"nginx": {"isucon-1"}, "entry": {"isucon-1"}, "mysql": {"isucon-1"},
-			"mysql_all": {"isucon-1"}, "nginx_profile": {"isucon-1"},
+			"ingress": {"isucon-1"}, "entry": {"isucon-1"},
 		},
-		vars: map[string]string{"services": "app,nginx,mysql"},
+		vars: map[string]string{"services": "app"},
 	}
 }
 
@@ -286,19 +285,5 @@ func TestCollectorModeSurvivesManifestCreation(t *testing.T) {
 				t.Fatalf("mode = %v, want %v", m.CollectorsDisabled, tc.disabled)
 			}
 		})
-	}
-}
-
-func TestLifecycleManifestWithoutMySQL(t *testing.T) {
-	opts := testLifecycleOptions(t)
-	opts.roles["mysql"] = nil
-	args, err := opts.manifestBeginArgs(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for i, arg := range args {
-		if arg == "-mysql" && args[i+1] != "" {
-			t.Fatal("inactive MySQL recorded as active")
-		}
 	}
 }

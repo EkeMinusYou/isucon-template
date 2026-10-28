@@ -10,8 +10,8 @@ from manifests b, manifests n
 where b.run_id=getvariable('base_run') and n.run_id=getvariable('new_run');
 
 -- Check configuration and load-window differences before interpreting deltas.
-select m.run_id, m.commit, m.app_hosts, m.app_traffic_hosts, m.nginx_hosts,
- m.entry_host, m.mysql_host, m.additional_roles,
+select m.run_id, m.commit, m.app_hosts, m.app_traffic_hosts, m.ingress_hosts,
+ m.entry_host, m.additional_roles,
  m.collectors_disabled, m.profiles_enabled, m.collector_clean,
  w.status as window_status, w.source as window_source,
  w.duration_seconds, w.reason as window_reason

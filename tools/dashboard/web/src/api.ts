@@ -1,9 +1,8 @@
 export type RunRoles = {
   app: string[] | null
   app_traffic: string[] | null
-  nginx: string[] | null
+  ingress: string[] | null
   entry: string
-  mysql: string
   additional: Record<string, string[]> | null
 }
 
@@ -13,7 +12,6 @@ export type RunInfo = {
   passed: boolean | null
   run_id: string
   has_alp: boolean
-  has_slowquery: boolean
   has_metrics: boolean
   has_fgprof: boolean
   has_pprof: boolean
@@ -27,8 +25,7 @@ export type ScoreEntry = {
   deduction: number | null
   routes: { method: string; route: string; points: number }[] | null
   app: string
-  nginx: string
-  mysql: string
+  ingress: string
 }
 
 export type AlpRow = {
@@ -54,43 +51,7 @@ export type AlpResponse = {
   rows: AlpRow[]
 }
 
-export type SlowQueryClass = {
-  host: string
-  query: string
-  query_count: number
 
-  query_time_sum: number
-  query_time_avg: number
-  query_time_max: number
-  query_time_min: number
-  query_time_p95: number
-  query_time_pct: number
-
-  lock_time_sum: number
-  lock_time_avg: number
-  lock_time_max: number
-
-  rows_examined_sum: number
-  rows_examined_avg: number
-  rows_examined_max: number
-
-  rows_sent_sum: number
-  rows_sent_avg: number
-}
-
-export type SlowQueryResponse = {
-  run_id: string
-  available: boolean
-  total_query_count: number
-  unique_query_count: number
-  total_query_time_sum: number
-  total_lock_time_sum: number
-  total_rows_examined_sum: number
-  total_rows_sent_sum: number
-  classes: SlowQueryClass[]
-  total_classes: number
-  truncated: boolean
-}
 
 export type HostPoint = {
   elapsed_ms: number
@@ -215,66 +176,9 @@ export type GoPprofResponse = {
   profiles: GoPprofProfile[]
 }
 
-export type MysqlPoint = {
-  elapsed_ms: number
-  threads_connected: number
-  threads_running: number
-  threads_cached: number
-  threads_created_per_sec: number
-  connections_per_sec: number
-  aborted_connects_per_sec: number
-  questions_per_sec: number
-  com_select_per_sec: number
-  com_insert_per_sec: number
-  com_update_per_sec: number
-  com_delete_per_sec: number
-  bytes_received_per_sec: number
-  bytes_sent_per_sec: number
-  buffer_pool_pages_total: number
-  buffer_pool_pages_free: number
-  buffer_pool_pages_dirty: number
-  buffer_pool_read_requests_per_sec: number
-  buffer_pool_reads_per_sec: number
-  buffer_pool_hit_pct: number
-  row_lock_current_waits: number
-  row_lock_waits_per_sec: number
-  row_lock_time_ms_per_sec: number
-  innodb_log_waits_per_sec: number
-  created_tmp_tables_per_sec: number
-  created_tmp_disk_tables_per_sec: number
-  tmp_disk_ratio_pct: number
-}
 
-export type MysqlResponse = {
-  run_id: string
-  available: boolean
-  hosts: Array<{
-    host: string
-    series: MysqlPoint[]
-  }>
-}
 
-export type UpstreamRow = {
-  upstream_addr: string
-  upstream_status: string
-  cache_status: string
-  requests: number
-  status_2xx: number
-  status_3xx: number
-  status_4xx: number
-  status_5xx: number
-  status_other: number
-  response_time_sum_ms: number
-  response_time_avg_ms: number
-  upstream_time_sum_ms: number
-  upstream_time_avg_ms: number
-}
 
-export type UpstreamResponse = {
-  run_id: string
-  available: boolean
-  rows: UpstreamRow[]
-}
 
 export type UserTransitionSummary = {
   input_files: number
@@ -409,8 +313,6 @@ export const api = {
   runs: () => getJSON<RunInfo[]>('/api/runs'),
   scores: () => getJSON<ScoreEntry[]>('/api/scores'),
   alp: (runId: string) => getJSON<AlpResponse>(`/api/runs/${encodeURIComponent(runId)}/alp`),
-  slowQuery: (runId: string) =>
-    getJSON<SlowQueryResponse>(`/api/runs/${encodeURIComponent(runId)}/slowquery`),
   metrics: (runId: string) =>
     getJSON<MetricsResponse>(`/api/runs/${encodeURIComponent(runId)}/metrics`),
   fgprof: (runId: string) =>
@@ -423,9 +325,6 @@ export const api = {
     `/api/runs/${encodeURIComponent(runId)}/pprof/${encodeURIComponent(kind)}/${encodeURIComponent(host)}/graph.svg`,
   timeline: (runId: string) =>
     getJSON<TimelineResponse>(`/api/runs/${encodeURIComponent(runId)}/timeline`),
-  mysql: (runId: string) => getJSON<MysqlResponse>(`/api/runs/${encodeURIComponent(runId)}/mysql`),
-  upstream: (runId: string) =>
-    getJSON<UpstreamResponse>(`/api/runs/${encodeURIComponent(runId)}/upstream`),
   userTransitions: (runId: string) =>
     getJSON<UserTransitionsResponse>(`/api/runs/${encodeURIComponent(runId)}/user-transitions`),
 }

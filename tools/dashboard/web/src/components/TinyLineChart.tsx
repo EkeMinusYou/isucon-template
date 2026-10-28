@@ -25,7 +25,7 @@ export function groupByCategory<T>(metrics: MetricDef<T>[]): Array<[string, Metr
 }
 
 // A single-series (one line, no legend needed) small-multiple chart, used
-// for host-wide time series that aren't broken down by entity (for example MySQL).
+// for host-wide time series that aren't broken down by entity (for example host load).
 export function TinyLineChart<T extends { elapsed_ms: number }>({
   series,
   metric,

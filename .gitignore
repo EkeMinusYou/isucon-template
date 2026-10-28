@@ -15,10 +15,9 @@ raw/
 # Contest application build artifacts
 webapp/go/default.pgo
 
-# nginx dynamic module build artifacts
-/nginx/modules/*.so
 
 # Tool build artifacts
+/tools/measurement/cmd/runtime-metrics/runtime-metrics
 /tools/bench-output/bench-output
 /tools/portal-bench/portal-bench
 /tools/analysisctl/analysisctl
@@ -26,19 +25,14 @@ webapp/go/default.pgo
 /tools/measurectl/measurectl
 /tools/measurement/cmd/proc-metrics/proc-metrics
 /tools/measurement/cmd/json-metrics-collector/json-metrics-collector
-/tools/measurement/cmd/mysql-metrics/mysql-metrics
-/tools/nginx-backend-report/nginx-backend-report
-/tools/measurement/cmd/nginx-oncpu-profiler/nginx-oncpu-profiler
 /tools/user-transition-metrics/user-transition-metrics
 /tools/dashboard/server/dashboardserver
-/tools/measurement/cmd/sql-pool-metrics/sql-pool-metrics
 
 # Node dependencies and browser state
 node_modules/
 tools/browser/.playwright-cli/
 
 # Rebuildable state
-/generated/nginx/
 /generated/public/
 runs/analysis.duckdb
 runs/analysis.duckdb.lock
@@ -57,8 +51,6 @@ runs/*/raw/
 application_default_credentials.json
 
 # Keep host credentials at their original destinations.
-nginx/tls/
-mysql/debian.cnf
 etc/hosts/*/env.sh
 
 # Python bytecode cache

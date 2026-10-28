@@ -131,7 +131,7 @@ func loadArtifactSpecs(collectorsPath, digestersPath string) ([]ArtifactSpec, er
 		return nil, err
 	}
 	for _, s := range dcfg.Sources {
-		// Raw logs outside the RUN directory (raw/mysql-slow-{host}.log) are
+		// Raw logs outside the RUN directory (external/raw-{host}.log) are
 		// persistent working files, not RUN artifacts.
 		local := hostGlob(s.Local)
 		if !strings.Contains(local, "{run_dir}") {
@@ -346,7 +346,7 @@ func matchesAnySpec(name string, specs []ArtifactSpec) bool {
 			return true
 		}
 		// Historical RUNs used a bare filename before host-specific artifacts
-		// were introduced (for example mysql-status.tsv). Keep those readers
+		// were introduced (for example legacy-metrics.tsv). Keep those readers
 		// compatible without making the legacy name a new required artifact.
 		if strings.HasPrefix(base, "*-") && strings.TrimPrefix(base, "*-") == name {
 			return true

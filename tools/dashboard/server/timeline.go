@@ -16,8 +16,8 @@ import (
 	"github.com/klauspost/compress/zstd"
 )
 
-// accessLogLine mirrors the fields of one nginx access-<host>.log JSON line
-// that the benchmarker timeline needs (see nginx/ log_format json).
+// accessLogLine mirrors the fields of one ingress access-<host>.log JSON line
+// that the benchmarker timeline needs (see ingress/ log_format json).
 type accessLogLine struct {
 	Msec         json.RawMessage `json:"msec"`
 	Time         string          `json:"time"`
@@ -27,7 +27,7 @@ type accessLogLine struct {
 }
 
 func accessLogSecond(rec accessLogLine) (int64, bool) {
-	// nginx $msec is epoch seconds with a fractional part, not milliseconds.
+	// ingress $msec is epoch seconds with a fractional part, not milliseconds.
 	var number json.Number
 	if err := json.Unmarshal(rec.Msec, &number); err == nil {
 		seconds, err := number.Float64()
@@ -62,7 +62,7 @@ func parseTimelineStatus(raw json.RawMessage) int {
 	return 0
 }
 
-// accessLogFiles returns the raw nginx logs for a run.
+// accessLogFiles returns the raw ingress logs for a run.
 //
 // They live in <run>/raw/ and are zstd-compressed once the digest step has
 // read them, so both extensions may appear. When the same log exists in both

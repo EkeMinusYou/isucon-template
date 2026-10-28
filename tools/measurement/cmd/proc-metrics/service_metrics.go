@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-var defaultServiceNames = []string{"nginx.service", "mysql.service"}
+var defaultServiceNames = []string{"app.service"}
 
 type serviceTarget struct {
 	name string

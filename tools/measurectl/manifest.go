@@ -63,9 +63,8 @@ type Roles struct {
 	Additional map[string][]string `json:"additional,omitempty"`
 	App        []string            `json:"app"`
 	AppTraffic []string            `json:"app_traffic"`
-	Nginx      []string            `json:"nginx"`
+	Ingress    []string            `json:"ingress"`
 	Entry      string              `json:"entry"`
-	MySQL      string              `json:"mysql"`
 }
 
 // CodeSource はその走行で動いていたアプリのコード。スコア差分の原因を後から
@@ -126,8 +125,7 @@ func runManifestBegin(args []string) error {
 	dir := fs.String("dir", "", "走行ディレクトリ (runs/<RUN_ID>)")
 	app := fs.String("app", "", "APP_HOSTS (カンマ区切り)")
 	appTraffic := fs.String("app-traffic", "", "APP_TRAFFIC_HOSTS (カンマ区切り)")
-	nginx := fs.String("nginx", "", "NGINX_HOSTS (カンマ区切り)")
-	mysql := fs.String("mysql", "", "MYSQL_HOST")
+	ingress := fs.String("ingress", "", "APP_TRAFFIC_HOSTS (カンマ区切り)")
 	entry := fs.String("entry", "", "ENTRY_HOST")
 	additionalRoles := keyValues{}
 	fs.Var(additionalRoles, "role", "additional role=host1,host2 (repeatable)")
@@ -162,9 +160,8 @@ func runManifestBegin(args []string) error {
 			Additional: additionalRoles,
 			App:        splitHosts(*app),
 			AppTraffic: splitHosts(*appTraffic),
-			Nginx:      splitHosts(*nginx),
+			Ingress:    splitHosts(*ingress),
 			Entry:      *entry,
-			MySQL:      *mysql,
 		},
 		Source:     source,
 		Artifacts:  []Artifact{},
@@ -315,7 +312,7 @@ func writeManifestAtomic(path string, m Manifest) error {
 // task runs / task q が読む形式なので、列は変えずに保つ。
 func appendScores(path string, m Manifest) error {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		header := "run_id\tscore\tapp\tnginx\tmysql\tapp_traffic\n"
+		header := "run_id\tscore\tapp\tingress\tapp_traffic\n"
 		if err := os.WriteFile(path, []byte(header), 0o644); err != nil {
 			return err
 		}
@@ -332,11 +329,10 @@ func appendScores(path string, m Manifest) error {
 	if m.Score != nil {
 		score = strconv.FormatInt(*m.Score, 10)
 	}
-	_, err = fmt.Fprintf(f, "%s\t%s\t%s\t%s\t%s\t%s\n",
+	_, err = fmt.Fprintf(f, "%s\t%s\t%s\t%s\t%s\n",
 		m.RunID, score,
 		strings.Join(m.Roles.App, ","),
-		strings.Join(m.Roles.Nginx, ","),
-		m.Roles.MySQL,
+		strings.Join(m.Roles.Ingress, ","),
 		strings.Join(m.Roles.AppTraffic, ","))
 	return err
 }
@@ -409,7 +405,7 @@ func scanArtifacts(dir string) ([]Artifact, int64, error) {
 			continue
 		}
 		a := Artifact{Name: name, Bytes: info.Size(), Status: "ok"}
-		// 回収物の stem は拡張子を落とした名前 (slp.tsv -> slp)。
+		// 回収物の stem は拡張子を落とした名前 (alp.txt -> alp)。
 		if reason, ok := reasons[strings.TrimSuffix(name, filepath.Ext(name))]; ok {
 			a.Status = "failed"
 			a.Reason = reason

@@ -26,7 +26,7 @@ func TestListRunsIncludesArchivedRunsAndSkipsContainerDirectories(t *testing.T) 
 	if err := os.WriteFile(filepath.Join(activeDir, "run.json"), []byte(`{"score":0,"passed":false}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(archivedDir, "slp.tsv"), nil, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(archivedDir, "alp.json"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -44,8 +44,8 @@ func TestListRunsIncludesArchivedRunsAndSkipsContainerDirectories(t *testing.T) 
 	if runs[0].Score == nil || *runs[0].Score != 0 || runs[0].Passed == nil || *runs[0].Passed {
 		t.Fatalf("active benchmark result = %#v, want real zero score and fail", runs[0])
 	}
-	if runs[1].RunID != archivedID || !runs[1].HasSlow {
-		t.Fatalf("archived run = %#v, want %s with slow query", runs[1], archivedID)
+	if runs[1].RunID != archivedID || !runs[1].HasAlp {
+		t.Fatalf("archived run = %#v, want %s with HTTP aggregate", runs[1], archivedID)
 	}
 
 	if gotDir, ok := a.resolveRunDir(activeID); !ok || gotDir != activeDir {

@@ -30,7 +30,7 @@ func TestFetchSourceIncludesBufferedTail(t *testing.T) {
 			return os.WriteFile(local, []byte(body), 0o600)
 		},
 	}
-	if err := runner.fetchSource(source, "nginx-1"); err != nil {
+	if err := runner.fetchSource(source, "ingress-1"); err != nil {
 		t.Fatal(err)
 	}
 	body, err := os.ReadFile(filepath.Join(dir, "access.log"))
@@ -40,17 +40,13 @@ func TestFetchSourceIncludesBufferedTail(t *testing.T) {
 }
 
 func TestDigestAggregatesFailedBenchmarkSlowLogs(t *testing.T) {
-	// Use the production declarations so failure-dependent skips cannot return
-	// unnoticed. Replace only the external tools with a deterministic command.
+	// Failed runs must still aggregate available logs.
 	cfg, err := loadDigestConfig("digesters.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.Digesters = filterDigesters(cfg.Digesters, []string{"pt-query-digest", "slp"})
-	if len(cfg.Digesters) != 2 {
-		t.Fatal("slow-log digesters are missing from the production config")
-	}
-	cfg.Sources = []Source{{Name: "slow", Role: "mysql_all", Remote: "/tmp/slow.log", Local: "{raw_dir}/slow-{host}.log"}}
+	cfg.Digesters = []Digester{{Name: "summary", Source: "slow", Stderr: "{host}-summary.stderr", PerHost: true, Outputs: []Output{{File: "{host}-summary.json", Run: "true", OnEmpty: "[]", OnError: "[]", OnSkip: "[]"}}}}
+	cfg.Sources = []Source{{Name: "slow", Role: "worker_all", Remote: "/tmp/slow.log", Local: "{raw_dir}/slow-{host}.log"}}
 	for i := range cfg.Digesters {
 		for j := range cfg.Digesters[i].Outputs {
 			cfg.Digesters[i].Outputs[j].Run = "printf aggregated"
@@ -77,7 +73,7 @@ func TestDigestAggregatesFailedBenchmarkSlowLogs(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if err := runDigest([]string{"-config", config, "-run-dir", dir, "-raw-dir", dir, "-skip-fetch", "-role", "mysql_all=db-1"}); err != nil {
+			if err := runDigest([]string{"-config", config, "-run-dir", dir, "-raw-dir", dir, "-skip-fetch", "-role", "worker_all=db-1"}); err != nil {
 				t.Fatal(err)
 			}
 			for _, d := range cfg.Digesters {
@@ -103,7 +99,7 @@ func TestSkippedDigestKeepsRequiredOutputsAndReason(t *testing.T) {
 			dir := t.TempDir()
 			runner := &digestRunner{
 				runDir: dir,
-				roles:  map[string][]string{"mysql": {"db-1"}},
+				roles:  map[string][]string{"worker": {"db-1"}},
 				sshScriptFn: func(_, _ string) (string, string, error) {
 					return "", "remote input unavailable", errors.New("exit status 1")
 				},
@@ -121,10 +117,10 @@ func TestSkippedDigestKeepsRequiredOutputsAndReason(t *testing.T) {
 			}
 			var err error
 			if mode == "remote-per-host" {
-				d.Remote = &Remote{Role: "mysql", PerHost: true, Script: "exit 1"}
+				d.Remote = &Remote{Role: "worker", PerHost: true, Script: "exit 1"}
 				err = runner.digestRemote(d)
 			} else {
-				source := Source{Name: "slow", Role: "mysql", Local: "{run_dir}/absent.log"}
+				source := Source{Name: "slow", Role: "worker", Local: "{run_dir}/absent.log"}
 				d.PerHost = mode == "source-per-host"
 				host := ""
 				if d.PerHost {
@@ -293,25 +289,25 @@ func TestDigestRemoteFailureKeepsFallbackOutput(t *testing.T) {
 	dir := t.TempDir()
 	runner := &digestRunner{
 		runDir: dir,
-		roles:  map[string][]string{"mysql": {"isucon-1"}},
+		roles:  map[string][]string{"worker": {"isucon-1"}},
 		sshScriptFn: func(_, _ string) (string, string, error) {
 			return "", "performance_schema disabled", errors.New("exit status 1")
 		},
 	}
 	digester := Digester{
-		Name:    "mysql-digest",
-		Stderr:  "mysql-digest.stderr",
-		Remote:  &Remote{Role: "mysql", Script: "exit 1"},
-		Outputs: []Output{{File: "mysql-digest.tsv", OnSkip: "column_a\tcolumn_b"}},
+		Name:    "worker-digest",
+		Stderr:  "worker-digest.stderr",
+		Remote:  &Remote{Role: "worker", Script: "exit 1"},
+		Outputs: []Output{{File: "worker-digest.tsv", OnSkip: "column_a\tcolumn_b"}},
 	}
 	if err := runner.digestRemote(digester); err != nil {
 		t.Fatal(err)
 	}
-	body, err := os.ReadFile(filepath.Join(dir, "mysql-digest.tsv"))
+	body, err := os.ReadFile(filepath.Join(dir, "worker-digest.tsv"))
 	if err != nil || string(body) != "column_a\tcolumn_b\n" {
 		t.Fatalf("fallback output=%q err=%v", body, err)
 	}
-	stderr, err := os.ReadFile(filepath.Join(dir, "mysql-digest.stderr"))
+	stderr, err := os.ReadFile(filepath.Join(dir, "worker-digest.stderr"))
 	if err != nil || !strings.Contains(string(stderr), "performance_schema disabled") {
 		t.Fatalf("stderr=%q err=%v", stderr, err)
 	}
@@ -394,7 +390,7 @@ func TestExecIgnoresStderrFromSuccessfulCommand(t *testing.T) {
 
 func TestFetchAtomicRenameAndStaleRawRemoval(t *testing.T) {
 	dir := t.TempDir()
-	local := filepath.Join(dir, "mysql-slow.log")
+	local := filepath.Join(dir, "worker-slow.log")
 	if err := os.WriteFile(local, []byte("stale"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -405,7 +401,7 @@ func TestFetchAtomicRenameAndStaleRawRemoval(t *testing.T) {
 			return os.WriteFile(target, []byte("fresh"), 0o600)
 		},
 	}
-	if err := r.fetchSource(Source{Remote: "/slow.log", Local: local}, "mysql"); err != nil {
+	if err := r.fetchSource(Source{Remote: "/slow.log", Local: local}, "worker"); err != nil {
 		t.Fatal(err)
 	}
 	body, err := os.ReadFile(local)
@@ -415,24 +411,24 @@ func TestFetchAtomicRenameAndStaleRawRemoval(t *testing.T) {
 	if string(body) != "fresh" {
 		t.Fatalf("fetched body = %q, want fresh", body)
 	}
-	if matches, _ := filepath.Glob(filepath.Join(dir, ".mysql-slow.log.fetch-*")); len(matches) != 0 {
+	if matches, _ := filepath.Glob(filepath.Join(dir, ".worker-slow.log.fetch-*")); len(matches) != 0 {
 		t.Fatalf("temporary files remain: %v", matches)
 	}
 }
 
 func TestFetchFailureDoesNotReuseStaleRawAndMarksDigestArtifacts(t *testing.T) {
 	dir := t.TempDir()
-	local := filepath.Join(dir, "mysql-slow.log")
+	local := filepath.Join(dir, "worker-slow.log")
 	if err := os.WriteFile(local, []byte("stale"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	r := &digestRunner{
 		runDir: dir,
 		rawDir: dir,
-		roles:  map[string][]string{"mysql": {"mysql"}},
-		cfg: &DigestConfig{Sources: []Source{{Name: "slow", Role: "mysql", Remote: "/slow.log", Local: local}}, Digesters: []Digester{{
-			Name: "slp", Source: "slow", Stderr: "slp.stderr",
-			Outputs: []Output{{File: "slp.tsv"}},
+		roles:  map[string][]string{"worker": {"worker"}},
+		cfg: &DigestConfig{Sources: []Source{{Name: "slow", Role: "worker", Remote: "/slow.log", Local: local}}, Digesters: []Digester{{
+			Name: "summary", Source: "slow", Stderr: "summary.stderr",
+			Outputs: []Output{{File: "summary.tsv"}},
 		}}},
 		fetchFn: func(_, _, _ string) error { return errors.New("ENOSPC") },
 	}
@@ -443,10 +439,10 @@ func TestFetchFailureDoesNotReuseStaleRawAndMarksDigestArtifacts(t *testing.T) {
 	if _, statErr := os.Stat(local); !os.IsNotExist(statErr) {
 		t.Fatalf("stale raw still exists: %v", statErr)
 	}
-	if _, statErr := os.Stat(filepath.Join(dir, "slp.tsv")); statErr != nil {
+	if _, statErr := os.Stat(filepath.Join(dir, "summary.tsv")); statErr != nil {
 		t.Fatalf("failed artifact missing: %v", statErr)
 	}
-	stderr, readErr := os.ReadFile(filepath.Join(dir, "slp.stderr"))
+	stderr, readErr := os.ReadFile(filepath.Join(dir, "summary.stderr"))
 	if readErr != nil || !strings.Contains(string(stderr), "ENOSPC") {
 		t.Fatalf("stderr = %q, err = %v", stderr, readErr)
 	}

@@ -3,19 +3,15 @@ import {
   api,
   type AlpResponse,
   type MetricsResponse,
-  type MysqlResponse,
   type FgprofResponse,
   type GoPprofResponse,
   type RunInfo,
   type ScoreEntry,
-  type SlowQueryResponse,
   type TimelineResponse,
-  type UpstreamResponse,
   type UserTransitionsResponse,
 } from './api'
 import { AlpTop } from './components/AlpTop'
 import { BenchmarkTimeline } from './components/BenchmarkTimeline'
-import { MysqlStatus } from './components/MysqlStatus'
 import { FgprofTop } from './components/PprofTop'
 import { GoPprofTop } from './components/GoPprofTop'
 import { ResourceTimeSeries } from './components/ResourceTimeSeries'
@@ -24,20 +20,15 @@ import { ServerRoles } from './components/ServerRoles'
 import { SectionNav, type SectionDef } from './components/SectionNav'
 import { ScoreTrend } from './components/ScoreTrend'
 import { ChartSkeleton, TableSkeleton } from './components/Skeletons'
-import { SlowQueryTop } from './components/SlowQueryTop'
 import { ThemeToggle } from './components/ThemeToggle'
-import { UpstreamBreakdown } from './components/UpstreamBreakdown'
 import { UserTransitions } from './components/UserTransitions'
 import { useTheme } from './useTheme'
 
 type RunData = {
   alp: AlpResponse
-  slowquery: SlowQueryResponse
   metrics: MetricsResponse
   fgprof: FgprofResponse
   pprof: GoPprofResponse
-  mysql: MysqlResponse
-  upstream: UpstreamResponse
   userTransitions: UserTransitionsResponse
   timeline: TimelineResponse
 }
@@ -48,16 +39,13 @@ const SECTIONS: SectionDef[] = [
   { id: 'score-trend', title: 'スコア推移', navLabel: 'スコア' },
   { id: 'benchmark-timeline', title: 'ベンチマーカー挙動タイムライン', navLabel: 'タイムライン' },
   { id: 'alp', title: 'alp トップボトルネック', navLabel: 'alp' },
-  { id: 'upstream', title: 'nginx upstream/キャッシュ内訳', navLabel: 'upstream' },
   { id: 'user-transitions', title: 'Cookie ユーザー遷移', navLabel: 'ユーザー遷移' },
-  { id: 'slowquery', title: 'slow query トップ', navLabel: 'slow query' },
-  { id: 'mysql', title: 'MySQL ステータス', navLabel: 'MySQL' },
   { id: 'resources', title: 'ホスト/サービス別リソース時系列', navLabel: 'リソース' },
   { id: 'pprof', title: 'Go pprof', navLabel: 'pprof' },
   { id: 'fgprof', title: 'fgprof wall-clock', navLabel: 'fgprof' },
 ]
 
-const COLLAPSED_BY_DEFAULT = new Set(['upstream', 'mysql', 'resources', 'pprof', 'fgprof'])
+const COLLAPSED_BY_DEFAULT = new Set(['resources', 'pprof', 'fgprof'])
 
 function Section({
   id,
@@ -160,18 +148,15 @@ function App() {
       setSelectedRun(runId)
 
       if (runId) {
-        const [alp, slowquery, metrics, pprof, fgprof, mysql, upstream, userTransitions, timeline] = await Promise.all([
+        const [alp, metrics, pprof, fgprof, userTransitions, timeline] = await Promise.all([
           api.alp(runId),
-          api.slowQuery(runId),
           api.metrics(runId),
           api.pprof(runId),
           api.fgprof(runId),
-          api.mysql(runId),
-          api.upstream(runId),
           api.userTransitions(runId),
           api.timeline(runId),
         ])
-        setRunData({ alp, slowquery, metrics, pprof, fgprof, mysql, upstream, userTransitions, timeline })
+        setRunData({ alp, metrics, pprof, fgprof, userTransitions, timeline })
       } else {
         setRunData(null)
       }
@@ -193,18 +178,15 @@ function App() {
     setLoading(true)
     setError(null)
     try {
-      const [alp, slowquery, metrics, pprof, fgprof, mysql, upstream, userTransitions, timeline] = await Promise.all([
+      const [alp, metrics, pprof, fgprof, userTransitions, timeline] = await Promise.all([
         api.alp(runId),
-        api.slowQuery(runId),
         api.metrics(runId),
         api.pprof(runId),
         api.fgprof(runId),
-        api.mysql(runId),
-        api.upstream(runId),
         api.userTransitions(runId),
         api.timeline(runId),
       ])
-      setRunData({ alp, slowquery, metrics, pprof, fgprof, mysql, upstream, userTransitions, timeline })
+      setRunData({ alp, metrics, pprof, fgprof, userTransitions, timeline })
       setLastLoaded(new Date())
     } catch (err) {
       setError(String((err as Error).message ?? err))
@@ -309,20 +291,8 @@ function App() {
               {runData ? <AlpTop rows={runData.alp.rows} /> : <TableSkeleton />}
             </Section>
 
-            <Section id="upstream" title="nginx upstream/キャッシュ内訳">
-              {runData ? <UpstreamBreakdown data={runData.upstream} /> : <TableSkeleton />}
-            </Section>
-
             <Section id="user-transitions" title="Cookie ユーザー遷移">
               {runData ? <UserTransitions data={runData.userTransitions} alpRows={runData.alp.rows} /> : <TableSkeleton />}
-            </Section>
-
-            <Section id="slowquery" title="slow query トップ">
-              {runData ? <SlowQueryTop data={runData.slowquery} /> : <TableSkeleton />}
-            </Section>
-
-            <Section id="mysql" title="MySQL ステータス">
-              {runData ? <MysqlStatus data={runData.mysql} /> : <ChartSkeleton columns={3} />}
             </Section>
 
             <Section id="resources" title="ホスト/サービス別リソース時系列">

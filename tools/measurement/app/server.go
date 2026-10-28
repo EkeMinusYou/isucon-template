@@ -2,7 +2,6 @@
 package app
 
 import (
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -10,16 +9,6 @@ import (
 	"net/http"
 	"time"
 )
-
-// Pool identifies a database pool with stable labels. *sql.DB and *sqlx.DB
-// both satisfy its Stats interface.
-type Pool struct {
-	DatabaseHost string
-	Name         string
-	Role         string
-	Shard        int
-	DB           interface{ Stats() sql.DBStats }
-}
 
 // Snapshot supplies application-specific numeric metrics and optional extra
 // JSON fields. Standard snapshot fields always take precedence over Extra.
@@ -34,7 +23,6 @@ type Options struct {
 	Address string
 	// MaxProfileSeconds defaults to 3600 and must be between 1 and 3600.
 	MaxProfileSeconds int
-	Pools             []Pool
 	Snapshot          func() Snapshot
 }
 
@@ -48,16 +36,10 @@ func normalize(options Options) (Options, error) {
 	if options.MaxProfileSeconds < 1 || options.MaxProfileSeconds > 3600 {
 		return options, fmt.Errorf("profile duration limit must be between 1 and 3600 seconds")
 	}
-	for _, pool := range options.Pools {
-		if pool.DB == nil {
-			return options, fmt.Errorf("pool %q has no database", pool.Name)
-		}
-	}
-	options.Pools = append([]Pool(nil), options.Pools...)
 	return options, nil
 }
 
-// NewHandler creates the profile and SQL pool endpoints without starting a
+// NewHandler creates the profile and runtime endpoints without starting a
 // listener. Each application process should create only one handler.
 func NewHandler(options Options) (http.Handler, error) {
 	options, err := normalize(options)
@@ -67,7 +49,7 @@ func NewHandler(options Options) (http.Handler, error) {
 	started := time.Now()
 	mux := http.NewServeMux()
 	mux.Handle("/", profileHandler(options.MaxProfileSeconds))
-	mux.HandleFunc("/debug/sql-pools", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/debug/runtime", func(w http.ResponseWriter, r *http.Request) {
 		snapshot := Snapshot{}
 		if options.Snapshot != nil {
 			snapshot = options.Snapshot()
@@ -76,22 +58,9 @@ func NewHandler(options Options) (http.Handler, error) {
 		for key, value := range snapshot.Extra {
 			payload[key] = value
 		}
-		pools := make([]map[string]any, 0, len(options.Pools))
-		for _, pool := range options.Pools {
-			stats := pool.DB.Stats()
-			pools = append(pools, map[string]any{
-				"database_host": pool.DatabaseHost, "name": pool.Name, "role": pool.Role, "shard": pool.Shard,
-				"max_open_connections": stats.MaxOpenConnections,
-				"open_connections":     stats.OpenConnections, "in_use": stats.InUse, "idle": stats.Idle,
-				"wait_count": stats.WaitCount, "wait_duration_ns": stats.WaitDuration.Nanoseconds(),
-				"max_idle_closed": stats.MaxIdleClosed, "max_idle_time_closed": stats.MaxIdleTimeClosed,
-				"max_lifetime_closed": stats.MaxLifetimeClosed,
-			})
-		}
 		payload["version"] = 1
 		payload["started_unix_ms"] = started.UnixMilli()
 		payload["captured_unix_ms"] = time.Now().UnixMilli()
-		payload["pools"] = pools
 		observations := make(map[string]any, len(snapshot.Metrics)+8)
 		for name, value := range snapshot.Metrics {
 			observations[name] = value

@@ -46,7 +46,7 @@ func (f *guardedUploadExecutor) Run(name string, args []string, stdin string) ([
 	if strings.Contains(stdin, "echo activated") {
 		f.activated = true
 	}
-	script := strings.ReplaceAll(stdin, "/etc/nginx", filepath.Join(f.root, "live"))
+	script := strings.ReplaceAll(stdin, "/home/isucon/ingress", filepath.Join(f.root, "live"))
 	script = strings.ReplaceAll(script, "/tmp/isucon-deployctl-", filepath.Join(f.root, "backups")+"/")
 	script = strings.ReplaceAll(script, "$HOME/"+stampDir, filepath.Join(f.root, "stamps"))
 	cmd := exec.Command("sh", "-c", script)
@@ -98,7 +98,7 @@ func TestGuardedUploadRestoresFailedConfiguration(t *testing.T) {
 			write("source/config.conf", value)
 			write("source/added.conf", "new")
 			fake := &guardedUploadExecutor{root: tmp, transferFailure: tc.transferFailure, backupFailure: tc.backupFailure}
-			runner := deployRunner{exec: fake, parallel: 1, roles: map[string][]string{"nginx": {"host1"}}}
+			runner := deployRunner{exec: fake, parallel: 1, roles: map[string][]string{"ingress": {"host1"}}}
 			// apply() validates repository-relative paths before any remote operation.
 			previous, err := os.Getwd()
 			if err != nil {
@@ -109,8 +109,8 @@ func TestGuardedUploadRestoresFailedConfiguration(t *testing.T) {
 			}
 			defer os.Chdir(previous)
 			deployment := deployment{
-				Uploads:     []upload{{Label: "config", Role: "nginx", Local: "source/", Remote: "/etc/nginx/", Delete: true, Validate: "test \"$(cat /etc/nginx/config.conf)\" = good"}},
-				Activations: []activation{{Label: "activate", Role: "nginx", Script: "echo activated"}},
+				Uploads:     []upload{{Label: "config", Role: "ingress", Local: "source/", Remote: "/home/isucon/ingress/", Delete: true, Validate: "test \"$(cat /home/isucon/ingress/config.conf)\" = good"}},
+				Activations: []activation{{Label: "activate", Role: "ingress", Script: "echo activated"}},
 			}
 			err = runner.apply(deployment)
 			success := tc.valid && !tc.transferFailure && !tc.backupFailure

@@ -37,8 +37,7 @@ type scoreEntry struct {
 	Deduction  *int64        `json:"deduction"`
 	Routes     []routePoints `json:"routes"`
 	App        string        `json:"app"`
-	Nginx      string        `json:"nginx"`
-	Mysql      string        `json:"mysql"`
+	Ingress    string        `json:"ingress"`
 	AppTraffic string        `json:"app_traffic"`
 }
 
@@ -74,7 +73,7 @@ from bench_results r`
 	return results, nil
 }
 
-const scoresHeader = "run_id\tscore\tapp\tnginx\tmysql\tapp_traffic"
+const scoresHeader = "run_id\tscore\tapp\tingress\tapp_traffic"
 
 // parseScores reads the current runs/scores.tsv format.
 func parseScores(path string) ([]scoreEntry, error) {
@@ -107,8 +106,8 @@ func parseScores(path string) ([]scoreEntry, error) {
 			continue
 		}
 		cols := strings.Split(line, "\t")
-		if len(cols) != 6 {
-			return nil, fmt.Errorf("scores.tsv line %d has %d columns, expected 6", lineNumber, len(cols))
+		if len(cols) != 5 {
+			return nil, fmt.Errorf("scores.tsv line %d has %d columns, expected 5", lineNumber, len(cols))
 		}
 		var score *int64
 		if rawScore := strings.TrimSpace(cols[1]); rawScore != "" {
@@ -122,7 +121,7 @@ func parseScores(path string) ([]scoreEntry, error) {
 			return nil, fmt.Errorf("scores.tsv line %d has an empty run_id", lineNumber)
 		}
 		entries = append(entries, scoreEntry{
-			RunID: cols[0], Score: score, App: cols[2], Nginx: cols[3], Mysql: cols[4], AppTraffic: cols[5],
+			RunID: cols[0], Score: score, App: cols[2], Ingress: cols[3], AppTraffic: cols[4],
 		})
 	}
 	if err := scanner.Err(); err != nil {

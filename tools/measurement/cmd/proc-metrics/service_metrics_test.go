@@ -11,8 +11,8 @@ import (
 )
 
 func TestParseServiceNames(t *testing.T) {
-	got := parseServiceNames("app, nginx.service mysql app.service")
-	want := []string{"app.service", "nginx.service", "mysql.service"}
+	got := parseServiceNames("app, ingress.service worker app.service")
+	want := []string{"app.service", "ingress.service", "worker.service"}
 	if len(got) != len(want) {
 		t.Fatalf("parseServiceNames() = %#v, want %#v", got, want)
 	}
@@ -25,7 +25,7 @@ func TestParseServiceNames(t *testing.T) {
 
 func TestReadServiceCgroup(t *testing.T) {
 	root := t.TempDir()
-	servicePath := filepath.Join(root, "system.slice", "nginx.service")
+	servicePath := filepath.Join(root, "system.slice", "ingress.service")
 	if err := os.MkdirAll(servicePath, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -42,9 +42,9 @@ func TestReadServiceCgroup(t *testing.T) {
 		}
 	}
 
-	collector := newServiceCollector(root, []string{"nginx"})
+	collector := newServiceCollector(root, []string{"ingress"})
 	values := collector.read()
-	got, ok := values["nginx.service"]
+	got, ok := values["ingress.service"]
 	if !ok || !got.available {
 		t.Fatalf("service snapshot = %#v, want available snapshot", got)
 	}
@@ -82,9 +82,9 @@ func TestServiceHeaderAndRowsWidth(t *testing.T) {
 	previous := snapshot{at: time.Unix(8, 0)}
 	current := snapshot{at: currentAt, memTotal: 1024}
 	services := map[string]serviceSnapshot{
-		"nginx.service": currentService,
+		"ingress.service": currentService,
 	}
-	if err := writeServiceRows(writer, 0, time.Unix(0, 0), current, services, map[string]serviceSnapshot{"nginx.service": previousService}, &previous, []string{"nginx.service"}); err != nil {
+	if err := writeServiceRows(writer, 0, time.Unix(0, 0), current, services, map[string]serviceSnapshot{"ingress.service": previousService}, &previous, []string{"ingress.service"}); err != nil {
 		t.Fatal(err)
 	}
 

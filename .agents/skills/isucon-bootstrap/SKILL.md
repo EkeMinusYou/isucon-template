@@ -5,7 +5,7 @@ description: 初期ソースや内部構成を参照せず、外部仕様と資�
 
 # ISUCON redesign bootstrap
 
-[isucon-setup](../isucon-setup/SKILL.md)で整理した外部仕様・提供データ・資源情報だけから、全機能を新しい内部構成で実装する。既存コードへの段階的な性能改善を既定の進め方にしない。
+[isucon-setup](../isucon-setup/SKILL.md)で整理した外部仕様・提供データ・資源情報だけから、全機能をGoだけの内部構成で実装する。実行構成の制約は`AGENTS.md`の「全面再設計の方針」に従う。既存コードへの段階的な性能改善を既定の進め方にしない。
 実行許可・正規操作・commitは`AGENTS.md`、得点への作用と比較は[Evidence基準](../_shared/evidence.md)に従う。
 
 ## 外部仕様から設計・実装
@@ -21,10 +21,11 @@ description: 初期ソースや内部構成を参照せず、外部仕様と資�
 4. 新実装へ[標準計測](../isucon-setup/references/measurement.md)を組み込み、正規build・deploy・初期化経路を揃える。WALを採用した場合は[WAL構成の計測](references/wal-measurement.md)も組み込む。
 5. 必要なローカル検証、`task setup-check`、正規deploy・初期化・`task setup-postflight`を行い、`task bench`で新構成を検証する。失敗は仕様・実装・環境・計測のどこかを切り分けて補修する。
 
-N+1解消、索引追加、秘伝のタレ、静的配信、メモリ＋WALは必須の順番や既定の構成ではない。[既知資料](../_shared/known-solutions.md)は選んだ設計に必要な場合だけ使う。ユーザーが明示した構成要件は優先する。
+[既知資料](../_shared/known-solutions.md)はGoでの設計に必要な場合だけ使う。メモリ配置・索引・並行処理・永続化方式は得点と資源から選ぶ。
 
 ## 完了条件
 
+- 管理対象ホストの既製ミドルウェアを停止・無効化し、通常処理・起動・初期化・復元がGoだけで成立することを確認する。
 - 全機能を新構成で実装し、必要な初期化・外部連携・通常再起動後の復元が成立している。未実装機能や常に成功するstubでPASS相当と扱わない。
 - 正規deployした新実装が公式ベンチでPASSし、得点・合否・計測の生成から回収・分析まで確認できる。CPU・heap/goroutine・runtime等は実際の負荷期間と対応させ、仕様上成立しない計測は理由を示す。
 - 設計時に予測した処理量・資源消費・律速と実測を照合し、未確定点を示す。まだスコアが低い場合も、目標点への継続依頼があれば[isucon-agent](../isucon-agent/SKILL.md)へ進む。

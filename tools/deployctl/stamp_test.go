@@ -120,7 +120,7 @@ func TestVerifyRequiresStampForNewTopology(t *testing.T) {
 	}
 	local := dir + "/"
 	cfg := &config{Deployments: map[string]deployment{
-		"edge": {Uploads: []upload{{Label: "config", Role: "edge", Local: local, Remote: "/etc/nginx/", VerifyRequired: true}}},
+		"edge": {Uploads: []upload{{Label: "config", Role: "edge", Local: local, Remote: "/home/isucon/ingress/", VerifyRequired: true}}},
 	}}
 	fingerprint, _ := localFingerprint(local, nil)
 	for _, test := range []struct {
@@ -128,14 +128,14 @@ func TestVerifyRequiresStampForNewTopology(t *testing.T) {
 		wantOK                    bool
 	}{
 		{name: "absent"},
-		{name: "old source", source: "nginx/", fingerprint: fingerprint},
+		{name: "old source", source: "ingress/", fingerprint: fingerprint},
 		{name: "stale content", source: local, fingerprint: "stale"},
 		{name: "current", source: local, fingerprint: fingerprint, wantOK: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var stamps string
 			if test.source != "" {
-				body, _ := json.Marshal(deployStamp{Remote: "/etc/nginx/", Local: test.source, Fingerprint: test.fingerprint})
+				body, _ := json.Marshal(deployStamp{Remote: "/home/isucon/ingress/", Local: test.source, Fingerprint: test.fingerprint})
 				stamps = string(body) + "\n"
 			}
 			r := &deployRunner{sshUser: "isucon", parallel: 1, roles: map[string][]string{"edge": {"new-host"}}, exec: &stampExecutor{stamps: stamps}}

@@ -9,9 +9,9 @@ import (
 
 func TestParseScoresPreservesUnknownAndZero(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "scores.tsv")
-	body := "run_id\tscore\tapp\tnginx\tmysql\tapp_traffic\n" +
-		"20260901-120000\t\tisucon-1\tisucon-1\tisucon-1\tisucon-1\n" +
-		"20260901-120100\t0\tisucon-1\tisucon-1\tisucon-1\tisucon-1\n"
+	body := "run_id\tscore\tapp\tingress\tapp_traffic\n" +
+		"20260901-120000\t\tisucon-1\tisucon-1\tisucon-1\n" +
+		"20260901-120100\t0\tisucon-1\tisucon-1\tisucon-1\n"
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -29,8 +29,8 @@ func TestParseScoresPreservesUnknownAndZero(t *testing.T) {
 
 func TestParseScoresRejectsOldOrMalformedFormats(t *testing.T) {
 	for name, body := range map[string]string{
-		"old header":    "run_id\tscore\tapp\tnginx\tmysql\n20260901-120000\t1\ta\tn\tm\n",
-		"short row":     scoresHeader + "\n20260901-120000\t1\ta\tn\tm\n",
+		"old header":    "run_id\tscore\tapp\n20260901-120000\t1\ta\n",
+		"short row":     scoresHeader + "\n20260901-120000\t1\ta\tn\n",
 		"invalid score": scoresHeader + "\n20260901-120000\tinvalid\ta\tn\tm\ta\n",
 	} {
 		t.Run(name, func(t *testing.T) {

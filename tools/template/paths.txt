@@ -41,8 +41,6 @@ docs/official
 docs/plans
 etc
 generated
-mysql
-nginx
 runs
 tools/contest
 webapp

@@ -1,7 +1,7 @@
 # topology-screen
 
-保存済みnginx access logをオフラインで再生し、任意のキーをhash shardへ割り当てた場合の
-リクエスト数、response time、upstream time、body bytesの分布を比較します。稼働中のnginxや
+保存済みGo HTTP server access logをオフラインで再生し、任意のキーをhash shardへ割り当てた場合の
+リクエスト数、response time、upstream time、body bytesの分布を比較します。稼働中のGo HTTP serverや
 役割構成は変更しません。
 
 ```shell

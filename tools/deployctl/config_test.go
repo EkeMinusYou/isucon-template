@@ -28,15 +28,12 @@ func TestGenericConfigStaysLoadableWithoutTheOverlay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"app", "nginx", "mysql", "sysctl", "db-schema"} {
+	for _, name := range []string{"app", "sysctl", "app-initialize", "roles-off", "roles-on"} {
 		if _, ok := cfg.Deployments[name]; !ok {
 			t.Errorf("deployment %q is missing from the generic graph", name)
 		}
 	}
-	script := cfg.Deployments["db-schema"].Activations[0].Script
-	if strings.Contains(script, "shards/") {
-		t.Error("the generic db-schema must not depend on the sharded layout")
-	}
+
 }
 
 func writeConfigFixture(t *testing.T, dir, name, body string) string {

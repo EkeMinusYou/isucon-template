@@ -168,8 +168,6 @@ func validateRemotePath(remote string, delete bool, extraPaths ...string) error 
 	allowed := remote == "/etc/sysctl.conf" ||
 		strings.HasPrefix(remote, "/home/isucon/") ||
 		strings.HasPrefix(remote, "/etc/systemd/system/") ||
-		strings.HasPrefix(remote, "/etc/nginx/") ||
-		strings.HasPrefix(remote, "/etc/mysql/") ||
 		strings.HasPrefix(remote, "/usr/local/bin/")
 	for _, extra := range extraPaths {
 		if extra == "" {

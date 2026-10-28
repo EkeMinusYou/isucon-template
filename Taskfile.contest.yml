@@ -4,7 +4,7 @@
 # without a namespace and read the generic file's vars. Task names must not
 # collide with the generic file: Go Task rejects duplicates instead of
 # overriding them. The generic side reaches this file only through hook tasks
-# it declares (currently build-contest-assets, prepare-db-assets, gen-contest-routing,
+# it declares (currently build-contest-assets, prepare-initial-data, gen-contest-routing,
 # setup-contest-assets and check-contest-network); a contest
 # that has nothing to do defines the hook here with no commands.
 version: '3'
@@ -13,11 +13,11 @@ tasks:
   build-contest-assets:
     desc: アプリbuildに付随する競技固有binaryをビルドする（buildのhook、既定は何もしない）
 
-  prepare-db-assets:
-    desc: deployへ載せる前にDB資材を生成・検証する（deploy系のhook、既定は何もしない）
+  prepare-initial-data:
+    desc: deployへ載せる前に初期データを生成・検証する（deploy系のhook、既定は何もしない）
 
   gen-contest-routing:
-    desc: 解法固有のupstreamとホスト別生成物を追加する（genのhook、既定は何もしない）
+    desc: Goアプリのホスト別設定を追加する（genのhook、既定は何もしない）
 
   setup-contest-assets:
     desc: 標準の取得対象外にある競技固有の資材を取得する（setupのhook、既定は何もしない）

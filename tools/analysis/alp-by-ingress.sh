@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Aggregate each saved nginx access log independently and retain its ingress host.
+# Aggregate each saved Go HTTP access log independently and retain its ingress host.
 set -euo pipefail
 
 if (($# == 0)); then

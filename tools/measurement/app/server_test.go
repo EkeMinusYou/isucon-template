@@ -9,7 +9,6 @@ import (
 func TestStartReportsConfigurationAndBindErrors(t *testing.T) {
 	for _, options := range []Options{
 		{MaxProfileSeconds: -1}, {MaxProfileSeconds: 3601},
-		{Pools: []Pool{{Name: "missing"}}},
 	} {
 		if _, err := Start(options); err == nil {
 			t.Fatalf("accepted invalid options: %+v", options)

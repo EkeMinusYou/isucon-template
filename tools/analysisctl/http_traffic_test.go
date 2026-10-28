@@ -54,15 +54,14 @@ create temp table actual as
 select run_id, ingress_host, epoch(ts)::bigint as bucket, bucket_seconds,
        method, route, requests, status_2xx, status_3xx, status_4xx, status_5xx,
        round(sum_time_sec, 6) as sum_time_sec, max_time_sec,
-       round(sum_upstream_time_sec, 6) as sum_upstream_time_sec,
-       upstream_time_samples, sum_body_bytes
+       sum_body_bytes
 from http_traffic_buckets;
 create temp table expected as
 select * from (values
- ('20260901-120000', 'entry-a', 1800000000, 5, 'GET', '^/items/', 3, 1, 1, 1, 0, 1.15, 0.5, 0.2, 1, 60),
- ('20260901-120000', 'entry-a', 1800000005, 5, 'POST', '/outside', 1, 0, 0, 0, 1, 0, 0, NULL, 0, 0),
- ('20260901-120000', 'entry-a', 1800000005, 5, 'GET', NULL, 1, 0, 0, 0, 0, 1, 1, NULL, 0, 0),
- ('20260901-120000', 'entry-b', 1800000005, 5, 'GET', '/outside', 1, 0, 0, 0, 1, 2, 2, 0.3, 1, 40)
+ ('20260901-120000', 'entry-a', 1800000000, 5, 'GET', '^/items/', 3, 1, 1, 1, 0, 1.15, 0.5, 60),
+ ('20260901-120000', 'entry-a', 1800000005, 5, 'POST', '/outside', 1, 0, 0, 0, 1, 0, 0, 0),
+ ('20260901-120000', 'entry-a', 1800000005, 5, 'GET', NULL, 1, 0, 0, 0, 0, 1, 1, 0),
+ ('20260901-120000', 'entry-b', 1800000005, 5, 'GET', '/outside', 1, 0, 0, 0, 1, 2, 2, 40)
 );
 select count(*) from (
  (select * from actual except all select * from expected)

@@ -10,7 +10,7 @@
 set variable run_glob = coalesce(nullif(getenv('ISUCON_RUN_GLOB'), ''), 'runs/*');
 
 -- RUN index. scores.tsv owns the role history, while run.json owns the run
--- metadata. MySQL artifacts also use this view to resolve their host.
+-- metadata. The ingress role is served by the Go app.
 -- ここだけは常に全 RUN を読む (差分取り込みでも構成の参照先が要る)。
 create or replace view runs as
 with score_rows as (
@@ -23,17 +23,6 @@ select
     target.score,
     strptime(target.run_id, '%Y%m%d-%H%M%S') as started_at,
     string_split(target.app, ',')             as app_hosts,
-    string_split(target.nginx, ',')           as nginx_hosts,
-    target.mysql                              as mysql_host,
+    string_split(target.ingress, ',')           as ingress_hosts,
     string_split(target.app_traffic, ',')     as app_traffic_hosts
 from score_rows target;
-
--- slp と pt-query-digest はリテラルを N へ正規化するが VALUES・IN・CASE WHEN の反復は
--- 畳まないので 1 文が 37 万文字まで伸びる。DuckDB はそこまで大きい文字列の圧縮を
--- あきらめるため、畳まないと queries だけで DB の半分 (3.3 GiB) を占める。
-create or replace macro fold_repeated_sql(sql) as
-    regexp_replace(
-        regexp_replace(
-            regexp_replace(sql, '(VALUES\s*\([^)]*\))(\s*,\s*\([^)]*\))+', '\1 /*...*/', 'gi'),
-            'IN\s*\(\s*(N|\?)(\s*,\s*(N|\?))+\s*\)', 'IN (/*...*/)', 'gi'),
-        '(WHEN\s+\S+\s+THEN\s+\S+)(\s+WHEN\s+\S+\s+THEN\s+\S+)+', '\1 /*...*/', 'gi');

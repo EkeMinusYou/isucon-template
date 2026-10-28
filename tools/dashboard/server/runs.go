@@ -15,7 +15,6 @@ type runInfo struct {
 	Passed     *bool     `json:"passed"`
 	RunID      string    `json:"run_id"`
 	HasAlp     bool      `json:"has_alp"`
-	HasSlow    bool      `json:"has_slowquery"`
 	HasMetrics bool      `json:"has_metrics"`
 	HasFgprof  bool      `json:"has_fgprof"`
 	HasPprof   bool      `json:"has_pprof"`
@@ -24,9 +23,8 @@ type runInfo struct {
 type runRoles struct {
 	App        []string            `json:"app"`
 	AppTraffic []string            `json:"app_traffic"`
-	Nginx      []string            `json:"nginx"`
+	Ingress    []string            `json:"ingress"`
 	Entry      string              `json:"entry"`
-	Mysql      string              `json:"mysql"`
 	Additional map[string][]string `json:"additional"`
 }
 
@@ -134,7 +132,6 @@ func (a *app) listRuns() ([]runInfo, error) {
 			Passed:     passed,
 			RunID:      run.ID,
 			HasAlp:     fileExists(filepath.Join(run.Path, "alp.json")),
-			HasSlow:    len(mustGlob(filepath.Join(run.Path, "*slp.tsv"))) > 0,
 			HasMetrics: len(mustGlob(filepath.Join(run.Path, "*-proc-metrics.tsv"))) > 0,
 			HasFgprof:  len(mustGlob(filepath.Join(run.Path, "*-fgprof.pprof"))) > 0,
 			HasPprof:   hasGoPprofFiles(run.Path),

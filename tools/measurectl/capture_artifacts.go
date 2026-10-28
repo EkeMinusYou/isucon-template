@@ -75,7 +75,7 @@ func captureRequirements(m Manifest, collectors, digesters string) ([]string, er
 	for role, hosts := range m.Roles.Additional {
 		roles[role] = hosts
 	}
-	roles["app"], roles["nginx"], roles["mysql"], roles["entry"] = m.Roles.App, m.Roles.Nginx, []string{m.Roles.MySQL}, []string{m.Roles.Entry}
+	roles["app"], roles["app_traffic"], roles["ingress"], roles["entry"] = m.Roles.App, m.Roles.AppTraffic, m.Roles.Ingress, []string{m.Roles.Entry}
 	var required []string
 	if m.ProfilesEnabled {
 		profiles, err := enabledOneshotsInGroup(cfg.Oneshots, "profiles")
@@ -162,15 +162,11 @@ func manifestRoleHosts(m Manifest, role string) []string {
 		return m.Roles.App
 	case "app_traffic":
 		return m.Roles.AppTraffic
-	case "nginx":
-		return m.Roles.Nginx
+	case "ingress":
+		return m.Roles.Ingress
 	case "entry":
 		if m.Roles.Entry != "" {
 			return []string{m.Roles.Entry}
-		}
-	case "mysql":
-		if m.Roles.MySQL != "" {
-			return []string{m.Roles.MySQL}
 		}
 	default:
 		return m.Roles.Additional[role]
@@ -228,7 +224,7 @@ func assessCaptureQuality(dir string, m Manifest, artifacts []Artifact) []Artifa
 	if m.Passed != nil && *m.Passed && len(accessIndexes) > 0 && accessRows == 0 {
 		for _, i := range accessIndexes {
 			artifacts[i].Status = "failed"
-			artifacts[i].Reason = "no nginx access records in the load window despite a passed benchmark"
+			artifacts[i].Reason = "no ingress access records in the load window despite a passed benchmark"
 			artifacts[i].Quality.Status = "invalid"
 			artifacts[i].Quality.Reason = artifacts[i].Reason
 		}
@@ -368,7 +364,7 @@ func inspectAccessLog(path string, window LoadWindow) ArtifactQuality {
 			parseErr = err
 			break
 		}
-		for _, field := range []string{"msec", "method", "uri", "status", "response_time", "body_bytes", "upstream_time", "upstream_addr", "upstream_status", "cache_status"} {
+		for _, field := range []string{"msec", "method", "uri", "status", "response_time", "body_bytes"} {
 			if _, ok := record[field]; !ok {
 				parseErr = fmt.Errorf("missing access log field %s", field)
 				break

@@ -17,9 +17,7 @@ export function ServerRoles({ run }: { run?: RunInfo }) {
   }
   add(roles.additional?.all)
   add(roles.app, 'app')
-  add(roles.nginx, 'nginx')
-  add(roles.additional?.mysql_all, 'mysql')
-  add([roles.mysql], 'mysql')
+  add(roles.ingress, 'ingress')
 
   if (hosts.size === 0) {
     return <EmptyState title="サーバーの役割情報がありません" />

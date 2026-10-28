@@ -1,7 +1,7 @@
 # Go profileを通常のRUNへ自動収集する
 
 標準計測ではCPUを連続採取し、heap・goroutineのprofileを2秒ごとに保存する。
-Go runtimeのgoroutine数、heap量、allocation・GCのcounterは既存のSQL pool collectorで1秒ごとに記録する。
+Go runtimeのgoroutine数、heap量、allocation・GCのcounterはruntime collectorで1秒ごとに記録する。
 固定秒数後の一回だけのsnapshotは使わず、採取後に負荷期間を選ぶ。
 fgprofは任意で既定無効。必要な問いがある場合に追加する。
 
@@ -64,9 +64,6 @@ DuckDBには負荷期間内の時点値・関数別集計と、期間内に両�
 import "github.com/EkeMinusYou/isucon-template/tools/measurement/app"
 
 server, err := app.Start(app.Options{
-    Pools: []app.Pool{{
-        DB: db, DatabaseHost: "db.local", Name: "main", Role: "primary",
-    }},
 })
 if err != nil {
     log.Fatal(err)
@@ -74,7 +71,7 @@ if err != nil {
 defer server.Close()
 ```
 
-`DB`は`Stats() sql.DBStats`を満たす値。`Pools`を省略してもruntime指標は出力する。
+runtime指標は標準で出力する。
 採取上限`MaxProfileSeconds`は既定3600秒（設定範囲1–3600秒）で、Taskfileの上限と合わせる。
 個別HTTP要求でsecondsを省略した場合は最大30秒。
 既定のlistenerは`127.0.0.1:6060`、WriteTimeoutは上限+15秒。起動失敗は同期的に返す。

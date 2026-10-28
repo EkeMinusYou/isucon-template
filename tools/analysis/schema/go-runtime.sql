@@ -4,7 +4,7 @@ create or replace view go_runtime_series as
 with runtime as (
  select m.*,max(value) filter(where metric='go_process_started_unix_ms')
   over(partition by run_id,host,ts) as process_started_ms
- from metrics m where source='sql_pool' and starts_with(metric,'go_')
+ from metrics m where source='runtime' and starts_with(metric,'go_')
 ), previous as (
  select *,lag(value) over w as previous_value,lag(ts) over w as previous_at,
   lag(process_started_ms) over w as previous_process_started_ms

@@ -92,21 +92,21 @@ func TestCaptureArtifactContractExpandsEveryRoleHost(t *testing.T) {
 	collectors := filepath.Join(dir, "collectors.yaml")
 	digesters := filepath.Join(dir, "digesters.yaml")
 	if err := os.WriteFile(collectors, []byte(`collectors:
-  - name: mysql
-    hosts: mysql_all
-    binary: mysql-metrics
-    remote_root: /tmp/mysql-metrics
+  - name: worker
+    hosts: worker_all
+    binary: worker-metrics
+    remote_root: /tmp/worker-metrics
     outputs:
-      metrics.tsv: '{host}-mysql-status.tsv'
-    stderr: '{host}-mysql-status.stderr'
+      metrics.tsv: '{host}-worker-status.tsv'
+    stderr: '{host}-worker-status.stderr'
 `), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(digesters, []byte(`sources:
   - name: slow
-    role: mysql_all
-    remote: /var/log/mysql/mysql-slow.log
-    local: '{raw_dir}/mysql-slow-{host}.log'
+    role: worker_all
+    remote: /var/log/worker/worker-slow.log
+    local: '{raw_dir}/worker-slow-{host}.log'
 digesters:
   - name: pt
     source: slow
@@ -119,7 +119,7 @@ digesters:
 		t.Fatal(err)
 	}
 	m := Manifest{Roles: Roles{Additional: map[string][]string{
-		"mysql_all": {"isucon-2", "isucon-3"},
+		"worker_all": {"isucon-2", "isucon-3"},
 	}}}
 	contract, err := captureArtifactContract(m, collectors, digesters)
 	if err != nil {
@@ -127,7 +127,7 @@ digesters:
 	}
 	var required []ArtifactSpec
 	for _, spec := range contract {
-		if !spec.Optional && (spec.Producer == "collector:mysql" || spec.Producer == "digester:pt") {
+		if !spec.Optional && (spec.Producer == "collector:worker" || spec.Producer == "digester:pt") {
 			required = append(required, spec)
 		}
 	}
@@ -139,7 +139,7 @@ digesters:
 			t.Fatalf("host artifact was not expanded: %#v", spec)
 		}
 	}
-	if err := os.WriteFile(filepath.Join(dir, "isucon-2-mysql-status.tsv"), []byte("ok"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "isucon-2-worker-status.tsv"), []byte("ok"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "isucon-2-pt.log"), []byte("ok"), 0o600); err != nil {
@@ -148,7 +148,7 @@ digesters:
 	if err := checkRunDir(dir, required); err == nil {
 		t.Fatal("one role host was missing but the contract passed")
 	}
-	for _, name := range []string{"isucon-3-mysql-status.tsv", "isucon-3-pt.log"} {
+	for _, name := range []string{"isucon-3-worker-status.tsv", "isucon-3-pt.log"} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte("ok"), 0o600); err != nil {
 			t.Fatal(err)
 		}

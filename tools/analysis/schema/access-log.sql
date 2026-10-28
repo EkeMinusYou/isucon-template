@@ -1,4 +1,4 @@
--- ingress nginx の生 access log (raw/access-<host>.log[.zst]) の 5 秒 bucket。
+-- Go HTTP server の生 access log (raw/access-<host>.log[.zst]) の 5 秒 bucket。
 -- alp.json は走行 1 回ぶんの集計なので、処理量と応答時間の時間発展はここで見る。
 -- route 正規化は alp.yml の matching_groups が正本。setup で当日の route を入れるときは
 -- 両方へ同じ正規化を書く。どの pattern にも一致しない URI は、そのまま route になる。
@@ -29,9 +29,6 @@ requests as materialized (
         ends_with(filename, '.zst') as compressed,
         try_cast(msec as double) as logged_at_epoch,
         coalesce(try_cast(response_time as double), 0.0) as response_time_sec,
-        -- upstream を複数回試行した行は "0.001, 0.002" になる。NULL として数え、
-        -- 母数は upstream_time_samples で示す。
-        try_cast(upstream_time as double) as upstream_time_sec,
         method,
         uri,
         try_cast(status as bigint) as status,
@@ -39,7 +36,7 @@ requests as materialized (
         try_cast(connection_requests as bigint) as connection_requests,
         ssl_session_reused,
         -- HTTP/1.1 は 1 接続で順に処理するので、同じ接続の前の応答書き出しから
-        -- この要求の開始までがクライアント側の間隔になる。接続番号は nginx 再起動で
+        -- この要求の開始までがクライアント側の間隔になる。接続番号は Goプロセス再起動で
         -- 振り直されるため、ファイル単位で区切る。接続番号のない旧ログは NULL。
         case when try_cast(connection as bigint) is not null then
             try_cast(msec as double) - coalesce(try_cast(response_time as double), 0.0)
@@ -61,10 +58,6 @@ requests as materialized (
             'status': 'BIGINT',
             'response_time': 'DOUBLE',
             'body_bytes': 'DOUBLE',
-            'upstream_time': 'VARCHAR',
-            'upstream_addr': 'VARCHAR',
-            'upstream_status': 'VARCHAR',
-            'cache_status': 'VARCHAR',
             'session_id': 'VARCHAR',
             'connection': 'VARCHAR',
             'connection_requests': 'VARCHAR',
@@ -106,8 +99,6 @@ buckets as (
         count(*) filter (where r.status between 500 and 599) as status_5xx,
         sum(r.response_time_sec) as sum_time_sec,
         max(r.response_time_sec) as max_time_sec,
-        sum(r.upstream_time_sec) as sum_upstream_time_sec,
-        count(r.upstream_time_sec) as upstream_time_samples,
         sum(r.body_bytes) as sum_body_bytes,
         -- 接続の 1 本目の要求の route に新規接続を計上する。母数は connection_samples。
         count(r.connection_requests) as connection_samples,

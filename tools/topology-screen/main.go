@@ -650,7 +650,7 @@ func optionalDuration(record map[string]string, name string) (float64, error) {
 	return parseDuration(raw)
 }
 
-// parseDuration sums the retry/fallback durations nginx emits as a list. A
+// parseDuration sums the retry/fallback durations ingress emits as a list. A
 // malformed value fails the run rather than silently becoming zero, because a
 // zero here understates the placement it belongs to.
 func parseDuration(raw string) (float64, error) {

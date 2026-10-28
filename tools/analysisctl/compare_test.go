@@ -29,7 +29,7 @@ func TestCompareRunsReportsMissingDataWithoutZeroFill(t *testing.T) {
  create table manifests as select run_id,run_id='20261028-100000' as passed,
  case when run_id='20261028-100000' then 100 else 150 end as score,
  'commit' as commit, ['app'] as app_hosts,['app'] as app_traffic_hosts,
- ['nginx'] as nginx_hosts,'nginx' as entry_host,'mysql' as mysql_host,
+ ['ingress'] as ingress_hosts,'ingress' as entry_host,'worker' as worker_host,
  '{}'::json as additional_roles,false as collectors_disabled,true as profiles_enabled,
  true as collector_clean,['missing.tsv'] as required_artifacts from ingested;
  create table load_windows as select run_id,'ok' as status,'test' as source,

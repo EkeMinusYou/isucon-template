@@ -1,1 +1,1 @@
-run_id	score	app	nginx	mysql	app_traffic
+run_id	score	app	ingress	app_traffic

@@ -1,36 +1,5 @@
-# MySQL のファイルディスクリプタ上限を増やす
+# ファイルディスクリプタ上限
 
-ファイルディスクリプタは、ソケット、ログ、ファイルなどをプロセスが同時に開くためのハンドルである。
-この設定は MySQL の systemd サービスに属する各プロセスの上限を増やすもので、`max_connections` を増やしたり、
-実際の接続数を増やしたりする設定ではない。
+接続・ログ・永続ファイルでFDが不足する場合、Goアプリのsystemd unitに`LimitNOFILE`を設定します。必要数を同時接続と開くファイル数から見積もり、OSの上限も確認してください。
 
-## 設定と反映
-
-`etc/systemd/system/mysql.service.d/limits.conf` に以下を設定する。
-
-```ini
-[Service]
-LimitNOFILE=1006500
-```
-
-`1006500` は開ける FD の上限であり、その数の FD を直ちに開く設定ではない。カーネルの
-`fs.nr_open` がこの値以上であることを確認する。実際の FD 使用量とメモリー使用量は別途確認する。
-
-反映には `task deploy-mysql` を使う。この Task は設定ファイルを `MYSQL_HOSTS` へ配布し、
-`daemon-reload` の後に MySQL を restart する。バッファプールが温まる前に一時的な性能低下が起こり得る。
-
-この設定だけを反映する場合は、他サービスも再反映する `deploy-all` ではなく `deploy-mysql` を使う。
-初期化処理を別途定義している場合も、この設定の反映には使わない。
-
-## 実効値の確認
-
-ファイルの内容ではなく、systemd と稼働中プロセスの値を確認する。
-
-```shell
-sudo systemctl show mysql -p LimitNOFILE --value
-
-mysql_pid=$(sudo systemctl show mysql -p MainPID --value)
-sudo awk '/Max open files/ {print}' "/proc/${mysql_pid}/limits"
-```
-
-systemd の値とプロセスの `Max open files` が `1006500` であること、MySQL が active であることを確認する。
+変更はローカルのunitへ反映して`task deploy`で配布・再起動します。`systemctl show <service> -p LimitNOFILE`と実プロセスの`/proc/<pid>/limits`を照合します。上限変更だけで接続数を無制限に増やさず、メモリとバックプレッシャーも確認します。

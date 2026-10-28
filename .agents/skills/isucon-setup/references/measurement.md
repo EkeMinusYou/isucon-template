@@ -7,14 +7,13 @@ bootstrapで新実装へ下表の計測を組み込み、実RUNで確認する�
 | 対象 | 確認する経路と不足 |
 | --- | --- |
 | スコア記録 | 公式の採点仕様と出力形式を確認し、生成元、自動取得の手順、RUNへの紐付け、保存先・形式を整える。最終スコア、成功・失敗判定、公式出力にある内訳・ペナルティが元の結果と一致し、DuckDBのqueryで読めることを確認する。未取得・未判定を0点や成功に置き換えない。 |
-| nginx access log | 実際のtrafficを受けるserver/locationの`access_log`と継承・無効化、JSONのescape、出力先・権限、buffer/flush、ローテート後のreopenを確認。共通列とupstream列がToolsの契約を満たし、alp・upstream集計まで読めるかを見る。正常なHTTP応答だけでログ出力を確認済みにしない。 |
+| Go access log | [Goのアクセスログ](../../../../docs/measurement/go-access-log.md)に従い、HTTP入口のJSON出力・識別列・権限・flushを揃える。実ログでalp・user-transition・負荷期間推定まで確認する。 |
 | Go pprof | CPUの連続採取・2秒ごとのheap/goroutine・1秒のruntime指標を標準で自動収集し、endpointの実装・handler登録と実際のlistener、collectorの取得URL・実行ホスト、有効宣言と起動経路を確認。`Taskfile.yml`にURLがあるだけでは公開済みとしない。取得ファイルを`go tool pprof -top`等で解析する。 |
-| MySQL | slow logの実効設定・閾値・出力先・ローテートとdigest、performance_schemaの有効性・権限・version、status・接続・lock waitを確認。`mysql_all`が`MYSQL_HOSTS`全台を覆うことを確認する。空のslow logは低負荷・閾値未満・収集失敗を区別する。 |
-| ホスト・service | 全対象ホストのCPU・メモリ・disk・ネットワークと、実際のunit/process/cgroupの対応を確認。追加serviceや別ホストのDBも対象に含める。欠損、counter reset、単位、sampling間隔を確認する。 |
-| 障害・整合性 | app/nginxのjournal・error log、kernel/OOM、panic、service再起動が同じload windowで追えるか確認する。正常系のprofileだけで網羅済みにしない。 |
+| ホスト・service | 全対象ホストのCPU・メモリ・disk・ネットワークと、実際のunit/process/cgroupの対応を確認。全Goプロセスを対象に含める。欠損、counter reset、単位、sampling間隔を確認する。 |
+| 障害・整合性 | appのjournal、kernel/OOM、panic、service再起動が同じload windowで追えるか確認する。正常系のprofileだけで網羅済みにしない。 |
 | その他の依存サービス | 競技ごとの公式資料と稼働serviceから依存経路を列挙する。既存service metrics・journalで見える範囲と、処理件数・失敗・遅延など追加観測が必要な範囲を分ける。 |
 | user-transition | 標準対象。アプリのセッション仕様に合わせた識別列と有限個のAPI分類を整える。実ログに識別列があり、認証済みリクエストを結び付けられ、RUNのJSON集計を読めることを確認する。集計全体を負荷期間のみのDuckDB値へ混ぜない。未設定はoptionalではない。 |
-| アプリ内部・追加計測 | DB pool待ち、queue、処理件数などは既存profile・標準計測で説明できない問いがある場合に追加する。fgprof、高頻度task-state、lock wait、nginx on-CPUも目的・負荷・停止方法を確認して選ぶ。 |
+| アプリ内部・追加計測 | queue・lock待ち、処理件数などは既存profile・標準計測で説明できない問いがある場合に追加する。fgprof、高頻度task-stateも目的・負荷・停止方法を確認して選ぶ。 |
 | RUN全体 | load windowと各計測の開始・終了、ホスト時計、取得遅延・欠落、roles/source、artifact status、rawから集計・分析への対応を確認。ヘッダーだけのfallbackと実測値を区別する。 |
 
 ## 段階ごとの計測分担
@@ -34,8 +33,8 @@ WALを採用する場合だけ[WAL構成の計測](../../isucon-bootstrap/refere
 
 [Go profile導入例](../../../../docs/measurement/go-profiling.md)のadapterと開始確認の契約を参照する。
 
-- Goアプリには[共通計測module](../../../../tools/measurement/README.md)の`app.Start`を接続する。profile handlerやSQL pool exporterを競技アプリへコピーして再実装しない。DB poolの固定ラベルと競技固有の内部指標callbackだけをアプリ側で設定する。
-- proc・MySQL・SQL pool・JSON collectorとoptional nginx on-CPU profilerは同moduleの`cmd/`を既存Taskfileでビルド・配布する。分析ツールをアプリの依存へ追加しない。
+- Goアプリには[共通計測module](../../../../tools/measurement/README.md)の`app.Start`を接続する。profile handlerやruntime exporterを競技アプリへコピーして再実装しない。競技固有の内部指標callbackだけをアプリ側で設定する。
+- proc・runtime・JSON collectorは同moduleの`cmd/`を既存Taskfileでビルド・配布する。分析ツールをアプリの依存へ追加しない。
 
 - 計測用listenerはloopbackなど必要な範囲へ限定し、公開traffic用routerへ無条件に登録しない。remote curlがどのホストで動くかとbind先を照合する。
 - 標準pprofのendpoint・実装を確認する。fgprofは任意で既定無効とし、利用する場合だけ別endpoint・実装を確認する。段階の完了のためにfgprofを有効化しない。handler未登録、timeout、HTTPエラー本文の保存を取得成功に数えない。
@@ -47,10 +46,10 @@ WALを採用する場合だけ[WAL構成の計測](../../isucon-bootstrap/refere
 
 ## ログ・追加メトリクスを整えるとき
 
-- 形式・列名・時刻・単位を生成側とparserで一致させる。URIの動的IDは集計側で正規化し、upstreamがない応答や複数upstreamへの試行も扱えることを確認する。
+- 形式・列名・時刻・単位を生成側とparserで一致させる。URIの動的IDは集計側で正規化し、途中切断や長時間応答も正しく扱えることを確認する。
 - user-transitionはセッションを安定して識別できる方法を調査し、認証Cookie等の生値を恒久保存しない識別列を出す。ログ列名とroutes.jsonのcookie_fieldを一致させ、集計成果物に識別値を残さない。識別方法が仕様上成立しない場合のみ理由を示して対象外とする。
 - routes.jsonの汎用プレースホルダーをそのまま完成扱いにしない。公式APIとGoのroute登録から動的IDを正規化し、未分類API・識別列欠損・時刻不正の件数も確認する。
-- nginxのmsec等、実際の出力形式をDuckDBの読み手まで照合する。圧縮ログ・空ログ・不正入力を確認し、分析結果にデータがない場合は未取得・空・解析失敗・設定無効を切り分ける。
+- Goアクセスログのmsec等、実際の出力形式をDuckDBの読み手まで照合する。圧縮ログ・空ログ・不正入力を確認し、分析結果にデータがない場合は未取得・空・解析失敗・設定無効を切り分ける。
 - 追加計測はsampling間隔、対象、timeout、出力量・cardinality、enable/disableとcleanupを定める。計測を増やした結果、CPU・I/O・disk容量を圧迫しないか検証する。
 
 ## 有効宣言と対象外判断
@@ -62,5 +61,4 @@ WALを採用する場合だけ[WAL構成の計測](../../isucon-bootstrap/refere
 未設定を隠すために使わない。宣言と自動実行対象の名前一覧を別々に維持しない。
 
 仕様上成立しない計測は根拠を示して対象外にできる。たとえば安定したセッションを識別できないアプリでの
-user-transitionは、代替の識別方法も確認したうえで理由を会話で報告する。高頻度task-state・lock wait、
-nginx on-CPU、block/mutex、アプリ内部状態などの追加計測は目的・負荷・停止方法を確認して選ぶ。
+user-transitionは、代替の識別方法も確認したうえで理由を会話で報告する。高頻度task-state・block/mutex、アプリ内部状態などの追加計測は目的・負荷・停止方法を確認して選ぶ。

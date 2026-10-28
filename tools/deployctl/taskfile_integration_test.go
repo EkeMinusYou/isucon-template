@@ -21,7 +21,7 @@ func TestTaskfileDryDeployTasksInvokeDeployctlDryRun(t *testing.T) {
 	}{
 		{task: "deploy-app-dry", want: "deployctl apply app -dry-run"},
 		{task: "deploy-all-dry", want: "deployctl apply-plan deploy-all -dry-run"},
-		{task: "db-recreate-dry", want: "deployctl apply-plan db-recreate -dry-run"},
+		{task: "initialize-dry", want: "deployctl apply-plan initialize -dry-run"},
 		{task: "deploy-app-unit-dry", want: "deployctl apply app-unit -dry-run"},
 	} {
 		cmd := exec.Command("task", "--dry", test.task)
@@ -54,7 +54,7 @@ func TestTaskfileSystemdSetupDoesNotCreateRemoteFiles(t *testing.T) {
 	if strings.Contains(text, "sudo mkdir") || strings.Contains(text, "sudo touch") {
 		t.Fatalf("setup-systemd mutates the remote host:\n%s", output)
 	}
-	if !strings.Contains(text, "sudo test -f") {
-		t.Fatalf("setup-systemd does not check the optional remote drop-in:\n%s", output)
+	if !strings.Contains(text, "-reference/etc/systemd/system") || !strings.Contains(text, "/etc/systemd/system/app.service") {
+		t.Fatalf("setup-systemd does not isolate the original unit in the reference directory:\n%s", output)
 	}
 }

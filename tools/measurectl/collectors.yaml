@@ -1,37 +1,13 @@
 # Remote operations for one benchmark run. Host names are role names resolved
 # by Taskfile.yml through measurectl's -role flags.
 prepare:
-  - name: nginx-log
-    label: nginx access log
-    hosts: nginx
+  - name: access-log
+    label: Go access log
+    hosts: app_traffic
     script: |
       set -eu
-      log=/var/log/nginx/access.log
-      if sudo test -e "$log"; then
-        sudo mv -f "$log" "${log}.old"
-      fi
-      error_log=/var/log/nginx/error.log
-      if sudo test -e "$error_log"; then
-        sudo mv -f "$error_log" "${error_log}.old"
-      fi
-      sudo nginx -s reopen
-      echo "nginx access and error logs rotated"
-
-  - name: mysql-log
-    label: MySQL slow log and performance_schema digest
-    hosts: mysql_all
-    script: |
-      set -eu
-      log=/var/log/mysql/mysql-slow.log
-      if sudo test -e "$log"; then
-        sudo mv -f "$log" "${log}.old"
-      fi
-      sudo mysql -e 'FLUSH SLOW LOGS'
-      sudo rm -f "${log}.old"
-      if sudo mysql -N -e 'SELECT @@performance_schema' 2>/dev/null | grep -q '^1$'; then
-        sudo mysql -e 'TRUNCATE TABLE performance_schema.events_statements_summary_by_digest'
-      fi
-      echo "MySQL logs rotated"
+      test -f '{var:access_log_path}'
+      truncate -s 0 '{var:access_log_path}'
 
 oneshots:
   - name: fgprof
@@ -121,69 +97,19 @@ collectors:
       task-states.tsv: '{host}-task-states.tsv'
     stderr: '{host}-task-states.stderr'
 
-  - name: mysql
-    label: MySQL status
-    hosts: mysql_all
-    binary: tools/measurement/cmd/mysql-metrics/mysql-metrics
-    remote_root: /tmp/isucon-mysql-metrics
-    stdout: /dev/null
-    args: >-
-      -dsn 'root@unix(/var/run/mysqld/mysqld.sock)/'
-      -interval 1s
-      -output {remote_dir}/metrics.tsv
-    outputs:
-      metrics.tsv: '{host}-mysql-status.tsv'
-    stderr: '{host}-mysql-status.stderr'
-
-  - name: mysql-locks
-    label: high-frequency MySQL lock waits
-    enabled_by_default: true
-    hosts: mysql_all
-    binary: tools/measurement/cmd/mysql-metrics/mysql-metrics
-    remote_root: /tmp/isucon-mysql-locks
-    stdout: /dev/null
-    args: >-
-      -dsn 'root@unix(/var/run/mysqld/mysqld.sock)/'
-      -interval 10s
-      -output /dev/null
-      -lock-output {remote_dir}/lock-waits.tsv
-      -lock-interval 50ms
-      -lock-query-timeout 40ms
-    outputs:
-      lock-waits.tsv: '{host}-mysql-lock-waits.tsv'
-    stderr: '{host}-mysql-lock-waits.stderr'
-
-  - name: sql-pool
-    label: application SQL connection pool metrics
+  - name: runtime
+    label: Go runtime metrics
     hosts: app
-    binary: tools/measurement/cmd/sql-pool-metrics/sql-pool-metrics
-    remote_root: /tmp/isucon-sql-pool-metrics
+    binary: tools/measurement/cmd/runtime-metrics/runtime-metrics
+    remote_root: /tmp/isucon-runtime-metrics
     stdout: /dev/null
     args: >-
-      -endpoint {var:sql_pool_metrics_url}
+      -endpoint {var:runtime_metrics_url}
       -interval 1s
       -output {remote_dir}/metrics.tsv
     outputs:
-      metrics.tsv: '{host}-sql-pool-metrics.tsv'
-    stderr: '{host}-sql-pool-metrics.stderr'
-
-  - name: nginx-oncpu
-    label: nginx worker on-CPU profile
-    enabled_by_default: false
-    hosts: nginx_profile
-    binary: tools/measurement/cmd/nginx-oncpu-profiler/nginx-oncpu-profiler
-    remote_root: /tmp/isucon-nginx-oncpu
-    stdout: /dev/null
-    args: >-
-      -delay 10s -duration 60s -frequency 49 -max-workers 8
-      -max-samples 23520 -max-output-bytes 67108864 -call-graph dwarf,8192
-      -folded-output {remote_dir}/nginx-oncpu.folded
-      -metadata-output {remote_dir}/nginx-oncpu-metadata.json
-      -raw-output {remote_dir}/nginx-oncpu.data
-    outputs:
-      nginx-oncpu.folded: '{host}-nginx-oncpu.folded'
-      nginx-oncpu-metadata.json: '{host}-nginx-oncpu-metadata.json'
-    stderr: '{host}-nginx-oncpu.stderr'
+      metrics.tsv: '{host}-runtime-metrics.tsv'
+    stderr: '{host}-runtime-metrics.stderr'
 
   - name: application-json
     label: bounded application JSON metrics

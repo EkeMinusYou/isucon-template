@@ -1,4 +1,4 @@
--- alp aggregate per saved nginx access-log file. The filename-derived ingress
+-- alp aggregate per saved ingress access-log file. The filename-derived ingress
 -- host is retained by tools/analysis/alp-by-ingress.sh.
 create or replace view endpoints_by_ingress as
 select

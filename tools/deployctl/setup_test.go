@@ -10,45 +10,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func TestMySQLRoleConvergenceKeepsEveryAssignedHost(t *testing.T) {
-	cfg, err := loadConfig("deployments.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	tmp := t.TempDir()
-	sudo := filepath.Join(tmp, "sudo")
-	if err := os.WriteFile(sudo, []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$ISUCON_TEST_CALLS\"\n"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	for _, host := range []string{"isucon-1", "isucon-2", "isucon-3"} {
-		for _, phase := range []string{"roles-off", "roles-on"} {
-			t.Run(host+"/"+phase, func(t *testing.T) {
-				log := filepath.Join(tmp, host+"-"+phase)
-				runner := deployRunner{roles: map[string][]string{"all": {host}}, vars: map[string]string{"mysql_hosts": "isucon-1,isucon-2", "app_hosts": "isucon-3", "nginx_hosts": "isucon-3", "service": "app"}}
-				jobs, err := runner.activationJobs(cfg.Deployments[phase].Activations)
-				if err != nil || len(jobs) != 1 {
-					t.Fatalf("activation jobs: %v, %v", jobs, err)
-				}
-				script := jobs[0].script
-				cmd := exec.Command("sh", "-c", script)
-				cmd.Env = append(os.Environ(), "PATH="+tmp+string(os.PathListSeparator)+os.Getenv("PATH"), "ISUCON_TEST_CALLS="+log)
-				if output, err := cmd.CombinedOutput(); err != nil {
-					t.Fatalf("%v: %s", err, output)
-				}
-				body, err := os.ReadFile(log)
-				if err != nil {
-					t.Fatal(err)
-				}
-				disabled := strings.Contains(string(body), "disable --now mysql")
-				enabled := strings.Contains(string(body), "enable --now mysql")
-				if disabled != (phase == "roles-off" && host == "isucon-3") || enabled != (phase == "roles-on" && host != "isucon-3") {
-					t.Fatalf("unexpected MySQL actions: %s", body)
-				}
-			})
-		}
-	}
-}
-
 func readSetupTaskfile(t *testing.T) map[string]interface{} {
 	t.Helper()
 	body, err := os.ReadFile("../../Taskfile.yml")
@@ -101,23 +62,6 @@ func runSetupFixture(t *testing.T, cfg map[string]interface{}, dir string, env [
 	return string(output)
 }
 
-func TestTaskfileSeparatesMySQLDeploymentAndMeasurementRoles(t *testing.T) {
-	cfg := readSetupTaskfile(t)
-	cfg["tasks"] = map[string]interface{}{"show": map[string]interface{}{"silent": true, "cmds": []string{"echo 'DEPLOY {{.DEPLOYCTL_COMMON}}'", "echo 'MEASURE {{.MEASURECTL_ROLES}}'"}}}
-	output := runSetupFixture(t, cfg, t.TempDir(), nil, "show", "MYSQL_HOSTS=isucon-1 isucon-2", "MYSQL_HOST=isucon-2")
-	for _, line := range strings.Split(output, "\n") {
-		if strings.HasPrefix(line, "DEPLOY ") && (!strings.Contains(line, "-role mysql=isucon-1,isucon-2 ") || !strings.Contains(line, "-var mysql_hosts=isucon-1,isucon-2")) {
-			t.Fatalf("deployment role: %s", line)
-		}
-		if strings.HasPrefix(line, "MEASURE ") && (!strings.Contains(line, "-role mysql=isucon-2 ") || !strings.Contains(line, "-role mysql_all=isucon-1,isucon-2")) {
-			t.Fatalf("measurement role: %s", line)
-		}
-	}
-	if !strings.Contains(output, "DEPLOY ") || !strings.Contains(output, "MEASURE ") {
-		t.Fatal(output)
-	}
-}
-
 func TestSetupWebappUsesCustomExcludesWithoutDroppingVendor(t *testing.T) {
 	if _, err := exec.LookPath("rsync"); err != nil {
 		t.Skip("rsync is not installed")
@@ -148,50 +92,66 @@ func TestSetupWebappUsesCustomExcludesWithoutDroppingVendor(t *testing.T) {
 	if err := os.WriteFile(transport, []byte(script), 0755); err != nil {
 		t.Fatal(err)
 	}
-	runSetupFixture(t, cfg, tmp, []string{"ISUCON_TEST_SOURCE=" + source}, "setup-webapp", "RSYNC="+transport, "SETUP_WEBAPP_EXCLUDES="+excludes)
+	runSetupFixture(t, cfg, tmp, []string{"ISUCON_TEST_SOURCE=" + source}, "setup-webapp", "RSYNC="+transport, "SETUP_WEBAPP_EXCLUDES="+excludes, "REFERENCE_DIR="+filepath.Join(tmp, "..", filepath.Base(tmp)+"-reference"))
 	for _, name := range []string{"node_modules/package/index.js", "go/app"} {
-		if _, err := os.Stat(filepath.Join(tmp, "webapp", name)); !os.IsNotExist(err) {
+		if _, err := os.Stat(filepath.Join(tmp, "..", filepath.Base(tmp)+"-reference", "webapp", name)); !os.IsNotExist(err) {
 			t.Fatalf("excluded file was acquired: %s (%v)", name, err)
 		}
 	}
 	for _, name := range []string{"go/vendor/module/source.go", "sql/schema.sql"} {
-		if _, err := os.Stat(filepath.Join(tmp, "webapp", name)); err != nil {
+		if _, err := os.Stat(filepath.Join(tmp, "..", filepath.Base(tmp)+"-reference", "webapp", name)); err != nil {
 			t.Fatalf("required input was excluded: %s (%v)", name, err)
 		}
 	}
 }
 
-func TestConfigCheckUsesGuardedLiveUploads(t *testing.T) {
-	cfg, err := loadConfig("../setup/config-check.yaml")
+func TestGoRolesStopMiddlewareBeforeStartingApplication(t *testing.T) {
+	cfg, err := loadConfig("deployments.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	d := cfg.Deployments["config-check"]
-	if len(d.Activations) != 0 || len(d.Uploads) != 2 {
-		t.Fatalf("unexpected config-only deployment: %#v", d)
+	tmp := t.TempDir()
+	log := filepath.Join(tmp, "calls")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$ISUCON_TEST_CALLS\"\nif [ \"$2\" = is-active ]; then echo inactive; fi\n"
+	if err := os.WriteFile(filepath.Join(tmp, "sudo"), []byte(script), 0755); err != nil {
+		t.Fatal(err)
 	}
-	for _, u := range d.Uploads {
-		if u.Validate == "" || u.Remote != "/etc/"+u.Role+"/" || u.Local != u.Role+"/" {
-			t.Fatalf("unexpected configuration upload: %#v", u)
+	for _, host := range []string{"app-host", "unused-host"} {
+		r := deployRunner{roles: map[string][]string{"all": {host}, "app": {"app-host"}}, vars: map[string]string{"app_hosts": "app-host", "service": "app", "disabled_services": "nginx,mysql,redis-server"}}
+		jobs, err := r.activationJobs(cfg.Deployments["roles-off"].Activations)
+		if err != nil || len(jobs) != 1 {
+			t.Fatalf("jobs=%v err=%v", jobs, err)
 		}
+		cmd := exec.Command("sh", "-c", jobs[0].script)
+		cmd.Env = append(os.Environ(), "PATH="+tmp+string(os.PathListSeparator)+os.Getenv("PATH"), "ISUCON_TEST_CALLS="+log)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%v: %s", err, out)
+		}
+	}
+	body, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, unit := range []string{"nginx", "mysql", "redis-server", "app"} {
+		if !strings.Contains(string(body), "disable --now "+unit) {
+			t.Fatalf("not disabled: %s: %s", unit, body)
+		}
+	}
+	if strings.Contains(string(body), "enable") {
+		t.Fatalf("middleware enabled: %s", body)
 	}
 }
 
-func TestDeclaredEmptyMySQLRole(t *testing.T) {
-	roles := roleValues{}
-	for _, value := range []string{"all=h1,h2", "app=h1", "nginx=h1,h2", "mysql="} {
-		if err := roles.Set(value); err != nil {
-			t.Fatal(err)
+func TestTaskfileDefaultsToGoOnlyRuntime(t *testing.T) {
+	cfg := readSetupTaskfile(t)
+	cfg["tasks"] = map[string]interface{}{"show": map[string]interface{}{"silent": true, "cmds": []string{"echo '{{.MANAGED_SERVICES}}'", "echo '{{.DEPLOYCTL_COMMON}}'", "echo '{{.MEASURECTL_ROLES}}'"}}}
+	out := runSetupFixture(t, cfg, t.TempDir(), nil, "show")
+	for _, unwanted := range []string{"-role mysql=", "-role nginx=", "-var sql_dir="} {
+		if strings.Contains(out, unwanted) {
+			t.Fatal(out)
 		}
 	}
-	runner := deployRunner{roles: roles, vars: map[string]string{}}
-	for _, host := range roles["all"] {
-		script := roleCheckScript("app", containsRoleHost(roles["app"], host), true, containsRoleHost(roles["mysql"], host))
-		if !strings.Contains(script, "check_unit mysql inactive") {
-			t.Fatal(script)
-		}
-	}
-	if jobs, err := runner.uploadJobs([]upload{{Label: "inactive database upload", Role: "mysql"}}); err != nil || len(jobs) != 0 {
-		t.Fatal("empty role unexpectedly deployed database assets", err)
+	if !strings.HasPrefix(out, "app\n") || !strings.Contains(out, "-role app_traffic=isucon-1") {
+		t.Fatal(out)
 	}
 }

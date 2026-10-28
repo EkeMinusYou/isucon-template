@@ -12,8 +12,8 @@ import (
 
 func TestReadBlockedTasksReturnsOnlyDStateThreads(t *testing.T) {
 	root := t.TempDir()
-	writeTaskFixture(t, root, "10", "11", "11 (mysql worker (io)) D 1 2", "io_schedule", "0::/system.slice/mysql.service\n")
-	writeTaskFixture(t, root, "20", "21", "21 (nginx) R 1 2", "0", "0::/system.slice/nginx.service\n")
+	writeTaskFixture(t, root, "10", "11", "11 (worker worker (io)) D 1 2", "io_schedule", "0::/system.slice/worker.service\n")
+	writeTaskFixture(t, root, "20", "21", "21 (ingress) R 1 2", "0", "0::/system.slice/ingress.service\n")
 
 	tasks, err := readBlockedTasks(root)
 	if err != nil {
@@ -22,7 +22,7 @@ func TestReadBlockedTasksReturnsOnlyDStateThreads(t *testing.T) {
 	if len(tasks) != 1 {
 		t.Fatalf("len(tasks) = %d, want 1", len(tasks))
 	}
-	if tasks[0].pid != 10 || tasks[0].tid != 11 || tasks[0].comm != "mysql worker (io)" || tasks[0].wchan != "io_schedule" || tasks[0].cgroup != "/system.slice/mysql.service" {
+	if tasks[0].pid != 10 || tasks[0].tid != 11 || tasks[0].comm != "worker worker (io)" || tasks[0].wchan != "io_schedule" || tasks[0].cgroup != "/system.slice/worker.service" {
 		t.Fatalf("unexpected task: %+v", tasks[0])
 	}
 }

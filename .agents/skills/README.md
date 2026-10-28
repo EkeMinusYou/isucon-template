@@ -1,7 +1,7 @@
 # 共有Skills
 
 `.agents/skills/`がClaude Code / Codex共通のskill実体である。`.claude/skills`はこのディレクトリへのsymlink。
-このテンプレートは全面再設計を試すためのもの。setupは初期ソースから外部の振る舞いを抽出し、別セッションのbootstrapはその仕様と資源条件だけから新しく設計する。
+このテンプレートは全面再設計を試すためのもの。setupは初期ソースから外部の振る舞いを抽出し、別セッションのbootstrapはその仕様と資源条件だけからGoだけで動く構成を新しく設計する。
 
 ## 3段階
 
@@ -24,6 +24,6 @@ setupはdocs/behavior.mdを保存して終了し、bootstrapは新しいセッ�
 操作許可・正規経路は`AGENTS.md`、仮説・比較・欠損の扱いは[Evidence](_shared/evidence.md)を参照する。原因を絞れない場合は[診断工程](isucon-agent/SKILL.md#診断工程)を使う。
 計測の技術的な確認手順は[標準計測](isucon-setup/references/measurement.md)にまとめ、bootstrapで新実装に組み込み、agentで維持する。
 
-[既知資料](_shared/known-solutions.md)は構成候補の参考であり、適用順序ではない。`isucon-special-sauce`、`isucon-use-solution`、`isucon-create-solution`は個別に必要な場合だけ使う。
+[既知資料](_shared/known-solutions.md)は構成候補の参考であり、適用順序ではない。`isucon-use-solution`、`isucon-create-solution`は個別に必要な場合だけ使う。
 
 追加・変更時は、既存の責務やreferenceで表現できるか確認する。段階固有の詳細をSKILL.mdへ重複させず、方針・案内先が変わる場合は`AGENTS.md`も更新する。

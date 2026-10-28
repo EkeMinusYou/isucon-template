@@ -604,7 +604,7 @@ func (r *digestRunner) exec(ctx context.Context, d Digester, argv, inputs []stri
 	}
 	cancel()
 	// stderr is diagnostic output, not an error signal. Some successful
-	// commands, including pt-query-digest, report progress there.
+	// commands, including command-line aggregators, report progress there.
 	if err != nil {
 		if s := strings.TrimSpace(stderr.String()); s != "" {
 			r.appendStderrForHost(d, s, host)

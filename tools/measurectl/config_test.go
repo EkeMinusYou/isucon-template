@@ -14,7 +14,7 @@ func TestSourceFetchDelayConfiguration(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "digesters.yaml")
 			body := `sources:
   - name: access
-    role: nginx
+    role: ingress
     remote: /remote/access.log
     local: '{run_dir}/access.log'
     fetch_delay: DELAY

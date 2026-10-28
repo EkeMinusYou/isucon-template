@@ -43,12 +43,11 @@ func TestStandardCaptureSelectionAndFrozenContract(t *testing.T) {
 	collectors := writeConfig("collectors.yaml", cfg)
 	digesters := writeConfig("digesters.yaml", dcfg)
 	m := Manifest{ProfilesEnabled: true, Roles: Roles{
-		Additional: map[string][]string{"all": {"host"}, "mysql_all": {"host"}, "nginx_profile": {"host"}},
+		Additional: map[string][]string{"all": {"host"}, "app_traffic": {"host"}},
 		App:        []string{"host"},
 		AppTraffic: []string{"host"},
-		Nginx:      []string{"host"},
+		Ingress:    []string{"host"},
 		Entry:      "host",
-		MySQL:      "host",
 	}}
 	m.RequiredArtifacts, err = captureRequirements(m, collectors, digesters)
 	if err != nil {
@@ -119,7 +118,7 @@ func TestUserTransitionCaptureRequiresIdentity(t *testing.T) {
 }
 
 func TestCaptureRequirementsArePerHostAndFrozen(t *testing.T) {
-	m := Manifest{ProfilesEnabled: true, Roles: Roles{App: []string{"host-1", "host-2", "host-3"}, Nginx: []string{"host-1", "host-2", "host-3"}, Additional: map[string][]string{"mysql_all": {"host-1", "host-2", "host-3"}}}}
+	m := Manifest{ProfilesEnabled: true, Roles: Roles{App: []string{"host-1", "host-2", "host-3"}, AppTraffic: []string{"host-1", "host-2", "host-3"}, Ingress: []string{"host-1", "host-2", "host-3"}, Additional: map[string][]string{"worker_all": {"host-1", "host-2", "host-3"}}}}
 	required, err := captureRequirements(m, "collectors.yaml", "digesters.yaml")
 	if err != nil {
 		t.Fatal(err)

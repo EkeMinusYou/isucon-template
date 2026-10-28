@@ -36,14 +36,12 @@ func runCheckRoles(args []string) error {
 	if service == "" || !nameRE.MatchString(service) {
 		return errors.New("-var service=<systemd-unit> is required")
 	}
-	for _, role := range []string{"all", "app", "nginx"} {
+	for _, role := range []string{"all", "app"} {
 		if len(roles[role]) == 0 {
 			return fmt.Errorf("role %q has no hosts", role)
 		}
 	}
-	if _, declared := roles["mysql"]; !declared {
-		return errors.New("mysql role must be declared, even when empty")
-	}
+
 	for _, pair := range strings.Split(vars["extra_service_roles"], ",") {
 		if pair == "" {
 			continue
@@ -66,10 +64,16 @@ type roleCheckJob struct {
 func (r *deployRunner) checkRoles(appService string) error {
 	jobs := make([]roleCheckJob, 0, len(r.roles["all"]))
 	for _, host := range r.roles["all"] {
-		script := roleCheckScript(appService,
-			containsRoleHost(r.roles["app"], host),
-			containsRoleHost(r.roles["nginx"], host),
-			containsRoleHost(r.roles["mysql"], host))
+		script := roleCheckScript(appService, containsRoleHost(r.roles["app"], host))
+		for _, unit := range strings.Split(r.vars["disabled_services"], ",") {
+			if unit == "" {
+				continue
+			}
+			if !nameRE.MatchString(unit) || unit == appService {
+				return fmt.Errorf("invalid disabled service: %q", unit)
+			}
+			script += fmt.Sprintf("check_unit %q inactive\n", unit)
+		}
 		extra := map[string]string{}
 		for _, pair := range strings.Split(r.vars["extra_service_roles"], ",") {
 			if pair == "" {
@@ -120,7 +124,7 @@ func containsRoleHost(hosts []string, target string) bool {
 	return false
 }
 
-func roleCheckScript(appService string, app, nginx, mysql bool) string {
+func roleCheckScript(appService string, app bool) string {
 	expected := func(active bool) string {
 		if active {
 			return "active"
@@ -135,12 +139,13 @@ check_unit() {
   if [ "$expected" = active ]; then
     [ "$actual" = active ] || { echo "$unit: expected active, got ${actual:-missing}" >&2; exit 1; }
   else
-    [ "$actual" != active ] || { echo "$unit: expected inactive, got active" >&2; exit 1; }
+    case "$actual" in
+      inactive|failed|unknown|not-found) ;;
+      *) echo "$unit: expected inactive, got ${actual:-missing}" >&2; exit 1 ;;
+    esac
   fi
 }
 check_unit '%s' %s
-check_unit nginx %s
-check_unit mysql %s
 echo 'roles OK'
-`, appService, expected(app), expected(nginx), expected(mysql))
+`, appService, expected(app))
 }
