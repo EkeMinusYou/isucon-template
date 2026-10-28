@@ -34,7 +34,7 @@ SELECT @@global.max_connections;
 
 slow logの対象量は`long_query_time`や記録対象の設定で変わる。競技のquery量に合わせ、必要なSQLが残ることと
 ログ出力量を確認して決める。collectorはstatusの参照、slow logのflush、Performance Schema digestのresetを行う。
-RUN開始処理がデータを消去・ローテートするため、setup時に対象pathと動作を確認する。
+RUN開始処理がデータを消去・ローテートするため、bootstrapで初回RUNの前に対象pathと動作を確認する。
 
 成果物は`<host>-mysql-status.tsv`、`<host>-mysql-lock-waits.tsv`、`<host>-mysql-digest.tsv`、
 `<host>-pt-query-digest.log`。lock waitのサンプルで`capture_error`が埋まる場合は、table対応や権限を調べる。

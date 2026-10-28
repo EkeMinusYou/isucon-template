@@ -1,7 +1,8 @@
-# ISUCON template
+# ISUCON template — redesign
 
-ISUCONの競技サーバーを、ローカルのリポジトリを正本としてセットアップ・デプロイし、
-ベンチ1回ごとのログ・メトリクス・profileを同じ`RUN_ID`へ回収するためのテンプレートです。
+初期実装の外部動作を維持し、内部アーキテクチャーをゼロから設計・実装するためのテンプレートです。
+`isucon-template`の`dc23fcb`から派生し、既存方式との比較用に独立したリポジトリとして管理します。
+計測・デプロイ・RUN管理の道具を継承し、初期実装を段階的に最適化する必須手順は置きません。
 
 改善活動の最上位目的は、公式ルールと正当性要件を満たしたうえで、最終スコアを最大化することです。
 
@@ -39,19 +40,12 @@ Linuxバイナリをローカルでクロスコンパイルして配布します
 構成の正本は`Taskfile.yml`です。`# >>> contest values >>>`区画のホスト・役割・内部IP・service・DB・TARGET_OS/ARCHを
 実機と公式資料に合わせて設定してから、取得・生成・検査を行います。
 
-`~/.ssh/config`に同じホストaliasを設定し、読み取りで実環境と公式資料を確認してから取得します。
+まず[isucon-setup](.agents/skills/isucon-setup/SKILL.md)で、接続先・資源・公式資料・初期実装・HARを準備します。
+必要な取得は`task inspect-hosts`や`task setup-*`を使います。旧実装に計測を加えたり再デプロイしたりする必要はありません。
+新構成のrole・状態管理・初期化を決めて実装した後、bootstrapで`task setup-check`・正規deploy・`task db-recreate`・`task setup-postflight`・`task bench`を実行します。
+既定のホスト配置・DBタスクは例であり、新設計に合わせて設定します。
 
-```shell
-task
-task inspect-hosts
-task setup
-task gen
-task setup-check
-```
-
-`setup-webapp`の取得対象は`SETUP_WEBAPP_EXCLUDES`で指定したrsync除外ファイルで調整できます。
-Goの生成binaryと他言語の取得済み生成物を除外しています。schemaのsymlink、
-実サーバーでの設定構文検査は[取得と構文検査の手引き](tools/setup/README.md)を参照してください。
+`SETUP_WEBAPP_EXCLUDES`は取得対象を調整する設定です。schemaのsymlinkや設定構文検査は[取得と構文検査の手引き](tools/setup/README.md)を参照してください。
 
 `MYSQL_HOSTS`はDB設定配布とservice有効化の対象、`MYSQL_HOST`は標準メトリクス・対話DB接続・既定のDB接続先です。
 DBをアプリと別ホストへ置く場合は、アプリが`MYSQL_HOST`の内部IPへ接続するよう設定します。
@@ -123,12 +117,12 @@ task bench
 回収時のログ変換は`tools/bench-output`と`tools/contest/bench-patterns.json`を使います。
 
 profile自動収集とuser-transitionは標準で有効です。[Go profile導入例](docs/measurement/go-profiling.md)に沿って
-setupで全APP_HOSTSへendpointを導入します。[nginx access logの計測手順](docs/measurement/nginx-access-log.md)に沿って
+bootstrapで新実装の全APP_HOSTSへendpointを導入します。[nginx access logの計測手順](docs/measurement/nginx-access-log.md)に沿って
 識別列・API分類を整えます。通常の`task bench`で
 CPU・heap・allocs・goroutineを自動収集します。fgprofは既定無効で、必要な場合は`task fgprof-collect`で収集します。CPUの開始を確認してから負荷を開始し、
 収集・回収完了後にRUNを確定します。追加のprofile操作は不要です。
 profile対象は`collectors.yaml`の`group: profiles`と`enabled_by_default`から選びます。
-`PROFILES_ENABLED=false`は計測負荷比較等での明示的な停止用です。setupではDuckDB分析まで確認します。
+`PROFILES_ENABLED=false`は計測負荷比較等での明示的な停止用です。bootstrapで新実装のDuckDB分析まで確認します。
 
 実行前に`pwd`、使用するTaskfile、対象ホストを確認してください。collectorの残存が検出されたら、
 そのRUN IDと共有の`raw/current-run-id`を照合します。別checkoutで計測中の可能性があるため、
@@ -185,7 +179,7 @@ lock collectorの負荷とcapture errorはRUNごとに確認し、過大な場�
 - `<host>-app-journal.log` / `<host>-nginx-error.log`
 - `<host>-kernel.log` / `<host>-oom.log`
 - `upstream-breakdown*.tsv`
-- `user-transitions.json` — setupで識別列と`tools/contest/user-transition-routes.json`を当日のAPIへ合わせる標準集計
+- `user-transitions.json` — bootstrapで新実装の識別列と`tools/contest/user-transition-routes.json`を当日のAPIへ合わせる標準集計
 
 nginxのJSON access logは、少なくとも`msec`、`method`、`uri`、`status`、`response_time`、`body_bytes`、
 `upstream_time`、`upstream_addr`、`upstream_status`、`cache_status`を出してください。標準のユーザー遷移用に、個人情報や認証Cookieの生値を恒久保存せず、
@@ -233,7 +227,7 @@ dashboardの時刻付き警告は分析DBの意味ビュー`bench_warning_events
 エラー内容の一覧はdashboardには表示せず、上記クエリで確認できます。
 これら3つの意味ビューの本体は当日のベンチ出力の書式に依存するため、
 `tools/contest/analysis-schema/bench-errors-semantic.sql`に置いています。
-templateの状態ではプレースホルダーで0行を返すので、setupで当日の書式に合わせて書き換えます。
+templateの状態ではプレースホルダーで0行を返すので、提供された出力で書式を確定し、bootstrapの実RUNで一致を確認します。
 
 dashboardでは収集済みのfgprofに加え、GoのCPU・heap・allocs・goroutine profileを
 種別・ホスト別に切り替え、関数ランキングとコールグラフで確認できます。コールグラフ表示にはGraphvizが必要です。
@@ -249,13 +243,13 @@ nginxのon-CPU profile、任意JSON endpointのsnapshot、ダッシュボード�
 
 `.agents/skills/`では環境整備、対話による調査・実装、資料照合、資料作成を支援します。
 
-改善は次の3段階で進めます。
+全面再設計は次の3段階で進めます。
 
-1. [isucon-setup](.agents/skills/isucon-setup/SKILL.md) — 環境・ポータル・標準計測を整え、初回ベンチで回収・分析を確認する。
-2. [isucon-bootstrap](.agents/skills/isucon-bootstrap/SKILL.md) — 秘伝のタレ、適用可能なN+1解消・索引追加、nginx静的配信、全機能のメモリ＋WAL移行と計測整備を行い、実RUNで成立を確認する。
-3. [isucon-agent](.agents/skills/isucon-agent/SKILL.md) — 得点制約を診断し、改善対象の選定・実装・実測を指定目標まで自律的に繰り返す。
+1. [isucon-setup](.agents/skills/isucon-setup/SKILL.md) — 仕様・初期実装・資源・ポータル操作を準備する。
+2. [isucon-bootstrap](.agents/skills/isucon-bootstrap/SKILL.md) — 振る舞いを抽出し、新構成で全機能を実装して正当性・復元・標準計測・初回PASSを確認する。
+3. [isucon-agent](.agents/skills/isucon-agent/SKILL.md) — 新実装の実測から、構成と実装を改善し続ける。
 
-対象・順序の指定を優先し、完了済みの段階は繰り返しません。初期対応だけならbootstrapで完了し、目標までの継続も依頼されていれば同じスレッドでagentへ進みます。呼び出し例と計測の分担は[共有Skills](.agents/skills/README.md)を参照してください。
+呼び出し例と各段階の境界は[共有Skills](.agents/skills/README.md)を参照してください。旧方式との比較では別の試行として実行し、同じサーバーのデプロイ・ベンチは直列にします。別リポジトリ間では操作ロックを共有しないため、他試行のサーバー操作・RUNが終わっていることを確認してから実行します。最初のPASSまでの時間と経過時間ごとの得点も比較し、新戦略の優位性を前提にしません。
 
 個別の資料作業には、`isucon-special-sauce`（設定資料の適用・deploy）、`isucon-use-solution`（solutionの適用評価）、`isucon-create-solution`（再利用資料の作成）を使います。
 

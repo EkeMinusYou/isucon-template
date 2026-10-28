@@ -10,7 +10,7 @@
 # per-contest values never appear as backport candidates.
 set -uo pipefail
 
-template_dir=${1:-../isucon-template}
+template_dir=${1:-../isucon-template-redesign}
 if [ ! -f "$template_dir/Taskfile.yml" ]; then
   echo "template-diff: not a template checkout: $template_dir" >&2
   exit 2

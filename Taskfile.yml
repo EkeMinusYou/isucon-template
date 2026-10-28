@@ -1,4 +1,4 @@
-# ISUCON template — deployment, measurement, and analysis
+# ISUCON redesign template — deployment, measurement, and analysis
 #
 # Update the variables in the first section at the start of each contest.
 version: '3'
@@ -415,7 +415,7 @@ tasks:
     desc: templateへ反映すべき差分をtools/template/paths.txtの範囲で表示する（DETAIL=1で差分本文）
     silent: true
     cmds:
-      - DETAIL='{{.DETAIL}}' bash tools/template/diff.sh '{{.TEMPLATE_DIR | default "../isucon-template"}}'
+      - DETAIL='{{.DETAIL}}' bash tools/template/diff.sh '{{.TEMPLATE_DIR | default "../isucon-template-redesign"}}'
 
   inspect-hosts:
     desc: 全ホストの構成を読み取り専用SSHで表示

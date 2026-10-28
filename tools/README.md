@@ -11,7 +11,7 @@
 - 汎用ファイルへ競技固有の値を書く場合は、直前の行へ`# contest:`から始まるコメントで理由を残す。構造そのものが特定の解法に依存する場合は、値ではなくファイルを分ける。次の競技へ引き継ぐ際は`grep -rn '# contest:' tools/`が要修正箇所の一覧になる。
 - 競技ごとに書き換える値がまとまっている場合は、`# >>> contest values >>>` 〜 `# <<< contest values <<<`で囲う。`Taskfile.yml`のvarsがこれにあたる。手段の使い分けとtemplateへの戻し方は[tools/template/README.md](template/README.md)。
 - collectorを増やす場合は、成果物の宣言・回収・分析側の読み手を同じ変更で揃える。
-- 計測設定の評価ではcollectorあり・なしを比較し、間隔や有効化範囲を決める。この負荷比較は初期setupの完了条件には含めず、依頼された場合に`isucon-setup`の追加検証としてベンチ結果を使う。
+- 計測設定の評価ではcollectorあり・なしを比較し、間隔や有効化範囲を決める。この負荷比較は初期setupの完了条件には含めず、依頼された場合に追加検証としてベンチ結果を使う。
 - optionalなcollectorやprofilerは、目的と停止・cleanup手順が確認できた場合だけ有効にする。
 - deploy、service restart、ログローテート、collector起動はサーバー状態を変更する。対象を確認してから実行する。
 
@@ -20,7 +20,7 @@
 
 ## 読み方
 
-作業順・service分類・完了判断は[isucon-setup](../.agents/skills/isucon-setup/SKILL.md)を正本とする。本書はツール固有の設定資料であり、下表で対象を選び、詳細節を読む。標準外構成も管理対象に含め、optional機能の詳細は利用時だけ読む。
+準備は[isucon-setup](../.agents/skills/isucon-setup/SKILL.md)、新構成の実装・配布・計測の初回確認は[isucon-bootstrap](../.agents/skills/isucon-bootstrap/SKILL.md)を正本とする。本書はツール固有の設定資料であり、下表で対象を選び、詳細節を読む。標準外構成も管理対象に含め、optional機能の詳細は利用時だけ読む。
 
 既存環境の計測不足の調査・修正・検証は[isucon-setup](../.agents/skills/isucon-setup/SKILL.md)の部分補修手順に従う。
 
@@ -128,7 +128,7 @@ SSH切断・復元失敗などで残った場合は、表示された退避先�
 - MySQL slow logの利用可否と、performance schemaのqueryが当日のversionで利用できるか
 - 成果物を追加・削除したときに、fallback headerと分析側のschemaが一致しているか
 
-標準設定ではproc/service/disk、appのSQL接続プール、全MySQL hostのstatus・slow query・performance_schema digest、nginx access log、app/nginx/kernel journal、Go pprof（fgprofは既定無効）、user-transitionを収集する。初期setupでadapterを整え、DuckDB分析まで確認する。journalは`run.json.load_window`と同じ時間窓で回収できることを確認する。
+標準設定ではproc/service/disk、appのSQL接続プール、全MySQL hostのstatus・slow query・performance_schema digest、nginx access log、app/nginx/kernel journal、Go pprof（fgprofは既定無効）、user-transitionを収集する。bootstrapで新実装へadapterを接続し、DuckDB分析まで確認する。journalは`run.json.load_window`と同じ時間窓で回収できることを確認する。
 MySQLのslow log、Performance Schema、socket接続の前提は[MySQLの計測データ](../docs/measurement/mysql.md)を参照する。
 50msのlock waitは各user DBを対象に既定有効で、250msのtask stateは既定無効である。
 lock waitはホスト別の成果物へ保存し、RUNごとにcollector負荷とcapture errorを確認する。
@@ -146,7 +146,7 @@ digesterも`enabled_by_default: false`で既定の実行対象から外せます
 Go CPUと2秒ごとのheap・goroutine recordingは`group: profiles`かつ`enabled_by_default: true`。
 fgprofは既定無効で、必要な場合は`task fgprof-collect`で明示的に収集する。
 `bench/run.sh`がこの宣言から収集対象を選び、同じ対象を開始確認・必須成果物判定で使う。
-[Go profile導入例](../docs/measurement/go-profiling.md)に沿ってsetupでendpointを用意する。
+[Go profile導入例](../docs/measurement/go-profiling.md)に沿ってbootstrapで新実装のendpointを用意する。
 有効なprofileのRUN別開始確認後にベンチを開始し、設定した時間の収集・回収完了後にfinalizeする。
 開始通知はprofilerの起動成功後に公開する。開始確認後は、CPU profile writerの非同期起動と
 小さなホスト時計差に備えて1秒先行収録し、同じRUNが収録中であることを再確認してからベンチを開始する。
@@ -189,7 +189,7 @@ task bench BASE_RUN=20260101-120000
 
 比較では合否・得点差、構成・負荷時間窓、計測の欠損・不備、主要20経路の件数・応答時間・HTTPエラー、ホストのCPU・メモリを表示する。欠測は`NULL`で残す。経路集計は負荷区間内に開始する5秒バケットを使い、境界には最大5秒のずれがある。AIは比較元と仮説固有の追加観測、変更の採否を決める。時間窓・構成の違いや計測の不備も確認し、標準比較だけで評価を済ませない。
 
-共通SQLは`tools/analysis/sources.yaml`の`reports.compare_runs`で指定する。競技固有の標準集計を比較する場合はSQLを`tools/contest/queries/`に置き、`reports.compare_contest`へ指定する（任意）。初回setupでは共通比較を確認し、bootstrapではWALなどの情報源の導入に合わせて競技固有の比較を追加する。
+共通SQLは`tools/analysis/sources.yaml`の`reports.compare_runs`で指定する。競技固有の標準集計を比較する場合はSQLを`tools/contest/queries/`に置き、`reports.compare_contest`へ指定する（任意）。bootstrapで新実装の共通比較を確認し、選んだ情報源に合わせて競技固有の比較を追加する。
 
 両RUNは確定・DuckDB同期済みである必要がある。同期失敗は`task q-sync`で補修し、`task compare-runs`で比較だけをやり直す。
 

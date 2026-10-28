@@ -2,7 +2,7 @@
 
 既定設定を実環境の事実とみなさず、現行コード・実効設定・成果物を照合する。詳細な列定義と設定項目は[Tools](../../../../tools/README.md)を正本とする。
 
-初回setupでは下表を[ベンチ前とベンチ後の分担](initial-setup.md#ベンチ前とベンチ後の分担)に沿って確認する。ベンチ前は既存テストで生成・回収・読み手を検証し、実結果との一致・負荷中の時間窓と内容は実RUNで確認する。
+bootstrapで新実装へ下表の計測を組み込み、実RUNで確認する。setupでは利用する道具と設定箇所の確認まででよく、旧実装へ導入しない。ベンチ前は必要な生成・回収・読み手を検証し、実結果との一致・負荷中の時間窓と内容は新実装のRUNで確認する。
 
 | 対象 | 確認する経路と不足 |
 | --- | --- |
@@ -19,9 +19,8 @@
 
 ## 段階ごとの計測分担
 
-setupでは既存構成のスコア・アクセスログ・user-transition等を整え、公式の得点条件と対応付けて使える情報源・識別の限界を示す。登録前後を追えない場合などは観測不能とし、メモリ＋WALへの移行や全段階の追跡をsetup完了の条件にしない。
-
-`isucon-bootstrap`は移行と同時に[WAL構成の計測](../../isucon-bootstrap/references/wal-measurement.md)を整え、`isucon-agent`は改善中の構成変更や診断に合わせて維持・補修する。個別の計測補修を依頼された場合は、どの段階でも本手順とsetupの補修手順を使う。
+setupは仕様・初期実装・資源・ポータル操作を準備する。bootstrapは新実装へ標準計測を接続して実負荷で確認し、agentは構成変更や診断に合わせて維持・補修する。
+WALを採用する場合だけ[WAL構成の計測](../../isucon-bootstrap/references/wal-measurement.md)を使う。計測補修だけの依頼でも初回準備全体は繰り返さない。
 
 ## スコア記録を整えるとき
 
@@ -39,10 +38,10 @@ setupでは既存構成のスコア・アクセスログ・user-transition等を
 - proc・MySQL・SQL pool・JSON collectorとoptional nginx on-CPU profilerは同moduleの`cmd/`を既存Taskfileでビルド・配布する。分析ツールをアプリの依存へ追加しない。
 
 - 計測用listenerはloopbackなど必要な範囲へ限定し、公開traffic用routerへ無条件に登録しない。remote curlがどのホストで動くかとbind先を照合する。
-- 標準pprofのendpoint・実装を確認する。fgprofは任意で既定無効とし、利用する場合だけ別endpoint・実装を確認する。setupの完了のためにfgprofを有効化しない。handler未登録、timeout、HTTPエラー本文の保存を取得成功に数えない。
+- 標準pprofのendpoint・実装を確認する。fgprofは任意で既定無効とし、利用する場合だけ別endpoint・実装を確認する。段階の完了のためにfgprofを有効化しない。handler未登録、timeout、HTTPエラー本文の保存を取得成功に数えない。
 - 採取上限・timeoutと実際の開始・停止を照合する。既定ではベンチ前から採取して終了通知で停止するため、負荷開始秒数に合わせたsnapshotの遅延調整は行わない。
 - heap・goroutineの負荷期間内の時系列と関数別の変化、runtime counterの差分・rateまで確認する。形式や採取時刻が正しいだけで完了とせず、メモリ増加やgoroutine増加を調べられるか、実際の間隔・欠測・export所要時間も見る。負荷開始前の値を混ぜず、GCによるallocation stackの反映遅れを区別する。
-- CPU等の採取全体の集計は負荷期間だけへ切り出せない。元のRUN成果物とDuckDBの除外理由を確認し、初期化の値を含むことを明示して読む。重い追加基盤をsetupの完了条件にしない。
+- CPU等の採取全体の集計は負荷期間だけへ切り出せない。元のRUN成果物とDuckDBの除外理由を確認し、初期化の値を含むことを明示して読む。重い追加基盤を新実装の完了条件にしない。
 - 同じプロセスへのCPU profile取得が重複しないようにする。fgprofとの同時利用も実装・負荷を確認する。block/mutexのような追加profileはsampling設定と負荷を確認してから使う。
 - CPU時間、wall-clock、heapの時点値、allocsの累積値を区別する。profileに紐づくソース・binaryと採取時間を追えるようにし、空または疎なprofileから負荷中の有用性を断定しない。
 

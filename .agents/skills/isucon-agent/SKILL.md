@@ -1,13 +1,15 @@
 ---
 name: isucon-agent
-description: ISUCONの初期対応後、得点制約の診断・仮説選定・実装・デプロイ・ベンチ・結果分析を自律的に繰り返し、指定目標まで改善する。相談・調査のみの指定にはその範囲で対応する。
+description: ISUCONの全面再設計後、得点制約の診断・仮説選定・実装・デプロイ・ベンチ・結果分析を自律的に繰り返し、指定目標まで改善する。相談・調査のみの指定にはその範囲で対応する。
 ---
 
 # ISUCON agent
 
 ## 担当範囲
 
-初期対応後の自律改善を担当する。環境・標準計測の初期構築は[isucon-setup](../isucon-setup/SKILL.md)、秘伝のタレ・N+1・索引・静的配信・メモリ＋WAL移行と計測整備は[isucon-bootstrap](../isucon-bootstrap/SKILL.md)が担当する。初期対応も含む依頼では未完了の工程をbootstrapで進め、完了済みの工程を繰り返さない。既存構成への改善だけを依頼された場合は、その範囲を守る。
+新実装の初回PASS後の自律改善を担当する。準備は[isucon-setup](../isucon-setup/SKILL.md)、振る舞いの抽出・全体設計・新規実装と初回検証は[isucon-bootstrap](../isucon-bootstrap/SKILL.md)が担当する。未完了なら必要な段階から進める。初期実装のアーキテクチャーを取り戻すことや、定型の移行手順を再実施することは既定にしない。
+
+初回PASSした設計も固定しない。設計時の予測と実測が異なる場合は、状態管理・ホスト配置・永続化方式を含めて見直す。全面再設計前の旧RUNは参考比較とし、新実装のRUNを改善の基準にする。
 
 改善判断の前に、[共通のEvidence基準](../_shared/evidence.md)を読み、その基準に従う。
 
@@ -15,7 +17,7 @@ description: ISUCONの初期対応後、得点制約の診断・仮説選定・�
 
 保存済みRUNの原文は上書きしない。調査・ベンチ実行とサーバー操作の制約は`AGENTS.md`に従う。改善中の計測維持も担当し、構成・状態管理・ログ形式を変えた場合は生成・回収・集計を一緒に更新する。診断に必要な情報が不足した場合は[setupの補修手順](../isucon-setup/SKILL.md#既存環境の計測補修)や[WAL構成の計測](../isucon-bootstrap/references/wal-measurement.md)を参照して必要な範囲を補い、初期対応へ戻ることを必須にしない。
 
-WALの調査・計測補修は[WALの分析と保存](../../../docs/measurement/wal-analysis.md)に従う。
+WALを採用した構成の調査・計測補修は[WALの分析と保存](../../../docs/measurement/wal-analysis.md)に従う。
 
 ## 自律改善と実行許可
 
