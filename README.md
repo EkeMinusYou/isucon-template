@@ -39,7 +39,7 @@ task compare-runs BASE_RUN=<基準RUN> NEW_RUN=<新RUN>
 
 ## 計測と分析
 
-標準計測は[Go profile](docs/measurement/go-profiling.md)、[Goアクセスログ](docs/measurement/go-access-log.md)、ホスト・Goサービスの資源、操作遷移、障害ログです。WALを使う構成では[WALの分析と保存](docs/measurement/wal-analysis.md)も接続します。
+標準計測は[Go profile](docs/measurement/go-profiling.md)、[Goアクセスログ](docs/measurement/go-access-log.md)、[状態・操作の計測](docs/measurement/state-and-operations.md)、ホスト・Goサービスの資源、障害ログです。永続化方式にかかわらず、得点につながる操作の件数・進行・待ち時間を確認できるようにします。
 
 `task bench`がRUNを採番し、計測開始・ベンチ実行・停止・回収・集計・ローカルcommitを行います。失敗RUNも保存します。`runs/<RUN_ID>/run.json`の合否・得点・成果物状態を確認し、欠損を0と扱いません。負荷期間だけの分析値はDuckDBへ、期間を分離できない集計はRUNの成果物へ残します。
 

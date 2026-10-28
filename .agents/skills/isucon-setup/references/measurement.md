@@ -13,13 +13,14 @@ bootstrapで新実装へ下表の計測を組み込み、実RUNで確認する�
 | 障害・整合性 | appのjournal、kernel/OOM、panic、service再起動が同じload windowで追えるか確認する。正常系のprofileだけで網羅済みにしない。 |
 | その他の依存サービス | 競技ごとの公式資料と稼働serviceから依存経路を列挙する。既存service metrics・journalで見える範囲と、処理件数・失敗・遅延など追加観測が必要な範囲を分ける。 |
 | user-transition | 標準対象。アプリのセッション仕様に合わせた識別列と有限個のAPI分類を整える。実ログに識別列があり、認証済みリクエストを結び付けられ、RUNのJSON集計を読めることを確認する。集計全体を負荷期間のみのDuckDB値へ混ぜない。未設定はoptionalではない。 |
+| 状態・操作 | [状態・操作の計測](../../../../docs/measurement/state-and-operations.md)に従い、得点に関わる件数・進行・待ち時間を確認できるようにする。取得元は採用した実装に合わせ、永続化方式を前提にしない。 |
 | アプリ内部・追加計測 | queue・lock待ち、処理件数などは既存profile・標準計測で説明できない問いがある場合に追加する。fgprof、高頻度task-stateも目的・負荷・停止方法を確認して選ぶ。 |
 | RUN全体 | load windowと各計測の開始・終了、ホスト時計、取得遅延・欠落、roles/source、artifact status、rawから集計・分析への対応を確認。ヘッダーだけのfallbackと実測値を区別する。 |
 
 ## 段階ごとの計測分担
 
 setupは既存ソースも照合して外部仕様・提供データ・資源・ポータル操作を準備し、別セッションのbootstrapへ渡す。bootstrapは新実装へ標準計測を接続して実負荷で確認し、agentは構成変更や診断に合わせて維持・補修する。
-WALを採用する場合だけ[WAL構成の計測](../../isucon-bootstrap/references/wal-measurement.md)を使う。計測補修だけの依頼でも初回準備全体は繰り返さない。
+状態・操作の計測もbootstrapで整え、agentが実装変更に合わせて維持する。計測補修だけの依頼でも初回準備全体は繰り返さない。
 
 ## スコア記録を整えるとき
 

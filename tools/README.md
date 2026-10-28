@@ -81,7 +81,7 @@ task bench BASE_RUN=20260101-120000
 ベンチ出力の結果・内訳・進捗は形式が競技ごとに違うので、汎用の`analysis/schema/bench-summary.sql`は拡張せず、
 `tools/contest/analysis-schema/`にviewとして作る。詳細は[tools/contest/README.md](contest/README.md)。
 
-WAL分析の方針は[WALの分析と保存](../docs/measurement/wal-analysis.md)を参照する。
+状態・操作の集計と保存は[状態・操作の計測](../docs/measurement/state-and-operations.md)を参照する。
 
 ### Go profileのDuckDB閲覧
 

@@ -7,7 +7,9 @@ collectorや集計ツール自体の説明は各ツールのREADMEと[tools/READ
 
 - [Goアクセスログ](go-access-log.md) — 要求・操作遷移・負荷期間の記録
 - [Go profileの自動収集](go-profiling.md) — アプリへ標準pprof・RUN別開始確認endpointを組み込む。fgprofは任意
-- [WALの分析と保存](wal-analysis.md)
+- [状態・操作の計測](state-and-operations.md) — 永続化方式によらない件数・進行・待ち時間の確認と集計の保存
+
+WALを採用した場合だけ、[WALの分析と保存](wal-analysis.md)も参照する。
 
 ## 標準計測で答えられる問い
 

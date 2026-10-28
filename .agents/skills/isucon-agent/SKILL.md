@@ -15,9 +15,8 @@ description: ISUCONの全面再設計後、得点制約の診断・仮説選定�
 
 `AGENTS.md`・公式手順に従い、`docs/official/`、現行コード・設定、保存済みRUN、DuckDB基盤（`task q`）、読み取り専用SSHで調べる。RUNは指定がなければ最新finalizedを既定とする。
 
-保存済みRUNの原文は上書きしない。調査・ベンチ実行とサーバー操作の制約は`AGENTS.md`に従う。改善中の計測維持も担当し、構成・状態管理・ログ形式を変えた場合は生成・回収・集計を一緒に更新する。診断に必要な情報が不足した場合は[setupの補修手順](../isucon-setup/SKILL.md#計測のみの補修)や[WAL構成の計測](../isucon-bootstrap/references/wal-measurement.md)を参照して必要な範囲を補い、初期対応へ戻ることを必須にしない。
+保存済みRUNの原文は上書きしない。調査・ベンチ実行とサーバー操作の制約は`AGENTS.md`に従う。改善中の計測維持も担当し、構成・状態管理・ログ形式を変えた場合は生成・回収・集計を一緒に更新する。診断に必要な情報が不足した場合は[setupの補修手順](../isucon-setup/SKILL.md#計測のみの補修)や[状態・操作の計測](../../../docs/measurement/state-and-operations.md)を参照して必要な範囲を補い、初期対応へ戻ることを必須にしない。
 
-WALを採用した構成の調査・計測補修は[WALの分析と保存](../../../docs/measurement/wal-analysis.md)に従う。
 
 ## 自律改善と実行許可
 
