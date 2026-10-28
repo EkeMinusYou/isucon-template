@@ -363,8 +363,36 @@ func jsonFloat(raw json.RawMessage) (float64, bool) {
 	return value, err == nil
 }
 
+// Short traffic bursts can precede or follow the sustained workload. Keep the
+// threshold interval with the most requests instead of returning the first one.
 func detectTrafficWindow(collection collectionWindow, buckets map[int64]int64) (time.Time, time.Time, bool, string) {
-	startSec := collection.StartedAt.Unix()
+	earliest := collection.StartedAt.Unix()
+	threshold := trafficEndThreshold(collection, buckets)
+	var bestStart, bestEnd time.Time
+	var bestCount int64 = -1
+	var bestReason string
+	for {
+		start, end, ok, reason := detectTrafficInterval(collection, buckets, earliest, threshold)
+		if !ok {
+			if bestCount < 0 {
+				return start, end, false, reason
+			}
+			break
+		}
+		count, _ := windowRequestStats(buckets, start, end)
+		if count > bestCount {
+			bestStart, bestEnd, bestCount, bestReason = start, end, count, reason
+		}
+		if !end.Before(collection.EndedAt) {
+			break
+		}
+		earliest = end.Unix()
+	}
+	return bestStart, bestEnd, true, bestReason
+}
+
+func detectTrafficInterval(collection collectionWindow, buckets map[int64]int64, earliest, endThreshold int64) (time.Time, time.Time, bool, string) {
+	startSec := earliest
 	lastBucketSec := collection.EndedAt.Unix()
 	if collection.EndedAt.Nanosecond() == 0 {
 		lastBucketSec--
@@ -395,7 +423,7 @@ func detectTrafficWindow(collection collectionWindow, buckets map[int64]int64) (
 	if start.Before(collection.StartedAt) {
 		start = collection.StartedAt
 	}
-	threshold := float64(trafficEndThreshold(collection, buckets))
+	threshold := float64(endThreshold)
 	var lowStart int64 = -1
 	var lowSeconds float64
 	for sec := startSecCandidate; sec <= lastBucketSec; sec++ {

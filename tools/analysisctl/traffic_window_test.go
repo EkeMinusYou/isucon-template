@@ -199,3 +199,15 @@ func TestConfiguredLoadPhaseExcludesCheckTraffic(t *testing.T) {
 		t.Fatalf("missing phase end did not fall back: %+v", fallback)
 	}
 }
+
+func TestTrafficWindowSelectsSustainedLoadBetweenShortBursts(t *testing.T) {
+	collection := collectionWindow{StartedAt: time.Unix(100, 0).UTC(), EndedAt: time.Unix(140, 0).UTC()}
+	buckets := map[int64]int64{101: 12, 102: 20, 135: 15, 136: 10}
+	for sec := int64(110); sec < 130; sec++ {
+		buckets[sec] = 30
+	}
+	start, end, ok, reason := detectTrafficWindow(collection, buckets)
+	if !ok || start.Unix() != 110 || end.Unix() != 130 {
+		t.Fatalf("window=%v..%v ok=%v: %s", start, end, ok, reason)
+	}
+}
