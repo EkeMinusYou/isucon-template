@@ -54,7 +54,7 @@ func TestStandardCaptureSelectionAndFrozenContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(m.RequiredArtifacts) != 4 {
+	if len(m.RequiredArtifacts) != 3 {
 		t.Fatalf("requirements=%v", m.RequiredArtifacts)
 	}
 	selected, err := enabledOneshotsInGroup(cfg.Oneshots, "profiles")
@@ -87,7 +87,7 @@ func TestStandardCaptureSelectionAndFrozenContract(t *testing.T) {
 	}
 	m.ProfilesEnabled = false
 	m.RequiredArtifacts, err = captureRequirements(m, collectors, digesters)
-	if err != nil || len(m.RequiredArtifacts) != 2 {
+	if err != nil || len(m.RequiredArtifacts) != 1 {
 		t.Fatalf("override requirements=%v err=%v", m.RequiredArtifacts, err)
 	}
 	specs, err := captureArtifactContract(m, collectors, digesters)
@@ -124,7 +124,7 @@ func TestCaptureRequirementsArePerHostAndFrozen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(required) != 13 {
+	if len(required) != 10 {
 		t.Fatalf("required=%v", required)
 	}
 	m.RequiredArtifacts = required
@@ -153,7 +153,7 @@ func TestCaptureRequirementsArePerHostAndFrozen(t *testing.T) {
 	}
 	m.ProfilesEnabled = false
 	required, err = captureRequirements(m, "collectors.yaml", "digesters.yaml")
-	if err != nil || len(required) != 7 {
+	if err != nil || len(required) != 4 {
 		t.Fatalf("disabled profiles requirements=%v err=%v", required, err)
 	}
 	if got := appendCaptureSpecs(nil, Manifest{}); len(got) != 0 {

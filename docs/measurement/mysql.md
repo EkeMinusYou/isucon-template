@@ -41,8 +41,9 @@ RUN開始処理がデータを消去・ローテートするため、setup時に
 各hostを同じRUN・時間窓で比較し、status、statement digest、slow query log、lock waitの欠損を区別する。
 collector設定と回収処理の詳細は[tools/README.mdの「計測と集計」](../../tools/README.md#計測と集計)を参照する。
 
-slow log原文は`raw/mysql-slow-<host>.log.zst`としてRUNへ保存する。
+slow log原文はリポジトリ直下の`raw/mysql-slow-<host>.log`へ回収し、ホストごとに最新分だけを保持する。
+次のRUNの回収時に上書きし、RUNごとの複製・圧縮保存はしない。集計結果は各RUNへ保存する。
 SQL digestとslow logから作った集計は初期化を含む採取全体の値で、負荷期間だけのSQL件数・時間ではない。
 負荷期間のみのDuckDBには取り込まず、除外理由を`measurement_sources`へ記録する。
-必要なときはRUNの原文・集計を調査し、初期化の影響とslow logの記録閾値を明示する。
+必要なときは各RUNの集計と、最新RUNについてはslow log原文も調査する。初期化の影響と記録閾値を明示する。
 全SQLの常時記録や新たな追跡基盤は標準では追加しない。

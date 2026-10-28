@@ -27,9 +27,9 @@ sources:
   - name: slow
     role: mysql_all
     remote: /var/log/mysql/mysql-slow.log
-    # Keep one raw log per database so query costs remain attributable to a host.
-    local: '{run_dir}/raw/mysql-slow-{host}.log'
-    compress: true
+    # Keep only the latest raw log per database; each RUN overwrites it.
+    local: '{raw_dir}/mysql-slow-{host}.log'
+    compress: false
 
 digesters:
   - name: mysql-error
