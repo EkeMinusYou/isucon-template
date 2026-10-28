@@ -16,7 +16,7 @@ description: 競技環境の初期構築と、スコア記録・DuckDB分析を�
 初期構築は[初回セットアップ](references/initial-setup.md)に従い、標準計測全件を「ベンチ前の整備」と「実RUNによる確認」に分ける。ベンチ未実行でも進められる作業を先に完了し、その後`task bench`を実行し、結果を確認して不足を補修する。既存環境の補修は下記の計測補修手順を使い、初期構築の手順はDB再作成フローなど該当箇所を補修する場合に参照する。
 
 - `AGENTS.md`と`docs/official/`の関連資料。公式資料を優先する。
-- [Tools](../../../tools/README.md)の基本方針と対象項目のチェックリスト。
+- [Tools](../../../tools/README.md)の基本方針と対象項目のチェックリスト。[RUNの比較](../../../tools/README.md#runの比較)がWALなしでも使えることを確認する。
 - 計測を扱うときは[標準計測の確認手順](references/measurement.md)、Taskfileの役割・計測変数、collector/digester宣言。
 
 ## 作業境界

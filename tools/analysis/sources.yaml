@@ -15,6 +15,9 @@ semantic_schemas:
 
 reports:
   bottleneck_profile: queries/bottleneck-profile.sql
+  compare_runs: queries/compare-runs.sql
+  # Optional: add a contest-specific comparison after its aggregates are available.
+  # compare_contest: ../contest/queries/compare-runs.sql
 
 profiles:
   match: "*.pprof"

@@ -9,6 +9,7 @@
 
 | ファイル | 読む側 | 内容 |
 | --- | --- | --- |
+| `queries/compare-runs.sql`（任意） | `task compare-runs` | [RUNの比較](../README.md#runの比較)で使う競技固有の標準集計 |
 | `bench-patterns.json` | `tools/bench-output` | ベンチ出力のscore・合否正規表現。coreは形式を持たない |
 | `portal-bench.json`、`portal/` | `tools/portal-bench` | ポータルの実行要求・認証ヘッダー・応答フィールド・完了条件。ISUCON12・13の設定例を含む |
 | `load-phase.yaml` | `tools/analysisctl` | 任意。ベンチログの実負荷開始・停止行の正規表現。`tools/analysis/sources.yaml`の`load_phase`で参照する |

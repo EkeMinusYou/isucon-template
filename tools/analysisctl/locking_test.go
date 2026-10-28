@@ -185,7 +185,7 @@ func TestDuckDBSQLFailureDoesNotWait(t *testing.T) {
 	var stderr bytes.Buffer
 	r.stderr = &stderr
 	_, err := r.duckdbOutput(nil, "-readonly", r.db, "-c", "select * from missing_table")
-	if err == nil || !strings.Contains(err.Error(), "Catalog Error") {
+	if err == nil || !strings.Contains(err.Error(), "missing_table") {
 		t.Fatalf("expected the SQL error: %v", err)
 	}
 	if stderr.Len() != 0 {

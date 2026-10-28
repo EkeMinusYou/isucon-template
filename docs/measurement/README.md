@@ -8,3 +8,4 @@ collectorや集計ツール自体の説明は各ツールのREADMEと[tools/READ
 - [Go profileの自動収集](go-profiling.md) — アプリへ標準pprof・RUN別開始確認endpointを組み込む。fgprofは任意
 - [nginx access logの計測項目](nginx-access-log.md) — 標準集計に必要なJSON列とセッション識別情報を設定する
 - [MySQLの計測データ](mysql.md) — status、slow query、Performance SchemaからRUN単位のデータを取得する
+- [WALの分析と保存](wal-analysis.md)

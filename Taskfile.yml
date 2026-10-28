@@ -714,8 +714,24 @@ tasks:
     cmds:
       - '{{.DEPLOYCTL_DIR}}/deployctl check-roles {{.DEPLOYCTL_COMMON}}'
 
+  compare-runs:
+    desc: 保存済み2RUNの得点・標準集計・計測の欠損を比較（読み取り専用）
+    silent: true
+    requires: {vars: [BASE_RUN, NEW_RUN]}
+    deps: [build-analysisctl]
+    env:
+      ISUCON_COMPARE_BASE: '{{.BASE_RUN}}'
+      ISUCON_COMPARE_NEW: '{{.NEW_RUN}}'
+      ISUCON_COMPARE_CHECK_ONLY: '{{default "false" .CHECK_ONLY}}'
+    cmds:
+      - '{{.ANALYSISCTL_DIR}}/analysisctl compare -check-only="$ISUCON_COMPARE_CHECK_ONLY" -config {{.ANALYSIS_CONFIG}} -db {{.ANALYSIS_DB}} -results {{.RESULT_DIR}} "$ISUCON_COMPARE_BASE" "$ISUCON_COMPARE_NEW"'
+
+  test-bench-run:
+    desc: 実サーバーを使わずベンチ回収・任意比較の制御を検証
+    cmds: [python3 -m unittest discover -s tools/bench -p 'test_*.py']
+
   bench:
-    desc: 計測開始→設定したポータルでベンチ→ログと成果物を回収
+    desc: 計測開始→ベンチ→回収（BASE_RUN指定時は回収後に比較）
     silent: true
     deps: [build-portal-bench]
     env:
@@ -723,6 +739,7 @@ tasks:
       ISUCON_BENCH_RESULTS_DIR: '{{.RESULT_DIR}}'
       ISUCON_BENCH_COLLECT_FLAGS: '{{default "" .MEASURECTL_COLLECT_FLAGS}}'
       ISUCON_BENCH_PROFILES_ENABLED: '{{.PROFILES_ENABLED}}'
+      ISUCON_BENCH_BASE_RUN: '{{default "" .BASE_RUN}}'
     cmds:
       - 'tools/portal-bench/portal-bench -config "{{.PORTAL_BENCH_CONFIG}}" -check'
       - '{{.OPERATION_LOCK}} sh tools/bench/run.sh -- tools/portal-bench/portal-bench -config "{{.PORTAL_BENCH_CONFIG}}"'

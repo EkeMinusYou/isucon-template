@@ -37,6 +37,8 @@ type profileConfig struct {
 
 type reportConfig struct {
 	BottleneckProfile string `yaml:"bottleneck_profile"`
+	CompareRuns       string `yaml:"compare_runs"`
+	CompareContest    string `yaml:"compare_contest"`
 }
 
 type config struct {
@@ -56,6 +58,7 @@ type options struct {
 	results    string
 	configPath string
 	duckdb     string
+	checkOnly  bool
 	lockWait   time.Duration
 	stdout     io.Writer
 	stderr     io.Writer
@@ -87,7 +90,7 @@ func main() {
 
 func runCLI(args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: analysisctl <sync|rebuild|status|profile> [flags] [arguments]")
+		return errors.New("usage: analysisctl <sync|rebuild|status|profile|compare> [flags] [arguments]")
 	}
 	command := args[0]
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
@@ -97,6 +100,7 @@ func runCLI(args []string, stdout, stderr io.Writer) error {
 	flags.StringVar(&opts.results, "results", "runs", "RUN artifact directory")
 	flags.StringVar(&opts.configPath, "config", "tools/analysis/sources.yaml", "source declaration path")
 	flags.StringVar(&opts.duckdb, "duckdb", "duckdb", "DuckDB CLI path")
+	flags.BoolVar(&opts.checkOnly, "check-only", false, "validate RUNs without reports (compare only)")
 	flags.DurationVar(&opts.lockWait, "lock-wait", time.Minute, "maximum wait for a conflicting DuckDB file lock")
 	if err := flags.Parse(args[1:]); err != nil {
 		return err
@@ -126,6 +130,11 @@ func runCLI(args []string, stdout, stderr io.Writer) error {
 			return fmt.Errorf("unexpected arguments: %s", strings.Join(arguments, " "))
 		}
 		return r.status()
+	case "compare":
+		if len(arguments) != 2 {
+			return errors.New("usage: analysisctl compare [flags] BASE_RUN NEW_RUN")
+		}
+		return r.compareRuns(arguments[0], arguments[1])
 	case "profile":
 		if len(arguments) != 3 {
 			return errors.New("usage: analysisctl profile [flags] RUN_ID HOST SYMBOL_PATTERN")
@@ -732,7 +741,7 @@ func (r runner) duckdbOutput(env []string, args ...string) (string, error) {
 		message := strings.TrimSpace(string(output))
 		failure := fmt.Errorf("duckdb %s: %w: %s", strings.Join(args, " "), err, message)
 		// Retry file-lock conflicts only; SQL and import errors must surface immediately.
-		conflict := strings.Contains(message, "IO Error: Could not set lock on file ") &&
+		conflict := strings.Contains(message, "Could not set lock on file ") &&
 			strings.Contains(message, "Conflicting lock is held")
 		if !conflict {
 			return "", failure

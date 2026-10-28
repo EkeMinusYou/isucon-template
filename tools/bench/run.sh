@@ -12,6 +12,7 @@ shift
 state_file=${ISUCON_BENCH_RUN_STATE_FILE:?ISUCON_BENCH_RUN_STATE_FILE is required}
 results_dir=${ISUCON_BENCH_RESULTS_DIR:?ISUCON_BENCH_RESULTS_DIR is required}
 collect_flags=${ISUCON_BENCH_COLLECT_FLAGS:-}
+base_run=${ISUCON_BENCH_BASE_RUN:-}
 profiles_enabled=${ISUCON_BENCH_PROFILES_ENABLED:-true}
 case "$profiles_enabled" in true|false) ;; *) echo 'profiles enabled must be true or false' >&2; exit 2 ;; esac
 finalized=0
@@ -19,6 +20,11 @@ bench_output=''
 profile_pid=''
 profile_stop_requested=0
 profile_stop_status=0
+
+# Reject an invalid comparison baseline before starting collectors or a RUN.
+if [ -n "$base_run" ]; then
+  task --silent compare-runs CHECK_ONLY=true "BASE_RUN=$base_run" "NEW_RUN=$base_run"
+fi
 
 task before-bench MEASURECTL_COLLECT_FLAGS="$collect_flags" PROFILES_ENABLED="$profiles_enabled"
 active_run_id=$(sh tools/bench/active-run-id.sh "$state_file")
@@ -41,6 +47,9 @@ finalize() {
   finalized=1
   # Complete captures through their HTTP responses, including interrupted runs.
   trap '' INT HUP TERM
+  if [ ! -f "$run_dir/bench.log" ]; then
+    printf 'BENCHMARK_FAIL preflight did not reach benchmark submission\n' > "$run_dir/bench.log"
+  fi
   if [ -n "$bench_output" ] && [ -f "$bench_output" ]; then
     tee -a "$run_dir/bench.log" < "$bench_output"
     rm -f "$bench_output"
@@ -55,9 +64,14 @@ finalize() {
   fi
   finalize_status=0
   task after-bench MEASURECTL_COLLECT_FLAGS="$collect_flags" || finalize_status=$?
+  compare_status=0
+  if [ -n "$base_run" ]; then
+    task --silent compare-runs "BASE_RUN=$base_run" "NEW_RUN=$active_run_id" || compare_status=$?
+  fi
   [ "$profile_status" -eq 0 ] || return "$profile_status"
   [ "$profile_stop_status" -eq 0 ] || return "$profile_stop_status"
-  return "$finalize_status"
+  [ "$finalize_status" -eq 0 ] || return "$finalize_status"
+  return "$compare_status"
 }
 
 trap finalize EXIT

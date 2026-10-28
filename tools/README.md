@@ -171,6 +171,28 @@ sourceの`fetch_delay`はコピー前の待ち時間（既定0、負の値は不
 nginxの`flush=1s`でバッファに残る末尾の行が書き出されるのを待つ。ホストごとの待ちは並列に行い、
 `-skip-fetch`では待たない。ログ形式・採取範囲は変えず、バッファのflush時間を変える場合はこの待ちも合わせる。
 
+### RUNの比較
+
+保存済みの2RUNを比較する。新しいベンチは実行しない。
+
+```sh
+task compare-runs BASE_RUN=20260101-120000 NEW_RUN=20260101-121000
+```
+
+検査・正規deployを済ませた変更を新しく測定し、回収後に比較したい場合は次を使う。
+
+```sh
+task bench BASE_RUN=20260101-120000
+```
+
+`BASE_RUN`は比較元の過去RUNを指定する。ベンチの実行条件には使わない。省略時は従来どおりベンチと回収だけを行う。指定したRUNが未確定・未同期ならベンチ開始前に停止する。失敗RUNも通常回収し、可能なら比較を表示する。回収・比較の失敗も終了コードへ反映し、自動で再投入しない。
+
+比較では合否・得点差、構成・負荷時間窓、計測の欠損・不備、主要20経路の件数・応答時間・HTTPエラー、ホストのCPU・メモリを表示する。欠測は`NULL`で残す。経路集計は負荷区間内に開始する5秒バケットを使い、境界には最大5秒のずれがある。AIは比較元と仮説固有の追加観測、変更の採否を決める。時間窓・構成の違いや計測の不備も確認し、標準比較だけで評価を済ませない。
+
+共通SQLは`tools/analysis/sources.yaml`の`reports.compare_runs`で指定する。競技固有の標準集計を比較する場合はSQLを`tools/contest/queries/`に置き、`reports.compare_contest`へ指定する（任意）。初回setupでは共通比較を確認し、bootstrapではWALなどの情報源の導入に合わせて競技固有の比較を追加する。
+
+両RUNは確定・DuckDB同期済みである必要がある。同期失敗は`task q-sync`で補修し、`task compare-runs`で比較だけをやり直す。
+
 ### 分析
 
 `task q`は読み取り専用、`task q-sync`はfinalized RUNの取り込みを行う。
@@ -189,6 +211,8 @@ nginxの`flush=1s`でバッファに残る末尾の行が書き出されるの�
 
 ベンチ出力の結果・内訳・進捗は形式が競技ごとに違うので、汎用の`analysis/schema/bench-summary.sql`は拡張せず、
 `tools/contest/analysis-schema/`にviewとして作る。詳細は[tools/contest/README.md](contest/README.md)。
+
+WAL分析の方針は[WALの分析と保存](../docs/measurement/wal-analysis.md)を参照する。
 
 ### Go profileのDuckDB閲覧
 
