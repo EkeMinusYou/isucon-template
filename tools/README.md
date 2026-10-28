@@ -42,7 +42,7 @@
 | `measurement/cmd/mysql-metrics/` | 接続・互換性確認 | `-dsn`、認証、socket/port、MySQL version、`performance_schema.data_lock_waits`の利用可否を確認する |
 | `nginx-backend-report/` | log列確認 | [access log](#access-log) |
 | `measurement/cmd/nginx-oncpu-profiler/` | 利用時のみ環境調整 | 既定では無効。`perf`権限、kernel package、worker数、delay、duration、frequency、出力上限を確認する |
-| `setup/` | 取得・構文検査の調整時 | [取得対象の除外、schemaの実体取得、設定構文検査の実装例](setup/README.md) |
+| `setup/` | 取得・構文検査の調整時 | [新規実装の入力と設定構文検査](setup/README.md) |
 | `template/` | 大会後 | templateへ戻す差分の宣言と抽出。当日は変更しない。[backportの手順](template/README.md) |
 | `measurement/cmd/proc-metrics/` | service設定 | Linuxの`/proc`、`/sys`、cgroup v2を使う。`-services`へ実際のsystemd unitを渡し、sampling intervalを確認する |
 | `measurement/cmd/sql-pool-metrics/` | アプリadapter確認 | [endpoint契約](measurement/docs/sql-pool-metrics.md)に合わせる |
@@ -72,7 +72,7 @@ upstreamを選ぶmapを作る場合だけは台数を固定した正規表現に
 MySQL status、slow log、performance_schema digest、lock waitは`mysql_all`の全ホストを対象にし、
 成果物は`<host>-mysql-status.tsv`、`<host>-slp.tsv`、`<host>-mysql-digest.tsv`、
 `<host>-mysql-lock-waits.tsv`として保存します。`MYSQL_HOST`は後方互換の既定接続先と、
-旧RUNのhost解決に残ります。MySQLの共通設定とlimitsは`MYSQL_HOST`から取得します。
+旧RUNのhost解決に残ります。MySQLを採用する場合の設定とlimitsは、新構成に合わせて作成します。
 ホスト別設定がある場合は一律配布せず、次節の`{host}`による転送元の分離を使ってください。
 
 ### デプロイ

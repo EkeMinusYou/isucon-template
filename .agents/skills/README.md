@@ -1,19 +1,19 @@
 # 共有Skills
 
 `.agents/skills/`がClaude Code / Codex共通のskill実体である。`.claude/skills`はこのディレクトリへのsymlink。
-このテンプレートは全面再設計を試すためのもの。初期実装は外部動作の参照に使い、内部構成は新しく設計する。
+このテンプレートは全面再設計を試すためのもの。初期実装のソースと内部構成は参照せず、外部仕様と資源条件だけから新しく設計する。
 
 ## 3段階
 
 | 段階 | Skill | 担当と完了条件 |
 |---|---|---|
-| 1. 準備 | [isucon-setup](isucon-setup/SKILL.md) | 仕様・初期実装・資源・接続先・ポータル操作を準備する。旧実装の計測導入・再デプロイは必須にしない |
-| 2. 全面再設計 | [isucon-bootstrap](isucon-bootstrap/SKILL.md) | 振る舞いを抽出して新構成を設計・全機能を実装する。正当性・復元・標準計測・初回PASSを確認する |
+| 1. 準備 | [isucon-setup](isucon-setup/SKILL.md) | 外部仕様・提供データ・資源・接続先・ポータル操作を準備する。旧実装の計測導入・再デプロイは必須にしない |
+| 2. 全面再設計 | [isucon-bootstrap](isucon-bootstrap/SKILL.md) | 外部仕様から新構成を設計・全機能を実装する。正当性・復元・標準計測・初回PASSを確認する |
 | 3. 自律改善 | [isucon-agent](isucon-agent/SKILL.md) | 新実装の設計予測と実測を照合し、得点への効果から構成・実装を改善し続ける |
 
 ```text
 $isucon-setup HARを参考に、全面再設計に必要な準備をしてください。
-$isucon-bootstrap 初期実装の振る舞いを維持し、内部構成をゼロから設計・実装してPASSまで検証してください。
+$isucon-bootstrap 初期ソースを参照せず、外部仕様と資源条件からゼロから設計・実装してPASSまで検証してください。
 $isucon-agent task benchでPASS・100万点を達成するまで改善してください。
 ```
 

@@ -1,6 +1,6 @@
 # ISUCON template — redesign
 
-初期実装の外部動作を維持し、内部アーキテクチャーをゼロから設計・実装するためのテンプレートです。
+初期実装のソースや内部構成を参照せず、外部仕様と使用可能な資源からゼロから設計・実装するテンプレートです。必要な振る舞いは公式資料と公開APIの入出力から確認します。
 `isucon-template`の`dc23fcb`から派生し、既存方式との比較用に独立したリポジトリとして管理します。
 計測・デプロイ・RUN管理の道具を継承し、初期実装を段階的に最適化する必須手順は置きません。
 
@@ -40,18 +40,18 @@ Linuxバイナリをローカルでクロスコンパイルして配布します
 構成の正本は`Taskfile.yml`です。`# >>> contest values >>>`区画のホスト・役割・内部IP・service・DB・TARGET_OS/ARCHを
 実機と公式資料に合わせて設定してから、取得・生成・検査を行います。
 
-まず[isucon-setup](.agents/skills/isucon-setup/SKILL.md)で、接続先・資源・公式資料・初期実装・HARを準備します。
-必要な取得は`task inspect-hosts`や`task setup-*`を使います。旧実装に計測を加えたり再デプロイしたりする必要はありません。
+まず[isucon-setup](.agents/skills/isucon-setup/SKILL.md)で、接続先・資源・公式の外部仕様・提供データ・HARを準備します。
+`task inspect-hosts`で資源だけを調べ、`task setup`で空の実装先を用意します。旧ソース・内部設定は取得しません。
 新構成のrole・状態管理・初期化を決めて実装した後、bootstrapで`task setup-check`・正規deploy・`task db-recreate`・`task setup-postflight`・`task bench`を実行します。
 既定のホスト配置・DBタスクは例であり、新設計に合わせて設定します。
 
-`SETUP_WEBAPP_EXCLUDES`は取得対象を調整する設定です。schemaのsymlinkや設定構文検査は[取得と構文検査の手引き](tools/setup/README.md)を参照してください。
+新実装は空の`webapp/go/`へ作成し、配置を変える場合は`APP_DIR`と配布設定を合わせます。共通のビルド・配布・計測の道具は再利用できます。
 
 `MYSQL_HOSTS`はDB設定配布とservice有効化の対象、`MYSQL_HOST`は標準メトリクス・対話DB接続・既定のDB接続先です。
 DBをアプリと別ホストへ置く場合は、アプリが`MYSQL_HOST`の内部IPへ接続するよう設定します。
 `task gen`が接続先を生成し、ホスト固有の認証情報は既存の`env.sh`に保持します。
 
-取得した`webapp/`、`nginx/`、`mysql/`、`etc/`は最初のbaselineとしてcommitします。
+新実装と新規作成した配布設定をcommitします。旧ソースや内部設定を参照用に取り込む工程は設けません。
 当日マニュアルとAPI仕様は`docs/official/`へ保存してください。
 `setup-check`は既定のdocumentation IP、未取得ファイル、schema確認、設定構文検査、必要ツール、
 credentialらしいファイルを検出し、build・test・成果物契約・deploy dry-runまで確認します。
@@ -200,7 +200,7 @@ task artifacts-run RUN=runs/<RUN_ID>
 開始時の成果物宣言は`artifact_contract`へ固定します。有効なuser-transitionも必須で、識別情報やAPI分類がない場合は検査失敗となります。
 
 `PROFILE_SECONDS`は初期化・整合性チェック・負荷時間・余裕を含めて設定します。既定の120秒は例です。
-heap・allocs・goroutineは`SNAPSHOT_PROFILE_DELAY`後に同時取得します。既定の40秒も競技に合わせて変更します。
+heap・goroutineは2秒ごとに採取し、allocationはheap profileの差分で確認します。採取後に負荷期間を選びます。
 自動収集には標準pprofに加え、RUN所有情報を返す開始確認endpointが必要です。詳しくは導入例を参照してください。
 
 ```shell
@@ -245,8 +245,8 @@ nginxのon-CPU profile、任意JSON endpointのsnapshot、ダッシュボード�
 
 全面再設計は次の3段階で進めます。
 
-1. [isucon-setup](.agents/skills/isucon-setup/SKILL.md) — 仕様・初期実装・資源・ポータル操作を準備する。
-2. [isucon-bootstrap](.agents/skills/isucon-bootstrap/SKILL.md) — 振る舞いを抽出し、新構成で全機能を実装して正当性・復元・標準計測・初回PASSを確認する。
+1. [isucon-setup](.agents/skills/isucon-setup/SKILL.md) — 外部仕様・提供データ・資源・ポータル操作を準備する。
+2. [isucon-bootstrap](.agents/skills/isucon-bootstrap/SKILL.md) — 外部仕様から新構成で全機能を実装して正当性・復元・標準計測・初回PASSを確認する。
 3. [isucon-agent](.agents/skills/isucon-agent/SKILL.md) — 新実装の実測から、構成と実装を改善し続ける。
 
 呼び出し例と各段階の境界は[共有Skills](.agents/skills/README.md)を参照してください。旧方式との比較では別の試行として実行し、同じサーバーのデプロイ・ベンチは直列にします。別リポジトリ間では操作ロックを共有しないため、他試行のサーバー操作・RUNが終わっていることを確認してから実行します。最初のPASSまでの時間と経過時間ごとの得点も比較し、新戦略の優位性を前提にしません。

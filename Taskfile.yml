@@ -222,57 +222,35 @@ tasks:
       - task --list
 
   setup:
-    desc: サーバーのソースと設定をローカルへ取得
+    desc: 旧実装を取得せず空の新規実装ディレクトリを用意する
     cmds:
-      - task: setup-webapp
-      - task: setup-nginx
-      - task: setup-mysql
-      - task: setup-systemd
-      - task: setup-sysctl
-      - task: setup-contest-assets
-      - echo "取得完了。ベースラインを git commit してください"
+      - mkdir -p '{{.APP_DIR}}' docs/official
+      - echo "新規実装先を準備しました。外部仕様と提供データから設計してください。"
 
   setup-webapp:
-    desc: 除外ファイルの指定に従ってwebappを取得
-    preconditions:
-      - sh: test -f '{{.SETUP_WEBAPP_EXCLUDES}}'
-        msg: SETUP_WEBAPP_EXCLUDES must name an existing rsync exclude file
+    desc: 旧アプリの取得は禁止（新規実装はtask setupで準備）
     cmds:
-      - mkdir -p webapp
-      - '{{.RSYNC}} --exclude-from="{{.SETUP_WEBAPP_EXCLUDES}}" {{.SSH_USER}}@{{.CONF_SRC}}:{{.REMOTE_HOME}}/webapp/ webapp/'
+      - echo "Initial implementation import is disabled in the redesign template." >&2; exit 1
 
   setup-nginx:
-    desc: /etc/nginx を取得
+    desc: 旧実装の内部設定は取得しない
     cmds:
-      - '{{.RSYNC}} --exclude=tls/ {{.SSH_USER}}@{{.CONF_SRC}}:/etc/nginx/ nginx/'
+      - echo "Initial implementation configuration import is disabled in the redesign template." >&2; exit 1
 
   setup-mysql:
-    desc: /etc/mysql を取得
+    desc: 旧実装の内部設定は取得しない
     cmds:
-      - '{{.RSYNC}} --exclude=debian.cnf {{.SSH_USER}}@{{.MYSQL_HOST}}:/etc/mysql/ mysql/'
+      - echo "Initial implementation configuration import is disabled in the redesign template." >&2; exit 1
 
   setup-systemd:
-    desc: アプリとMySQLのsystemd設定を取得
+    desc: 旧実装の内部設定は取得しない
     cmds:
-      - mkdir -p etc/systemd/system/mysql.service.d etc/vendor-units
-      - '{{.RSYNC}} {{.SSH_USER}}@{{.CONF_SRC}}:/lib/systemd/system/nginx.service etc/vendor-units/'
-      - '{{.RSYNC}} {{.SSH_USER}}@{{.MYSQL_HOST}}:/lib/systemd/system/mysql.service etc/vendor-units/'
-      - '{{.RSYNC}} {{.SSH_USER}}@{{.CONF_SRC}}:/etc/systemd/system/{{.SERVICE}}.service etc/systemd/system/'
-      - |
-        if {{.SSH}} {{.SSH_USER}}@{{.MYSQL_HOST}} "sudo test -f /etc/systemd/system/mysql.service.d/limits.conf"; then
-          {{.RSYNC}} {{.SSH_USER}}@{{.MYSQL_HOST}}:/etc/systemd/system/mysql.service.d/limits.conf etc/systemd/system/mysql.service.d/
-        elif [ ! -e etc/systemd/system/mysql.service.d/limits.conf ]; then
-          : > etc/systemd/system/mysql.service.d/limits.conf
-          echo "remote MySQL limits drop-in is absent; created an empty local baseline"
-        else
-          echo "remote MySQL limits drop-in is absent; preserved the existing local file"
-        fi
+      - echo "Initial implementation configuration import is disabled in the redesign template." >&2; exit 1
 
   setup-sysctl:
-    desc: /etc/sysctl.conf を取得
+    desc: 旧実装の内部設定は取得しない
     cmds:
-      - mkdir -p etc
-      - '{{.RSYNC}} {{.SSH_USER}}@{{.CONF_SRC}}:/etc/sysctl.conf etc/'
+      - echo "Initial implementation configuration import is disabled in the redesign template." >&2; exit 1
 
   build:
     desc: GoアプリをローカルでTARGET_OS/TARGET_ARCHへクロスコンパイル
@@ -418,7 +396,7 @@ tasks:
       - DETAIL='{{.DETAIL}}' bash tools/template/diff.sh '{{.TEMPLATE_DIR | default "../isucon-template-redesign"}}'
 
   inspect-hosts:
-    desc: 全ホストの構成を読み取り専用SSHで表示
+    desc: 初期実装の内部構成を表示せずホスト資源だけを確認
     cmds:
       - for: { var: ALL_HOSTS }
         cmd: |
@@ -430,12 +408,8 @@ tasks:
             command -v nproc >/dev/null 2>&1 && nproc || true
             command -v free >/dev/null 2>&1 && free -h || true
             command -v ip >/dev/null 2>&1 && ip -brief address || true
-            systemctl is-active {{.SERVICE}} nginx mysql 2>/dev/null || true
-            systemctl cat {{.SERVICE}} nginx mysql 2>/dev/null || true
-            systemctl list-units --type=service --state=running --no-pager
-            systemctl list-unit-files --type=service --state=enabled --no-pager
-            sudo ss -lntup
-            ps -eo pid,user,comm
+            df -h
+            command -v lscpu >/dev/null 2>&1 && lscpu || true
           '
 
   setup-preflight:
