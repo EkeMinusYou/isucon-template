@@ -511,6 +511,17 @@ func (r *digestRunner) runOutput(d Digester, out Output, inputs []string, host s
 	}
 
 	err := r.exec(ctx, d, argv, inputs, path, host)
+	if err == nil && out.OnEmpty != "" {
+		info, statErr := os.Stat(path)
+		if statErr != nil {
+			return statErr
+		}
+		if info.Size() == 0 {
+			if err := os.WriteFile(path, []byte(unescape(out.OnEmpty)), 0o644); err != nil {
+				return err
+			}
+		}
+	}
 	if err == nil {
 		fmt.Printf("%s 集計\n", path)
 		return nil

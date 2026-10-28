@@ -451,3 +451,19 @@ func TestFetchFailureDoesNotReuseStaleRawAndMarksDigestArtifacts(t *testing.T) {
 		t.Fatalf("stderr = %q, err = %v", stderr, readErr)
 	}
 }
+
+func TestSuccessfulEmptyJSONDigestAndCommandFailureStayDistinct(t *testing.T) {
+	r := &digestRunner{runDir: t.TempDir()}
+	out := Output{File: "result.json", Run: "true", OnEmpty: "[]"}
+	if err := r.runOutput(Digester{}, out, nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(r.runDir, out.File))
+	if err != nil || string(body) != "[]" {
+		t.Fatalf("empty JSON = %q, %v", body, err)
+	}
+	out.Run = "false"
+	if err := r.runOutput(Digester{}, out, nil, ""); err == nil {
+		t.Fatal("command failure was masked by the empty-result value")
+	}
+}

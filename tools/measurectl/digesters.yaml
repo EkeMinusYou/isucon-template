@@ -212,6 +212,8 @@ digesters:
         run: pt-query-digest {input}
       - file: '{host}-pt-query-digest.json'
         run: pt-query-digest --output json {input}
+        # No slow-query events is a successful empty result, not invalid JSON.
+        on_empty: '[]'
         on_error: '[]'
         on_skip: '[]'
 

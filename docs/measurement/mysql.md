@@ -43,6 +43,7 @@ collector設定と回収処理の詳細は[tools/README.mdの「計測と集計�
 
 slow log原文はリポジトリ直下の`raw/mysql-slow-<host>.log`へ回収し、ホストごとに最新分だけを保持する。
 次のRUNの回収時に上書きし、RUNごとの複製・圧縮保存はしない。集計結果は各RUNへ保存する。
+JSON集計が正常終了して出力が空の場合は`[]`を保存する。集計コマンドの失敗は別途stderrへ記録する。
 SQL digestとslow logから作った集計は初期化を含む採取全体の値で、負荷期間だけのSQL件数・時間ではない。
 負荷期間のみのDuckDBには取り込まず、除外理由を`measurement_sources`へ記録する。
 必要なときは各RUNの集計と、最新RUNについてはslow log原文も調査する。初期化の影響と記録閾値を明示する。

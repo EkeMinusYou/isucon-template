@@ -160,6 +160,8 @@ type Output struct {
 	OnError string `yaml:"on_error"`
 	// Contents written on skip; empty creates an empty artifact with a stderr reason.
 	OnSkip string `yaml:"on_skip"`
+	// Contents written only when a successful command produces zero bytes.
+	OnEmpty string `yaml:"on_empty"`
 }
 
 type DigestConfig struct {
