@@ -45,6 +45,8 @@ vars:
   SSH_USER: ubuntu
   ISUCON_USER: isucon
   APP_DIR: webapp/go
+  # Setup-only source checkout, excluded from the design workspace.
+  REFERENCE_DIR: '{{.ROOT_DIR}}-reference'
   REMOTE_HOME: /home/isucon
   SETUP_WEBAPP_EXCLUDES: '{{default "tools/setup/webapp-excludes.txt" .CONTEST_WEBAPP_EXCLUDES}}'
 
@@ -222,35 +224,64 @@ tasks:
       - task --list
 
   setup:
-    desc: 旧実装を取得せず空の新規実装ディレクトリを用意する
+    desc: 空の新規実装先を準備し旧ソースを別の調査用領域へ取得する
     cmds:
       - mkdir -p '{{.APP_DIR}}' docs/official
-      - echo "新規実装先を準備しました。外部仕様と提供データから設計してください。"
+      - task: setup-webapp
+      - echo "setupで振る舞いをdocs/behavior.mdへ整理し、bootstrapは別セッションで開始してください。"
+
+  prepare-reference:
+    internal: true
+    env:
+      ISUCON_REFERENCE_DIR: '{{.REFERENCE_DIR}}'
+      ISUCON_PROJECT_DIR: '{{.ROOT_DIR}}'
+    preconditions:
+      - sh: >-
+          python3 -c 'import os; from pathlib import Path;
+          ref=Path(os.environ["ISUCON_REFERENCE_DIR"]).resolve();
+          root=Path(os.environ["ISUCON_PROJECT_DIR"]).resolve();
+          assert ref != root and root not in ref.parents, "REFERENCE_DIR must be outside the design repository"'
+        msg: REFERENCE_DIR must be outside the design repository
+    cmds:
+      - mkdir -p '{{.REFERENCE_DIR}}'
 
   setup-webapp:
-    desc: 旧アプリの取得は禁止（新規実装はtask setupで準備）
+    desc: setup専用の旧ソースをREFERENCE_DIRへ取得する
+    deps: [prepare-reference]
+    preconditions:
+      - sh: test -f '{{.SETUP_WEBAPP_EXCLUDES}}'
+        msg: SETUP_WEBAPP_EXCLUDES must name an existing rsync exclude file
     cmds:
-      - echo "Initial implementation import is disabled in the redesign template." >&2; exit 1
+      - mkdir -p '{{.REFERENCE_DIR}}/webapp'
+      - '{{.RSYNC}} --exclude-from="{{.SETUP_WEBAPP_EXCLUDES}}" {{.SSH_USER}}@{{.CONF_SRC}}:{{.REMOTE_HOME}}/webapp/ {{.REFERENCE_DIR}}/webapp/'
 
   setup-nginx:
-    desc: 旧実装の内部設定は取得しない
+    desc: setupで振る舞いを調べるためのnginx設定をREFERENCE_DIRへ取得する
+    deps: [prepare-reference]
     cmds:
-      - echo "Initial implementation configuration import is disabled in the redesign template." >&2; exit 1
+      - mkdir -p '{{.REFERENCE_DIR}}/nginx'
+      - '{{.RSYNC}} --exclude=tls/ {{.SSH_USER}}@{{.CONF_SRC}}:/etc/nginx/ {{.REFERENCE_DIR}}/nginx/'
 
   setup-mysql:
-    desc: 旧実装の内部設定は取得しない
+    desc: setupで振る舞いを調べるためのMySQL設定をREFERENCE_DIRへ取得する
+    deps: [prepare-reference]
     cmds:
-      - echo "Initial implementation configuration import is disabled in the redesign template." >&2; exit 1
+      - mkdir -p '{{.REFERENCE_DIR}}/mysql'
+      - '{{.RSYNC}} --exclude=debian.cnf {{.SSH_USER}}@{{.MYSQL_HOST}}:/etc/mysql/ {{.REFERENCE_DIR}}/mysql/'
 
   setup-systemd:
-    desc: 旧実装の内部設定は取得しない
+    desc: setupで運用条件を調べるためのunitをREFERENCE_DIRへ取得する
+    deps: [prepare-reference]
     cmds:
-      - echo "Initial implementation configuration import is disabled in the redesign template." >&2; exit 1
+      - mkdir -p '{{.REFERENCE_DIR}}/etc/systemd/system'
+      - '{{.RSYNC}} {{.SSH_USER}}@{{.CONF_SRC}}:/etc/systemd/system/{{.SERVICE}}.service {{.REFERENCE_DIR}}/etc/systemd/system/'
 
   setup-sysctl:
-    desc: 旧実装の内部設定は取得しない
+    desc: setupで確認するsysctl設定をREFERENCE_DIRへ取得する
+    deps: [prepare-reference]
     cmds:
-      - echo "Initial implementation configuration import is disabled in the redesign template." >&2; exit 1
+      - mkdir -p '{{.REFERENCE_DIR}}/etc'
+      - '{{.RSYNC}} {{.SSH_USER}}@{{.CONF_SRC}}:/etc/sysctl.conf {{.REFERENCE_DIR}}/etc/'
 
   build:
     desc: GoアプリをローカルでTARGET_OS/TARGET_ARCHへクロスコンパイル

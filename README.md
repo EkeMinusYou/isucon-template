@@ -1,6 +1,6 @@
 # ISUCON template — redesign
 
-初期実装のソースや内部構成を参照せず、外部仕様と使用可能な資源からゼロから設計・実装するテンプレートです。必要な振る舞いは公式資料と公開APIの入出力から確認します。
+setupで既存ソースと公式資料から外部の振る舞いを抽出し、別セッションで外部仕様と資源条件だけからゼロから設計・実装するテンプレートです。設計を担当するbootstrapと改善を担当するagentは、初期ソースや内部構成を参照しません。
 `isucon-template`の`dc23fcb`から派生し、既存方式との比較用に独立したリポジトリとして管理します。
 計測・デプロイ・RUN管理の道具を継承し、初期実装を段階的に最適化する必須手順は置きません。
 
@@ -41,17 +41,17 @@ Linuxバイナリをローカルでクロスコンパイルして配布します
 実機と公式資料に合わせて設定してから、取得・生成・検査を行います。
 
 まず[isucon-setup](.agents/skills/isucon-setup/SKILL.md)で、接続先・資源・公式の外部仕様・提供データ・HARを準備します。
-`task inspect-hosts`で資源だけを調べ、`task setup`で空の実装先を用意します。旧ソース・内部設定は取得しません。
+`task inspect-hosts`で資源を調べ、`task setup`で空の実装先と調査用の旧ソースを別々に用意します。旧ソースはリポジトリ外の`REFERENCE_DIR`へ置きます。
 新構成のrole・状態管理・初期化を決めて実装した後、bootstrapで`task setup-check`・正規deploy・`task db-recreate`・`task setup-postflight`・`task bench`を実行します。
 既定のホスト配置・DBタスクは例であり、新設計に合わせて設定します。
 
-新実装は空の`webapp/go/`へ作成し、配置を変える場合は`APP_DIR`と配布設定を合わせます。共通のビルド・配布・計測の道具は再利用できます。
+setupは外部の振る舞い・提供データ・資源条件を`docs/behavior.md`へ保存して終了します。bootstrapは新しいセッションでこの仕様を読み、空の`webapp/go/`へ新実装を作ります。setupの会話と調査用ソースは渡しません。配置を変える場合は`APP_DIR`と配布設定を合わせます。
 
 `MYSQL_HOSTS`はDB設定配布とservice有効化の対象、`MYSQL_HOST`は標準メトリクス・対話DB接続・既定のDB接続先です。
 DBをアプリと別ホストへ置く場合は、アプリが`MYSQL_HOST`の内部IPへ接続するよう設定します。
 `task gen`が接続先を生成し、ホスト固有の認証情報は既存の`env.sh`に保持します。
 
-新実装と新規作成した配布設定をcommitします。旧ソースや内部設定を参照用に取り込む工程は設けません。
+新実装と新規作成した配布設定をcommitします。旧ソースや内部設定は調査用領域だけに保存し、このリポジトリへcommitしません。
 当日マニュアルとAPI仕様は`docs/official/`へ保存してください。
 `setup-check`は既定のdocumentation IP、未取得ファイル、schema確認、設定構文検査、必要ツール、
 credentialらしいファイルを検出し、build・test・成果物契約・deploy dry-runまで確認します。
@@ -245,7 +245,7 @@ nginxのon-CPU profile、任意JSON endpointのsnapshot、ダッシュボード�
 
 全面再設計は次の3段階で進めます。
 
-1. [isucon-setup](.agents/skills/isucon-setup/SKILL.md) — 外部仕様・提供データ・資源・ポータル操作を準備する。
+1. [isucon-setup](.agents/skills/isucon-setup/SKILL.md) — 既存ソースも照合して外部仕様・提供データ・資源・ポータル操作を準備し、別セッションへ渡す。
 2. [isucon-bootstrap](.agents/skills/isucon-bootstrap/SKILL.md) — 外部仕様から新構成で全機能を実装して正当性・復元・標準計測・初回PASSを確認する。
 3. [isucon-agent](.agents/skills/isucon-agent/SKILL.md) — 新実装の実測から、構成と実装を改善し続ける。
 
