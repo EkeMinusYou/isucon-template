@@ -9,7 +9,7 @@
 - `measurement/cmd/runtime-metrics`：1秒間隔のruntime・内部指標。
 - `measurement/cmd/json-metrics-collector`：必要な場合だけ有効化する追加集計。
 - `measurectl`：宣言に基づく計測・回収・集計・品質検査。
-- `deployctl`：Goアプリ・systemd・OS設定の配布、初期化、役割確認。
+- `deployctl`：Goアプリ・nginx・systemd・OS設定の配布、初期化、役割確認。
 - `portal-bench`・`bench-output`：ポータル操作と公式結果の保存・解釈。
 - `analysisctl`・`analysis`：保存済みRUNの負荷期間をDuckDBへ同期・比較。
 - `dashboard`：保存済みRUNの任意の可視化。
@@ -26,7 +26,7 @@
 
 ### デプロイ
 
-`tools/deployctl/deployments.yaml`が配布と実行順を定義します。`deploy-all`は停止対象unitを無効化してからGoアプリを配布・起動します。`initialize`は稼働中アプリの初期化APIを呼びます。並行処理の停止・初期状態の公開・全ホストの同期はGoの初期化処理で実装してください。
+`tools/deployctl/deployments.yaml`が配布と実行順を定義します。`deploy-all`は停止対象unitを無効化し、Goアプリとホスト別に生成したnginx設定を配布・起動します。`initialize`は稼働中アプリの初期化APIを呼びます。並行処理の停止・初期状態の公開・全ホストの同期はGoの初期化処理で実装してください。
 
 `local`・`remote`には`{host}`を指定でき、ホスト別設定を配布できます。`validate`付きuploadは転送先を退避し、検査失敗時にそのuploadを復元します。`DEPLOYCTL_CONFIG`で競技固有の設定を選び、`include`で共通graphを再利用できます。新たなGoサービスのrole・実行・状態確認も同じ設定へ追加します。
 
@@ -131,7 +131,7 @@ scoreには1つのcapture groupを持たせ、該当する行がない項目は�
 
 `tools/contest/user-transition-routes.json`のCookie列・API prefix・正規化routeを当日のAPIへ合わせる。
 bootstrapでは[重要な操作間の標準集計](../docs/measurement/state-and-operations.md#重要な操作間の標準集計)も設定する。
-`task q`で`operation_progress`・`operation_concurrency`・`connection_reuse`を比較できる。受信量は`http_traffic_series`、ログ出力counterは`access_log_health`で読む。routeは動的IDを
+`task q`で`operation_progress`・`operation_concurrency`・`connection_reuse`を比較できる。受信量は`http_traffic_series`、Goの追加アクセスロガーを使う場合だけ、ログ出力counterを`access_log_health`で読む。nginxログの健全性をこのcounterで判断しない。routeは動的IDを
 そのまま残さず、限定された正規表現を上から具体的な順に並べる。Cookieを持たない競技や、識別子を
 安全にログへ出せない場合は、この集計を無効にする。access logの時系列bucket
 （`tools/analysis/schema/access-log.sql`の`# >>> contest values >>>`区画）と`alp.yml`の
@@ -151,3 +151,5 @@ bootstrapでは[重要な操作間の標準集計](../docs/measurement/state-and
 
 - `task setup-check`は`task test-tools`、`task artifacts`とdeploy dry-runを含む。個別検査と全体検査が重なる場合、通過済みの検査は変更・失敗・未解決の懸念がない限り繰り返さない。
 - `task deploy-*-dry`はdeployctlの`-dry-run`でrole・転送元/先・activation順を検証する。Go Taskの`task --dry`は表示のみで、代用できない。
+
+ダッシュボードは[表示と入力の対応](dashboard/web/README.md)を参照してください。Go runtimeの取得・表示は標準で接続済みですが、操作遷移の分類やセッション識別は競技の業務実装に合わせて設定します。

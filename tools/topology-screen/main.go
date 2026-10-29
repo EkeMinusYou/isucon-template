@@ -122,7 +122,7 @@ func run(args []string, output io.Writer, diagnostics io.Writer) error {
 	uriField := fs.String("field-uri", "uri", "log field holding the request URI")
 	statusField := fs.String("field-status", "status", "log field holding the HTTP status")
 	responseField := fs.String("field-response-time", "response_time", "log field holding total request seconds; empty disables the column")
-	upstreamField := fs.String("field-upstream-time", "upstream_time", "log field holding upstream seconds; empty disables the column")
+	upstreamField := fs.String("field-upstream-time", "upstream_response_time", "log field holding upstream seconds; empty disables the column")
 	bytesField := fs.String("field-body-bytes", "body_bytes", "log field holding response body bytes; empty disables the column")
 
 	moduliRaw := fs.String("moduli", "2,3,4,5,10", "comma-separated shard counts to screen")

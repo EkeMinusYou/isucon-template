@@ -37,6 +37,14 @@ func TestHandleMetricsUsesAnalysisWindow(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	runtime := "sample\ttimestamp\telapsed_ms\tmetric\tvalue\n" +
+		"0\t2026-09-17T00:00:00Z\t0\tgo_goroutines\t1\n" +
+		"1\t2026-09-17T00:00:01Z\t1000\tgo_goroutines\t2\n" +
+		"2\t2026-09-17T00:00:02Z\t2000\tgo_goroutines\t3\n" +
+		"3\t2026-09-17T00:00:03Z\t3000\tgo_goroutines\t4\n"
+	if err := os.WriteFile(filepath.Join(runDir, "isucon-1-runtime-metrics.tsv"), []byte(runtime), 0600); err != nil {
+		t.Fatal(err)
+	}
 	analysisDB := filepath.Join(t.TempDir(), "analysis.duckdb")
 	sql := `create table analysis_windows (
  run_id varchar primary key,
@@ -63,6 +71,9 @@ insert into analysis_windows values
 	var got metricsResponse
 	if err := json.Unmarshal(recorder.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
+	}
+	if got.RuntimeScope != "load" || len(got.Runtimes) != 1 || len(got.Runtimes[0].Series) != 2 || got.Runtimes[0].Series[0].ElapsedMs != 1000 {
+		t.Fatalf("wrong runtime window: %+v", got.Runtimes)
 	}
 	if len(got.Hosts) != 1 || len(got.Hosts[0].Series) != 2 {
 		t.Fatalf("unexpected host series: %+v", got.Hosts)

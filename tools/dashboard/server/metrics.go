@@ -83,9 +83,11 @@ type serviceMetrics struct {
 }
 
 type metricsResponse struct {
-	RunID    string           `json:"run_id"`
-	Hosts    []hostMetrics    `json:"hosts"`
-	Services []serviceMetrics `json:"services"`
+	RunID        string           `json:"run_id"`
+	Hosts        []hostMetrics    `json:"hosts"`
+	Services     []serviceMetrics `json:"services"`
+	Runtimes     []runtimeMetrics `json:"runtimes"`
+	RuntimeScope string           `json:"runtime_scope"`
 }
 
 // readTSV reads a header-delimited TSV file and returns the header and rows.
@@ -296,7 +298,19 @@ func (a *app) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := metricsResponse{RunID: runID, Hosts: []hostMetrics{}, Services: []serviceMetrics{}}
+	resp := metricsResponse{RunID: runID, Hosts: []hostMetrics{}, Services: []serviceMetrics{}, Runtimes: []runtimeMetrics{}, RuntimeScope: "collection"}
+	if window != nil {
+		resp.RuntimeScope = "load"
+	}
+	for _, file := range mustGlob(filepath.Join(dir, "*-runtime-metrics.tsv")) {
+		series, err := parseRuntimeSeries(file, window)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		resp.Runtimes = append(resp.Runtimes, runtimeMetrics{Host: strings.TrimSuffix(filepath.Base(file), "-runtime-metrics.tsv"), Series: series})
+	}
+	sort.Slice(resp.Runtimes, func(i, j int) bool { return resp.Runtimes[i].Host < resp.Runtimes[j].Host })
 
 	procFiles := mustGlob(filepath.Join(dir, "*-proc-metrics.tsv"))
 	for _, f := range procFiles {

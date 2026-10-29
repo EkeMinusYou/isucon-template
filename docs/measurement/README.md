@@ -1,6 +1,6 @@
 # 計測の組み込み
 
-Goアプリケーションとホストから計測データを出すための設定・実装手順をまとめる。
+nginx・Goアプリケーションとホストから計測データを出すための設定・実装手順をまとめる。
 collectorや集計ツール自体の説明は各ツールのREADMEと[tools/README.md](../../tools/README.md)に置く。
 
 ## 一覧
@@ -29,3 +29,7 @@ DuckDBの分析値は`load_windows`の負荷期間に限定する。入口のtra
 
 除外理由は`measurement_sources`と`go_profile_import_scope`で確認でき、`compare-runs`にも表示する。
 空の分析表を「処理なし」「CPU負荷なし」と解釈しない。全体のuser-transition等が必要な場合はRUNのJSONを読む。
+
+## 取得後の表示
+
+[ダッシュボード](../../tools/dashboard/web/README.md)では、nginx/Goの役割、ホスト・サービス資源、Go runtime、profile、nginxログに基づく要求の推移を表示します。runtimeは汎用Go土台から接続済みです。セッション識別・操作分類・アプリ固有指標はbootstrapで業務実装へ接続してください。Goの`access_log_health`は追加のGoロガーを使う場合だけの指標で、nginxのログ欠損を表すものではありません。

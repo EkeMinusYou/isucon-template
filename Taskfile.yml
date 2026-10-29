@@ -888,7 +888,7 @@ tasks:
       - for: { var: ALL_HOSTS }
         cmd: |
           {{.SSH}} {{.SSH_USER}}@{{.ITEM}} \
-            "systemctl is-active {{.SERVICE}} | tr '\n' ' '; echo; uptime"
+            "systemctl is-active {{.SERVICE}} nginx | tr '\n' ' '; echo; uptime"
 
   logs:
     desc: APP_HOSTSのアプリログ

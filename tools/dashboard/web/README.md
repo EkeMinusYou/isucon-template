@@ -1,32 +1,28 @@
-# React + TypeScript + Vite
+# ISUCON計測ダッシュボード
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+保存済みRUNを読むローカルのReact UIです。競技アプリへ組み込まず、競技サーバーのサービス操作も行いません。
 
-Currently, two official plugins are available:
+リポジトリのルートで`task dashboard`を実行すると、APIが`127.0.0.1:8091`、UIが`127.0.0.1:5173`で起動します。Node.js・npm・Goと、分析DBを読むDuckDBが必要です。初回はUIの依存を自動インストールします。
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## 入力と表示
 
-## React Compiler
+| 表示 | 入力 |
+|---|---|
+| サーバーの役割 | 各RUNの`run.json`。現在のTaskfileではなく、記録当時のGo・HTTP入口・nginx・追加サービスを表示 |
+| スコア・合否 | `runs/scores.tsv`、`run.json`、分析DBの採点結果 |
+| タイムライン・alp・操作遷移 | nginxの`raw/access-*.log[.zst]`とRUNの集計成果物・ベンチ出力 |
+| ホスト・サービス資源 | `*-proc-metrics.tsv`、`*-service-metrics.tsv`。nginxとGoはservice名で区別 |
+| Go runtime | `*-runtime-metrics.tsv`。goroutine・heap・allocation速度・GCのCPU時間 |
+| Go pprof・任意fgprof | RUNに保存されたprofile。採取期間全体の値であり、初期化を含む場合がある |
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Go runtimeは、分析DBに有効な負荷期間があればそのサンプルだけを表示します。期間が未確定なら採取全体であることを画面に示します。未取得値は0にせず、counterの速度は同じプロセスの隣接サンプル間で計算します。再起動やcounter減少をまたぐ速度は表示しません。
 
-## Expanding the Oxlint configuration
+旧RUNにruntimeや役割がなくても、存在する他の成果物を表示できます。Goの追加アクセスロガー用counterはnginxのログ出力counterではありません。アプリ固有の操作定義・セッション識別値は、bootstrapで接続してから確認してください。
 
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
+## 計測からの接続
 
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
-```
+`task bench`が計測開始・ベンチ・回収・分析DB同期を行います。保存済み成果物からDBだけを更新する場合は`task q-sync`を使います。生成元と回収の契約は[計測ガイド](../../../docs/measurement/README.md)、[共通ツール](../../README.md)を参照してください。
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+## ローカル検証
+
+このディレクトリで`npm ci`、`npm test`、`npm run build`を実行します。APIの検証は`go -C ../server test ./...`です。画面確認は[ブラウザツール](../../browser/README.md)を利用できます。

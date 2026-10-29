@@ -15,6 +15,7 @@ import { BenchmarkTimeline } from './components/BenchmarkTimeline'
 import { FgprofTop } from './components/PprofTop'
 import { GoPprofTop } from './components/GoPprofTop'
 import { ResourceTimeSeries } from './components/ResourceTimeSeries'
+import { GoRuntimeMetrics } from './components/GoRuntimeMetrics'
 import { RunSelector } from './components/RunSelector'
 import { ServerRoles } from './components/ServerRoles'
 import { SectionNav, type SectionDef } from './components/SectionNav'
@@ -41,11 +42,12 @@ const SECTIONS: SectionDef[] = [
   { id: 'alp', title: 'alp トップボトルネック', navLabel: 'alp' },
   { id: 'user-transitions', title: 'Cookie ユーザー遷移', navLabel: 'ユーザー遷移' },
   { id: 'resources', title: 'ホスト/サービス別リソース時系列', navLabel: 'リソース' },
+  { id: 'go-runtime', title: 'Go runtime', navLabel: 'Go runtime' },
   { id: 'pprof', title: 'Go pprof', navLabel: 'pprof' },
   { id: 'fgprof', title: 'fgprof wall-clock', navLabel: 'fgprof' },
 ]
 
-const COLLAPSED_BY_DEFAULT = new Set(['resources', 'pprof', 'fgprof'])
+const COLLAPSED_BY_DEFAULT = new Set(['resources', 'go-runtime', 'pprof', 'fgprof'])
 
 function Section({
   id,
@@ -297,6 +299,10 @@ function App() {
 
             <Section id="resources" title="ホスト/サービス別リソース時系列">
               {runData ? <ResourceTimeSeries metrics={runData.metrics} /> : <ChartSkeleton columns={3} />}
+            </Section>
+
+            <Section id="go-runtime" title="Go runtime">
+              {runData ? <GoRuntimeMetrics metrics={runData.metrics} /> : <ChartSkeleton columns={3} />}
             </Section>
 
             <Section id="pprof" title="Go pprof">

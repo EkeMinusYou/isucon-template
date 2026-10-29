@@ -2,7 +2,7 @@
 
 既定のnginx＋Go構成では[nginxアクセスログ](nginx-access-log.md)を標準集計に使います。この文書はGo内部の追加診断、または明示的にGoを入口に変更した場合の契約です。二つのログを同じ入口の要求として重複集計しません。
 
-HTTP入口を担当するGoプロセスから、1要求につき1行のJSONを`ACCESS_LOG_PATH`へ出します。標準集計と負荷期間推定はこのログを読みます。
+Go内部の追加診断では、nginxの`ACCESS_LOG_PATH`とは別のファイルへJSONを出します。明示的にGoをHTTP入口に切り替える場合のみ、collectorの`ingress` role・ログパス・標準集計をそのGoログへ接続します。
 
 | 列 | 内容 |
 |---|---|
@@ -24,7 +24,7 @@ Goアクセスログを追加する場合は共通moduleの`app.NewAccessLogger`
 
 middlewareでResponseWriterを包む場合は、暗黙の200、途中切断、Flush・Hijack等の必要なinterfaceを維持します。SSE等ではハンドラー終了と接続終了の意味を合わせ、単にhandler開始時刻を完了時刻として記録しません。
 
-bootstrapで全HTTP入口のログと`app_traffic` roleを揃えます。`alp.yml`、`user-transition-routes.json`、`analysis/schema/access-log.sql`のAPI分類・動的ID正規化を揃え、ログ出力からalp・操作遷移・負荷期間のDuckDB集計まで確認してください。
+GoをHTTP入口として使う場合は、全HTTP入口のログと`ingress` roleを揃えます。`alp.yml`、`user-transition-routes.json`、`analysis/schema/access-log.sql`のAPI分類・動的ID正規化を揃え、ログ出力からalp・操作遷移・負荷期間のDuckDB集計まで確認してください。
 
 接続間隔の計算は逐次HTTP/1.1を前提とします。HTTP/2の並行streamでは接続単位の差を利用者の待ち時間と解釈せず、必要なら別の観測を追加します。取得できない指標を0で補いません。
 

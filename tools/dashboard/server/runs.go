@@ -127,14 +127,16 @@ func (a *app) listRuns() ([]runInfo, error) {
 			}
 		}
 		runs = append(runs, runInfo{
-			Roles:      readRunRoles(run.Path),
-			Score:      score,
-			Passed:     passed,
-			RunID:      run.ID,
-			HasAlp:     fileExists(filepath.Join(run.Path, "alp.json")),
-			HasMetrics: len(mustGlob(filepath.Join(run.Path, "*-proc-metrics.tsv"))) > 0,
-			HasFgprof:  len(mustGlob(filepath.Join(run.Path, "*-fgprof.pprof"))) > 0,
-			HasPprof:   hasGoPprofFiles(run.Path),
+			Roles:  readRunRoles(run.Path),
+			Score:  score,
+			Passed: passed,
+			RunID:  run.ID,
+			HasAlp: fileExists(filepath.Join(run.Path, "alp.json")),
+			HasMetrics: len(mustGlob(filepath.Join(run.Path, "*-proc-metrics.tsv"))) > 0 ||
+				len(mustGlob(filepath.Join(run.Path, "*-service-metrics.tsv"))) > 0 ||
+				len(mustGlob(filepath.Join(run.Path, "*-runtime-metrics.tsv"))) > 0,
+			HasFgprof: len(mustGlob(filepath.Join(run.Path, "*-fgprof.pprof"))) > 0,
+			HasPprof:  hasGoPprofFiles(run.Path),
 		})
 	}
 	// newest first for UI convenience (run selector defaults to latest)

@@ -6,7 +6,7 @@ export type MetricDef<T> = {
   label: string
   unit: string
   category: string
-  domain?: [number, number]
+  domain?: [number | string, number | string]
   scale?: number
   decimals?: number
 }
@@ -36,7 +36,8 @@ export function TinyLineChart<T extends { elapsed_ms: number }>({
   const decimals = metric.decimals ?? 1
   const data = series.map((p) => ({
     elapsed_s: Math.round(p.elapsed_ms / 1000),
-    value: (p[metric.key] as number) * (metric.scale ?? 1),
+    value: typeof p[metric.key] === 'number' && Number.isFinite(p[metric.key])
+      ? (p[metric.key] as number) * (metric.scale ?? 1) : null,
   }))
 
   return (
@@ -55,6 +56,7 @@ export function TinyLineChart<T extends { elapsed_ms: number }>({
             axisLine={false}
             tickLine={false}
             width={48}
+            tickFormatter={(value: number) => value.toFixed(decimals)}
             domain={metric.domain ?? ['auto', 'auto']}
           />
           <Tooltip
@@ -76,6 +78,7 @@ export function TinyLineChart<T extends { elapsed_ms: number }>({
             strokeWidth={2}
             dot={false}
             isAnimationActive={false}
+            connectNulls={false}
           />
         </LineChart>
       </ResponsiveContainer>

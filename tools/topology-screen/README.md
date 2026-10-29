@@ -1,7 +1,7 @@
 # topology-screen
 
-保存済みGo HTTP server access logをオフラインで再生し、任意のキーをhash shardへ割り当てた場合の
-リクエスト数、response time、upstream time、body bytesの分布を比較します。稼働中のGo HTTP serverや
+保存済みnginx access logをオフラインで再生し、任意のキーをhash shardへ割り当てた場合の
+リクエスト数、response time、upstream time、body bytesの分布を比較します。稼働中のnginx・Goや
 役割構成は変更しません。
 
 ```shell
@@ -26,3 +26,5 @@ capture groupを1つ持つ`-key-regex`を指定してください。`.zst`は`zs
 
 TSVをstdout、coverage summaryをstderrへ出します。キーやrouteが1件も一致しない場合、
 空結果を「負荷なし」と誤認しないよう失敗します。
+
+標準nginxログの`vhost`と`upstream_response_time`を既定で読みます。従来の`upstream_time`列を持つログには`-field-upstream-time upstream_time`を指定してください。`vhost`でなくセッション等を分割キーにする場合は`-key-field`を明示し、そのキーで業務状態を分割できるか別途確認します。

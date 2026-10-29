@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -192,5 +194,20 @@ func TestResolveInputsRejectsEmptyMatch(t *testing.T) {
 	}
 	if _, err := resolveInputs(t.TempDir(), "raw/access-*.log.zst", ""); err == nil {
 		t.Fatal("an empty RUN directory must fail")
+	}
+}
+
+func TestDefaultFieldsReadNginxTemplateLog(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "access.log")
+	body := `{"method":"GET","uri":"/api/items","status":200,"vhost":"example.test","response_time":0.1,"upstream_response_time":"0.05","body_bytes":100}` + "\n"
+	if err := os.WriteFile(path, []byte(body), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var output, diagnostics bytes.Buffer
+	if err := run([]string{"-input", path, "-moduli", "2"}, &output, &diagnostics); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "0.050000") || !strings.Contains(diagnostics.String(), "matched=1") {
+		t.Fatalf("output=%s diagnostics=%s", output.String(), diagnostics.String())
 	}
 }

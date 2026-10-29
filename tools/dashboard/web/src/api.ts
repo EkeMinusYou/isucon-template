@@ -119,10 +119,23 @@ export type ServiceMetrics = {
   series: ServicePoint[]
 }
 
+export type RuntimePoint = {
+  elapsed_ms: number
+  timestamp: string
+  values: Record<string, number>
+}
+
+export type RuntimeMetrics = {
+  host: string
+  series: RuntimePoint[]
+}
+
 export type MetricsResponse = {
   run_id: string
   hosts: HostMetrics[]
   services: ServiceMetrics[]
+  runtimes: RuntimeMetrics[]
+  runtime_scope: 'load' | 'collection'
 }
 
 export type FgprofFunction = {
