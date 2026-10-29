@@ -29,6 +29,11 @@ docs/measurement
 docs/official/README.md
 docs/solutions
 docs/special-sources
+nginx/common/nginx.conf
+nginx/common/snippets/proxy-app.conf
+nginx/common/snippets/static-cache.conf
+nginx/roles/edge/sites-enabled/app.conf
+etc/systemd/system/nginx.service.d/limits.conf
 tools
 tools/contest/README.md
 

@@ -52,8 +52,34 @@ task artifacts-run RUN=runs/<RUN_ID>
 
 詳細は[Tools](tools/README.md)、判断基準は[Evidence](.agents/skills/_shared/evidence.md)を参照してください。
 
-nginxの初期設定は、他の初期ソースと同様にリポジトリへ含めません。`task setup-nginx`は`REFERENCE_DIR`へ取得し、setupは外部仕様だけを渡します。bootstrapが[nginxの秘伝のタレ](docs/special-sources/nginx.md)を参照して設定を新規作成し、初回ベンチ前に適用します。`task gen`は新構成の転送先と静的配信rootを生成し、`task deploy-nginx`は構文確認付きの配布・reloadを行います。
+競技サーバーの初期nginx設定は、他の初期ソースと同様にリポジトリへ含めません。`task setup-nginx`は`REFERENCE_DIR`へ取得し、setupは外部仕様だけを渡します。テンプレートには[秘伝のタレ](docs/special-sources/nginx.md)に基づく汎用ベースを同梱し、bootstrapでTLS・URL・静的資材など競技固有の条件を設定します。
 
-公開静的資材は`STATIC_DIR`（既定`public/`）から全NGINX_HOSTSの`STATIC_REMOTE_DIR`へ`task deploy-nginx`で配布します。新規作成する`nginx/sites-enabled/app.conf`で仕様を確認したURLだけを`try_files`等で直接配信し、キャッシュ設定を加えます。動的アップロードや永続データは、配布時に削除されるこのディレクトリへ置かず、別の保存・同期経路を設計してください。
+## 複数台のnginx設定
 
-新規作成した設定は、`task deploy-nginx-dry`で配布先を確認し、nginxのバージョンとTLS・公開portを合わせてから反映してください。
+- `nginx/common/`：全ホスト共通の基本設定・ログ・圧縮・接続設定。
+- `nginx/roles/<role>/`：役割ごとの設定。共通設定へ重ね、同じ相対パスのファイルは役割側を採用します。既定は`edge`です。
+- `Taskfile.yml`：`NGINX_HOSTS`、IP、Goの配置と転送先を定義します。
+- `generated/nginx/<host>/`：`task gen`が作る配布物。直接編集せず、各ホストの`/etc/nginx/`へ配布します。
+
+最初は1台で使えます。`NGINX_HOSTS`へホストを追加すると、同じ`edge`設定と`APP_TRAFFIC_HOSTS`の転送先を使います。ホストごとの違いが必要になった場合だけ、`NGINX_HOST_CONFIG`を指定します。
+
+```yaml
+  NGINX_HOSTS: isucon-1 isucon-2
+  APP_HOSTS: isucon-1 isucon-2 isucon-3
+  APP_TRAFFIC_HOSTS: isucon-1 isucon-2 isucon-3
+  NGINX_HOST_CONFIG:
+    map:
+      isucon-2:
+        role: edge
+        app_hosts: [isucon-2, isucon-3]
+```
+
+外部からの入口は引き続き`ENTRY_HOST`（`NGINX_HOSTS`の先頭）です。複数台への外部トラフィックの振り分けは、競技の接続条件に合わせて別途設計します。
+
+この例ではisucon-1が既定の全転送先、isucon-2が指定した2台へ転送します。別の役割が必要なら`nginx/roles/<role>/`を追加して指定します。転送先は`APP_HOSTS`の範囲で選びます。`listen_port`でホスト別の待受portも指定でき、省略時は`NGINX_PORT`を使います。`task check-network`も各ホストが実際に使う転送先を検査します。役割から外したホストの生成物は次の`task gen`で除去され、サービス停止は`task apply-roles`または`task deploy-all`が行います。
+
+`task gen-contest-routing`は共通生成後の競技固有hookです。通常のホスト別設定には上記の入力を使い、hookで生成物を手修正しません。nginx設定は`task deploy-nginx-dry`で配布先を確認し、`task deploy-nginx`で構文検査・反映します。生成失敗時は以前の生成物を保持し、配布へ進みません。
+
+公開静的資材は`STATIC_DIR`（既定`public/`）から全NGINX_HOSTSの`STATIC_REMOTE_DIR`へ配布します。役割のserver設定で仕様を確認したURLだけを直接配信し、必要なlocationへ`static-cache.conf`をincludeします。動的アップロードや永続データは、配布時に削除されるこのディレクトリへ置かず、別の保存・同期経路を設計してください。TLS秘密鍵は取得・生成物へ含めず、配布先に保持します。
+
+`task test-nginx`で生成処理を検証できます。`NGINX_TEST_IMAGE=nginx:1.26.3 task test-nginx`ではDocker内で2台分の生成設定・proxy・キャッシュ・圧縮・計測ログも確認します。

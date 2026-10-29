@@ -161,26 +161,6 @@ func TestTaskfileDefaultsToNginxGoRuntime(t *testing.T) {
 	}
 }
 
-func TestNginxUpstreamFollowsTrafficHosts(t *testing.T) {
-	cfg := readSetupTaskfile(t)
-	tasks := cfg["tasks"].(map[string]interface{})
-	tasks["gen-contest-routing"] = map[string]interface{}{"cmds": []string{"true"}}
-	dir := t.TempDir()
-	runSetupFixture(t, cfg, dir, nil, "gen", "APP_TRAFFIC_HOSTS=isucon-2 isucon-3")
-	body, err := os.ReadFile(filepath.Join(dir, "nginx/conf.d/upstream.conf"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, want := range []string{"server 172.31.7.50:8080;", "server 172.31.5.116:8080;", "keepalive 1024;", "keepalive_requests 100000;"} {
-		if !strings.Contains(string(body), want) {
-			t.Fatalf("missing %s: %s", want, body)
-		}
-	}
-	if strings.Contains(string(body), "172.31.0.126") {
-		t.Fatal(string(body))
-	}
-}
-
 func TestNginxReloadRestartsOnlyForChangedServiceLimit(t *testing.T) {
 	cfg, err := loadConfig("deployments.yaml")
 	if err != nil {

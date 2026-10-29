@@ -1,6 +1,6 @@
 # nginx（nginx.conf）
 
-nginxの初期設定は他の初期ソースと同様にリポジトリへ含めず、bootstrapが外部仕様と本資料から新規作成する。リポジトリでは `nginx/nginx.conf`、`nginx/conf.d/`、`nginx/sites-enabled/` などを管理し、
+競技サーバーの初期設定は他の初期ソースと同様にリポジトリへ含めない。本資料から作った汎用ベースの`nginx/common/`と`nginx/roles/`を管理し、Taskfileの配置定義からホスト別の設定を生成する。
 `task deploy-nginx` で `NGINX_HOSTS` に配布する。反映前に vhost、TLS、ログ形式、upstream を確認し、
 外部仕様に合わせて設定する。
 
@@ -156,13 +156,12 @@ server {
 
 ## このリポジトリでの注意点と確認
 
-bootstrapが`nginx/nginx.conf`と`nginx/sites-enabled/app.conf`を新規作成し、本文の設定を統合する。`nginx.conf`から`conf.d/*.conf`と`sites-enabled/*`を読み込む。公開静的資材は`public/`からnginxホストへ配布し、rootは`task gen`が`STATIC_REMOTE_DIR`から`snippets/static-root.conf`へ生成するため、serverでincludeする。静的キャッシュは、仕様を確認した静的locationだけに設定する。URLを推測してAPIを静的配信へ切り替えない。HTML・同一URLで更新される画像・認可付き資材は、更新や初期化後の可視性を満たす期限・validatorを別に決める。SSEは専用locationで`proxy_buffering off`、またはGoの`X-Accel-Buffering: no`を使い、イベントが随時届くことを確認する。WebSocketはUpgrade転送を専用locationへ設定する。
+汎用の基本設定は`nginx/common/nginx.conf`、proxy・静的キャッシュは同ディレクトリの`snippets/`へ反映済み。bootstrapは役割別の`nginx/roles/edge/sites-enabled/app.conf`等を外部仕様に合わせる。生成・配布の分担は[README](../../README.md#複数台のnginx設定)を参照する。公開静的資材は`public/`からnginxホストへ配布し、rootは`task gen`が`STATIC_REMOTE_DIR`から生成する。静的キャッシュは、仕様を確認した静的locationだけで`snippets/static-cache.conf`をincludeする。URLを推測してAPIを静的配信へ切り替えない。HTML・同一URLで更新される画像・認可付き資材は、更新や初期化後の可視性を満たす期限・validatorを別に決める。SSEは専用locationで`proxy_buffering off`、またはGoの`X-Accel-Buffering: no`を使い、イベントが随時届くことを確認する。WebSocketはUpgrade転送を専用locationへ設定する。
 
-`nginx/sites-enabled/app.conf`の公開listener・TLS・body上限を公式契約に合わせ、公開入口で200/304、`Cache-Control`・`Expires`・`Content-Encoding`を確認する。キャッシュによるリクエスト削減とAPI処理時間短縮を区別してベンチを比較する。計測形式は[nginxアクセスログ](../measurement/nginx-access-log.md)に従う。
+役割別server設定の公開listener・TLS・body上限を公式契約に合わせ、公開入口で200/304、`Cache-Control`・`Expires`・`Content-Encoding`を確認する。キャッシュによるリクエスト削減とAPI処理時間短縮を区別してベンチを比較する。計測形式は[nginxアクセスログ](../measurement/nginx-access-log.md)に従う。
 
 
-`nginx/conf.d/upstream.conf` は `task gen` の生成物である。`APP_TRAFFIC_HOSTS` を変更する
-場合は [`Taskfile.yml`](../../Taskfile.yml) の役割定義を編集し、生成後の upstream を直接編集しない。
+`generated/nginx/<host>/conf.d/upstream.conf`は`task gen`の生成物である。`APP_TRAFFIC_HOSTS`または`NGINX_HOST_CONFIG`を変更する場合は[`Taskfile.yml`](../../Taskfile.yml)を編集し、生成後のupstreamを直接編集しない。
 
 `task deploy-nginx` は設定を配布したあと `nginx -t` を実行して reload する。反映後は設定の読み込みとサービスの
 状態を確認する。

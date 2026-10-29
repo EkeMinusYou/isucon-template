@@ -58,3 +58,6 @@ __pycache__/
 
 # TLS credentials stay on the managed hosts.
 /nginx/tls/
+
+# Rebuilt by task gen from nginx sources and Taskfile topology.
+/generated/nginx/

@@ -52,7 +52,7 @@ deployments:
         remote: /etc/systemd/system/nginx.service.d/
       - label: nginx configuration
         role: nginx
-        local: nginx/
+        local: generated/nginx/{host}/
         remote: /etc/nginx/
         excludes: [tls/, mime.types, "*.key", "*.pem", "*.crt"]
         delete: true

@@ -14,7 +14,7 @@ JavaScript・CSS・画像・生成済みコンテンツの本体配信をnginx�
 
 ## 実装方法
 
-固定の公開資材は`STATIC_DIR`（既定`public/`）から`task deploy-nginx`で全NGINX_HOSTSへ配布する。たとえば`public/assets/`の不変ファイルを`/assets/`で公開する場合、`nginx/sites-enabled/app.conf`へ次を加える。
+固定の公開資材は`STATIC_DIR`（既定`public/`）から`task deploy-nginx`で全NGINX_HOSTSへ配布する。たとえば`public/assets/`の不変ファイルを`/assets/`で公開する場合、`nginx/roles/edge/sites-enabled/app.conf`へ次を加える。
 
 ```nginx
 location /assets/ {
