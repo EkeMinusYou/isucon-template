@@ -307,34 +307,55 @@ func writeManifestAtomic(path string, m Manifest) error {
 	return os.Rename(tmpPath, path)
 }
 
-// appendScores は manifest の内容を scores.tsv へ 1 行追記する。
-// 走行の記録は run.json が正本で、この TSV はそこから導ける履歴ビュー。
-// task runs / task q が読む形式なので、列は変えずに保つ。
+// appendScores upserts the derived history so re-finalizing a RUN is idempotent.
 func appendScores(path string, m Manifest) error {
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		header := "run_id\tscore\tapp\tingress\tapp_traffic\n"
-		if err := os.WriteFile(path, []byte(header), 0o644); err != nil {
-			return err
-		}
-	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
+	body, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	defer f.Close()
-
-	// Unknown is an empty field, not zero. A real zero score and a run whose
-	// score could not be obtained have different meanings.
+	header := "run_id\tscore\tapp\tingress\tapp_traffic"
+	rows := map[string]string{}
+	var order []string
+	for _, line := range strings.Split(string(body), "\n") {
+		id, _, ok := strings.Cut(line, "\t")
+		if !ok || id == "run_id" {
+			continue
+		}
+		if _, seen := rows[id]; !seen {
+			order = append(order, id)
+		}
+		rows[id] = line
+	}
 	score := ""
 	if m.Score != nil {
 		score = strconv.FormatInt(*m.Score, 10)
 	}
-	_, err = fmt.Fprintf(f, "%s\t%s\t%s\t%s\t%s\n",
-		m.RunID, score,
-		strings.Join(m.Roles.App, ","),
-		strings.Join(m.Roles.Ingress, ","),
-		strings.Join(m.Roles.AppTraffic, ","))
-	return err
+	if _, seen := rows[m.RunID]; !seen {
+		order = append(order, m.RunID)
+	}
+	rows[m.RunID] = fmt.Sprintf("%s\t%s\t%s\t%s\t%s", m.RunID, score, strings.Join(m.Roles.App, ","), strings.Join(m.Roles.Ingress, ","), strings.Join(m.Roles.AppTraffic, ","))
+	var out strings.Builder
+	out.WriteString(header + "\n")
+	for _, id := range order {
+		out.WriteString(rows[id] + "\n")
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".scores-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err = tmp.WriteString(out.String()); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err = tmp.Chmod(0644); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err = tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
 }
 
 // scanArtifacts は走行ディレクトリを 1 段だけ走査して回収物を列挙する。

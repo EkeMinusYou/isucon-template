@@ -142,14 +142,21 @@ func TestLifecycleBeginArchivesStateAfterPrepareFailure(t *testing.T) {
 			}
 			return nil
 		},
-		manifestBegin: func([]string) error { return nil },
+		manifestBegin: func([]string) error {
+			return os.WriteFile(filepath.Join(opts.resultsDir, opts.runID, "bench.log"), []byte("preflight detail\n"), 0600)
+		},
+		manifestFinalize: func([]string) error { calls = append(calls, "finalize"); return nil },
 	}
 	err := runner.begin(opts)
 	if err == nil || !strings.Contains(err.Error(), "prepare failed") {
 		t.Fatalf("begin error = %v", err)
 	}
-	if want := []string{"check-clean", "prepare", "sweep"}; !reflect.DeepEqual(calls, want) {
+	if want := []string{"check-clean", "prepare", "sweep", "finalize"}; !reflect.DeepEqual(calls, want) {
 		t.Fatalf("calls = %#v, want %#v", calls, want)
+	}
+	body, readErr := os.ReadFile(filepath.Join(opts.resultsDir, opts.runID, "bench.log"))
+	if readErr != nil || !strings.Contains(string(body), "preflight detail") || !strings.Contains(string(body), "BENCHMARK_FAIL preflight: prepare failed") {
+		t.Fatalf("preflight reason was not retained: %s %v", body, readErr)
 	}
 	if _, err := os.Stat(filepath.Join(opts.rawDir, "aborted-run-id")); err != nil {
 		t.Fatalf("aborted state was not archived: %v", err)

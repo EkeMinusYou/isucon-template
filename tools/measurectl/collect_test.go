@@ -330,3 +330,29 @@ func TestNoCollectorsStartsWithoutRolesOrSSH(t *testing.T) {
 		t.Fatalf("no-collector start failed: %v", err)
 	}
 }
+
+func TestPrepareExpandsConfiguredPaths(t *testing.T) {
+	tmp := t.TempDir()
+	script := "#!/bin/sh\ncat > \"$ISUCON_TEST_PREPARE_SCRIPT\"\n"
+	if err := os.WriteFile(filepath.Join(tmp, "ssh"), []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", tmp+string(os.PathListSeparator)+os.Getenv("PATH"))
+	captured := filepath.Join(tmp, "captured")
+	t.Setenv("ISUCON_TEST_PREPARE_SCRIPT", captured)
+	r := &runner{cfg: &Config{Prepare: []Prepare{{Name: "access", Hosts: "app", Script: "test -f '{var:access_log_path}'\n"}}}, roles: map[string][]string{"app": {"host-a"}}, vars: map[string]string{"access_log_path": "/home/service/log/access.log"}, sshUser: "ubuntu"}
+	if err := r.prepareAll(); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(captured)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(b) != "test -f '/home/service/log/access.log'\n" {
+		t.Fatalf("script=%q", b)
+	}
+	delete(r.vars, "access_log_path")
+	if err := r.prepareAll(); err == nil {
+		t.Fatal("unresolved path accepted")
+	}
+}

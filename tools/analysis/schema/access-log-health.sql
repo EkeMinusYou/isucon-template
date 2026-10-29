@@ -10,7 +10,7 @@ with selected as (
         lag(ts) over w as previous_at,lag(process_started) over w as previous_process
     from selected where metric in (
         'access_log_enqueued_total','access_log_written_total',
-        'access_log_dropped_total','access_log_queue_length'
+        'access_log_dropped_total','access_log_queue_length','access_log_errors_total'
     )
     window w as (partition by run_id,host,metric order by ts)
 ), deltas as (
@@ -23,6 +23,7 @@ select run_id,host,count(distinct ts) as observations,
     sum(delta) filter(where metric='access_log_enqueued_total') as enqueued_delta,
     sum(delta) filter(where metric='access_log_written_total') as written_delta,
     sum(delta) filter(where metric='access_log_dropped_total') as dropped_delta,
+    max(value) filter(where metric='access_log_errors_total') as output_errors,
     max(value) filter(where metric='access_log_queue_length') as queue_max,
     last(value order by ts) filter(where metric='access_log_queue_length') as queue_last,
     count(*) filter(where ends_with(metric,'_total') and previous_process=process_started and value<previous_value) as unexpected_resets

@@ -285,7 +285,12 @@ func (r *runner) prepareAll() error {
 		}
 	}
 	return parallel(jobs, func(j job) error {
-		out, err := r.sshScript(j.host, j.p.Script)
+		exp := expander{host: j.host, runID: r.runID, vars: r.vars}
+		script := exp.expand(j.p.Script)
+		if missing := unresolved(script); len(missing) > 0 {
+			return fmt.Errorf("unresolved prepare placeholders: %v", missing)
+		}
+		out, err := r.sshScript(j.host, script)
 		if err != nil {
 			return fmt.Errorf("[%s] %s: %w", j.host, j.p.Name, err)
 		}

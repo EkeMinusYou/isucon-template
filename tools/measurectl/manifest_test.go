@@ -163,3 +163,26 @@ func TestAppendScoresDistinguishesUnknownFromZero(t *testing.T) {
 		t.Fatalf("unknown=%q zero=%q", unknown[1], realZero[1])
 	}
 }
+
+func TestAppendScoresUpdatesFinalizedRunWithoutDuplicates(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "scores.tsv")
+	m := Manifest{RunID: "20260901-120000"}
+	if err := appendScores(path, m); err != nil {
+		t.Fatal(err)
+	}
+	score := int64(123)
+	m.Score = &score
+	if err := appendScores(path, m); err != nil {
+		t.Fatal(err)
+	}
+	if err := appendScores(path, m); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(body), m.RunID) != 1 || !strings.Contains(string(body), "\t123\t") {
+		t.Fatalf("history=%s", body)
+	}
+}

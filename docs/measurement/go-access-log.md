@@ -16,6 +16,10 @@ HTTP入口を担当するGoプロセスから、1要求につき1行のJSONを`A
 
 JSON encoderでescapeします。loggerは並行書込みを直列化し、`O_APPEND`で開いて1秒以内にflushします。RUN開始前に同じファイルをtruncateするため、書込み位置への依存や長時間の未flushを避けます。ディレクトリ・ファイルはSSH操作ユーザーがtruncate・回収できる権限へ設定します。書込み失敗・欠落を検出し、成功扱いで隠しません。
 
+bootstrapでは共通moduleの`app.NewAccessLogger`と`app.AccessLogEntry`を使う。既定は4,096件のqueue、5msごとのまとめ書き、100msごとのflushで、型の決まったJSONを応答経路の外で生成する。queueが満杯なら空きを待ち、記録を黙って捨てない。サイズ・間隔は`AccessLoggerOptions`で変更できる。
+
+`Log`へ渡したentryとその参照先は変更しない。追加の診断項目は`Details`へ型を定義して渡せるが、標準項目をそこへ移さない。HTTP受付を止め、handlerが終了してから`Close`を呼ぶと残りを排出・flushする。ファイル自体は呼出側で閉じる。`Log`・`Close`のエラーを処理し、非同期書出しの失敗は`Err()`と`Metrics()`でも確認する。
+
 middlewareでResponseWriterを包む場合は、暗黙の200、途中切断、Flush・Hijack等の必要なinterfaceを維持します。SSE等ではハンドラー終了と接続終了の意味を合わせ、単にhandler開始時刻を完了時刻として記録しません。
 
 bootstrapで全HTTP入口のログと`app_traffic` roleを揃えます。`alp.yml`、`user-transition-routes.json`、`analysis/schema/access-log.sql`のAPI分類・動的ID正規化を揃え、ログ出力からalp・操作遷移・負荷期間のDuckDB集計まで確認してください。
@@ -34,8 +38,8 @@ bootstrapでは`app.ObserveRequestBody(r)`をhandlerの読み取り前に呼び�
 
 ## ログ出力状況を記録する
 
-既存loggerへ共通moduleの`app.AccessLogStats`を接続する。出力対象に受理したとき`Enqueued()`、1行の書き出しに成功したとき`Written()`、破棄したとき`Dropped()`を呼ぶ。既存の並行処理・出力方針は変えず、`Metrics(len(queue))`を`Options.Snapshot`の指標へ加える。同期loggerのqueue長は0とする。
+共通ロガーの`Metrics()`を`Options.Snapshot`の指標へ加える。独自loggerが必要な場合は`app.AccessLogStats`を使い、出力対象に受理したとき`Enqueued()`、1行の書き出しに成功したとき`Written()`、破棄したとき`Dropped()`を呼ぶ。`Metrics(len(queue))`をsnapshotへ加え、同期loggerのqueue長は0とする。
 
-1秒ごとのruntime計測から`access_log_health`で記録数・書出数・破棄数の期間差分、queue長の最大・最終値を確認できる。プロセス再起動をまたぐ差分は計算せず、未計測の値はNULLのまま残す。書出数はwriterへの出力成功数であり、bufferのflush完了やディスク永続化の保証ではない。
+1秒ごとのruntime計測から`access_log_health`で記録数・書出数・破棄数の期間差分、queue長の最大・最終値を確認できる。共通ロガーは書出し失敗も`access_log_errors_total`へ記録し、`output_errors`で確認できる。プロセス再起動をまたぐ差分は計算せず、未計測の値はNULLのまま残す。書出数はwriterへの出力成功数であり、bufferのflush完了やディスク永続化の保証ではない。
 
 負荷後にqueueとbufferを排出し、記録数・書出数・破棄数を照合する。負荷中のqueue残量や記録数と書出数の差だけを、ログ欠損と決めつけない。計測のCPU負荷は既存profileで確認し、これらのcounterをCPU負荷そのものとは解釈しない。

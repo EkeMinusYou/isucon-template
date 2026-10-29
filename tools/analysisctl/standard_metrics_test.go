@@ -116,8 +116,8 @@ from (values (0),(1),(2),(3),(4)) times(n), lateral (
 insert into metrics values ('run','b','runtime',to_timestamp(0),'access_log_queue_length',2);
 ` + metricSchema(t, "access-log-health.sql") + `
 select host,enqueued_delta,written_delta,dropped_delta,queue_max,queue_last,unexpected_resets
-from access_log_health order by host;`
-	want := "a|25.0|23.0|0.0|2.0|0.0|0\nb|NULL|NULL|NULL|2.0|2.0|0"
+from access_log_health order by host; select count(output_errors) from access_log_health;`
+	want := "a|25.0|23.0|0.0|2.0|0.0|0\nb|NULL|NULL|NULL|2.0|2.0|0\n0"
 	if got := runMetricSQL(t, script); got != want {
 		t.Fatalf("log health: %s", got)
 	}

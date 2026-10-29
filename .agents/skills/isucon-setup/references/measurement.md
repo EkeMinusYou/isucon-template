@@ -51,6 +51,7 @@ setupは既存ソースも照合して外部仕様・提供データ・資源・
 - user-transitionはセッションを安定して識別できる方法を調査し、認証Cookie等の生値を恒久保存しない識別列を出す。ログ列名とroutes.jsonのcookie_fieldを一致させ、集計成果物に識別値を残さない。識別方法が仕様上成立しない場合のみ理由を示して対象外とする。
 - routes.jsonの汎用プレースホルダーをそのまま完成扱いにしない。公式APIとGoのroute登録から動的IDを正規化し、未分類API・識別列欠損・時刻不正の件数も確認する。
 - Goアクセスログのmsec等、実際の出力形式をDuckDBの読み手まで照合する。圧縮ログ・空ログ・不正入力を確認し、分析結果にデータがない場合は未取得・空・解析失敗・設定無効を切り分ける。
+- アクセスログは共通moduleの`app.NewAccessLogger`を使う。受理・書出し・queue長・出力エラーをruntimeへ接続し、handler終了後の排出とflushを確認する。独自の並行loggerを作る前に共通実装で要件を満たせるか確認する。
 - 追加計測はsampling間隔、対象、timeout、出力量・cardinality、enable/disableとcleanupを定める。計測を増やした結果、CPU・I/O・disk容量を圧迫しないか検証する。
 
 ## 有効宣言と対象外判断

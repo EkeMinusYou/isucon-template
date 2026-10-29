@@ -42,15 +42,17 @@ callbackは並行アクセスに対応し、短時間で返してください。
 
 ## 要求bodyとログ出力の計測
 
-`app.ObserveRequestBody(r)`は既存のbodyをラップして実読取量を数えます。handler前に呼び、応答ログへ`BytesRead()`を記録します。`app.AccessLogStats`は既存loggerの受理・書出・破棄を数えます。snapshotで返す`Metrics(queueLength)`を既存の指標へマージしてください。
+`app.ObserveRequestBody(r)`は既存のbodyをラップして実読取量を数えます。handler前に呼び、応答ログへ`BytesRead()`を記録します。ログは共通の`app.NewAccessLogger`を使い、型が決まったentryをqueue経由でまとめて書き出します。snapshotで返す`Metrics()`を既存の指標へマージしてください。
 
 ```go
-var logStats app.AccessLogStats
-// In the logger: call Enqueued before publishing an accepted entry,
-// Written after a successful write, and Dropped on a discarded entry.
-Snapshot: func() app.Snapshot {
-    return app.Snapshot{Metrics: logStats.Metrics(len(logQueue))}
-},
+logger, err := app.NewAccessLogger(logFile, app.AccessLoggerOptions{})
+if err != nil { log.Fatal(err) }
+options := app.Options{
+    Snapshot: func() app.Snapshot {
+        return app.Snapshot{Metrics: logger.Metrics()}
+    },
+}
+// Pass options to app.Start. After HTTP handlers drain, check logger.Close().
 ```
 
-実装時の記録位置と集計の意味は[Goアクセスログ](../../docs/measurement/go-access-log.md)を参照してください。新しいcollectorは不要です。
+`logger.Log(app.AccessLogEntry{...})`のエラーを確認してください。独自loggerが必要な場合は`app.AccessLogStats`で同じcounterを記録できます。記録位置・flush・Closeの契約と集計の意味は[Goアクセスログ](../../docs/measurement/go-access-log.md)を参照してください。新しいcollectorは不要です。

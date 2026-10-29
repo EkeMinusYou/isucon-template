@@ -119,8 +119,14 @@ func (r lifecycleRunner) begin(opts lifecycleOptions) error {
 	}
 	cleanup := func(cause error) error {
 		sweepErr := r.collect(append([]string{"sweep"}, opts.collectArgs(true)...))
+		logFile, logErr := os.OpenFile(filepath.Join(runDir, "bench.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+		if logErr == nil {
+			_, writeErr := fmt.Fprintln(logFile, "BENCHMARK_FAIL preflight:", cause)
+			logErr = errors.Join(writeErr, logFile.Close())
+		}
+		manifestErr := r.manifestFinalize([]string{"-dir", runDir, "-scores", opts.scoresPath, "-collectors", opts.collectorConfig, "-digesters", opts.digesterConfig})
 		stateErr := archiveRunState(opts.runStateFile, "aborted-run-id")
-		return errors.Join(cause, sweepErr, stateErr)
+		return errors.Join(cause, sweepErr, logErr, manifestErr, stateErr)
 	}
 	if err := r.collect(append([]string{"prepare"}, opts.collectArgs(true)...)); err != nil {
 		return cleanup(err)

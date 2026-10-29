@@ -91,6 +91,23 @@ func runDigest(args []string) error {
 		}
 	}
 
+	// A retry replaces each selected digester's previous attempt, including stderr.
+	if !*dryRun {
+		for _, d := range cfg.Digesters {
+			if d.Stderr == "" {
+				continue
+			}
+			paths, e := filepath.Glob(filepath.Join(r.runDir, r.expand(d.Stderr, "*")))
+			if e != nil {
+				return e
+			}
+			for _, path := range paths {
+				if e = os.Remove(path); e != nil {
+					return e
+				}
+			}
+		}
+	}
 	// 1. 生ログの回収。集計はこれを待つので、ここだけは先に揃える。
 	if !*skipFetch {
 		if err := r.fetchAll(); err != nil {
@@ -171,11 +188,15 @@ func (r *digestRunner) fetchAll() error {
 
 func (r *digestRunner) fetchSource(src Source, host string) error {
 	local := r.expand(src.Local, host)
+	remote := r.expand(src.Remote, host)
+	if missing := unresolved(remote); len(missing) > 0 {
+		return fmt.Errorf("unresolved source placeholders: %v", missing)
+	}
 	if r.dryRun {
 		if src.FetchDelay > 0 {
 			fmt.Printf("[dry-run] wait %s before fetching %s from %s\n", src.FetchDelay, src.Name, host)
 		}
-		return r.rsyncFrom(host, src.Remote, local)
+		return r.rsyncFrom(host, remote, local)
 	}
 	time.Sleep(src.FetchDelay)
 	if err := os.MkdirAll(filepath.Dir(local), 0o755); err != nil {
@@ -200,7 +221,7 @@ func (r *digestRunner) fetchSource(src Source, host string) error {
 	if r.fetchFn != nil {
 		fetch = r.fetchFn
 	}
-	if err := fetch(host, src.Remote, tmpPath); err != nil {
+	if err := fetch(host, remote, tmpPath); err != nil {
 		return err
 	}
 	if err := os.Rename(tmpPath, local); err != nil {

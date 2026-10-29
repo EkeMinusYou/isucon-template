@@ -140,6 +140,9 @@ func (c *collector) poll(parent context.Context) {
 	current, err := c.fetch(ctx)
 	cancel()
 	if err != nil {
+		if parent.Err() != nil {
+			return
+		}
 		fmt.Fprintf(os.Stderr, "runtime metrics poll: %v\n", err)
 		return
 	}

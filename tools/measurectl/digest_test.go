@@ -463,3 +463,55 @@ func TestSuccessfulEmptyJSONDigestAndCommandFailureStayDistinct(t *testing.T) {
 		t.Fatal("command failure was masked by the empty-result value")
 	}
 }
+
+func TestFetchSourceExpandsRemoteVariable(t *testing.T) {
+	dir := t.TempDir()
+	r := &digestRunner{runDir: dir, vars: map[string]string{"access_log_path": "/home/service/log/access.log"}, fetchFn: func(host, remote, local string) error {
+		if host != "ingress" || remote != "/home/service/log/access.log" {
+			t.Fatalf("unexpanded source: %s %s", host, remote)
+		}
+		return os.WriteFile(local, []byte("{}\n"), 0600)
+	}}
+	source := Source{Remote: "{var:access_log_path}", Local: "{run_dir}/access-{host}.log"}
+	if err := r.fetchSource(source, "ingress"); err != nil {
+		t.Fatal(err)
+	}
+	delete(r.vars, "access_log_path")
+	if err := r.fetchSource(source, "ingress"); err == nil {
+		t.Fatal("missing remote variable accepted")
+	}
+}
+
+func TestRedigestReplacesStaleFailureReason(t *testing.T) {
+	dir := t.TempDir()
+	config := filepath.Join(dir, "digesters.yaml")
+	body := `sources:
+  - name: access
+    role: app
+    remote: /unused
+    local: '{run_dir}/access.log'
+digesters:
+  - name: summary
+    source: access
+    stderr: summary.stderr
+    outputs:
+      - file: summary.json
+        run: "printf '{}'"
+`
+	if err := os.WriteFile(config, []byte(body), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "access.log"), []byte("{}\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	stale := filepath.Join(dir, "summary.stderr")
+	if err := os.WriteFile(stale, []byte("previous attempt failed\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := runDigest([]string{"-config", config, "-run-dir", dir, "-skip-fetch"}); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := os.ReadFile(stale); err == nil && len(b) > 0 {
+		t.Fatalf("stale reason survived successful retry: %s", b)
+	}
+}
