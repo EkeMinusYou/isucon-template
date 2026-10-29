@@ -129,7 +129,9 @@ scoreには1つのcapture groupを持たせ、該当する行がない項目は�
 出力書式が未確定でも開始・回収でき、スコアや成功は推測しない。宣言が読めない場合は
 ベンチを起動する前に終了コード2で停止する。
 
-`tools/contest/user-transition-routes.json`のCookie列・API prefix・正規化routeを当日のAPIへ合わせる。routeは動的IDを
+`tools/contest/user-transition-routes.json`のCookie列・API prefix・正規化routeを当日のAPIへ合わせる。
+bootstrapでは[重要な操作間の標準集計](../docs/measurement/state-and-operations.md#重要な操作間の標準集計)も設定する。
+`task q`で`operation_progress`と`connection_reuse`を比較できる。routeは動的IDを
 そのまま残さず、限定された正規表現を上から具体的な順に並べる。Cookieを持たない競技や、識別子を
 安全にログへ出せない場合は、この集計を無効にする。access logの時系列bucket
 （`tools/analysis/schema/access-log.sql`の`# >>> contest values >>>`区画）と`alp.yml`の

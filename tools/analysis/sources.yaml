@@ -94,6 +94,14 @@ sources:
     schema: schema/access-log.sql
     match: "raw/access-*.log*"
     view: http_traffic_buckets
+  - table: operation_progress
+    schema: schema/operation-progress.sql
+    match: "raw/access-*.log*"
+    view: operation_progress
+  - table: connection_reuse
+    schema: schema/connection-reuse.sql
+    match: "raw/access-*.log*"
+    view: connection_reuse
   - table: user_transition_edges
     schema: schema/user-transitions.sql
     match: user-transitions.json

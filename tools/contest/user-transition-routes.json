@@ -1,5 +1,5 @@
 {
-  "_comment": "Placeholder. Set cookie_field to the access log column that identifies a session, api_prefix to the API root, and replace routes with the contest's own paths: dynamic IDs normalized, most specific pattern first.",
+  "_comment": "Placeholder. Set cookie_field to the access log column that identifies a session, api_prefix to the API root, and replace routes with the contest's own paths: dynamic IDs normalized, most specific pattern first. During bootstrap, define operation_pairs for important completion-to-next-start transitions; use method, normalized route, and optional exact statuses (default 2xx).",
   "cookie_field": "session_id",
   "api_prefix": "/",
   "routes": [
@@ -7,5 +7,6 @@
       "name": "/initialize",
       "pattern": "^/initialize$"
     }
-  ]
+  ],
+  "operation_pairs": []
 }

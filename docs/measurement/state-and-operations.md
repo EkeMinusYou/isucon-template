@@ -21,6 +21,45 @@
 - 競技・実装に依存する集計処理は`tools/contest/`、タスクは`Taskfile.contest.yml`へ置く。`tools/analysis/sources.yaml`へ接続し、`task q`で比較できるようにする。負荷期間に限定できない集計はRUN成果物に残し、期間限定の分析値へ混ぜない。
 - 通常の分析DBは保存済みの集計結果から再構築できるようにする。追加の状態履歴・復元用データ全体を、毎RUN回収して取り込み続けることは標準にしない。生成失敗・欠損は成果物の検査で検出する。
 
+## 重要な操作間の標準集計
+
+bootstrapで、得点機会の進行を見るための重要な操作の組み合わせを
+`tools/contest/user-transition-routes.json`の`operation_pairs`へ設定する。
+「処理完了→次の開始」など、途中に別APIが入る区間も対象にする。全APIの総当たりは行わない。
+通常は`session_id`が同じ利用者の区間を扱う。対象IDや応答本文が必要な業務上の完了は、この集計で
+代用せず、必要なイベント・カウンターで補う。
+
+```json
+"operation_pairs": [
+  {
+    "name": "completion_to_next_start",
+    "from": {"method": "POST", "route": "/api/complete", "statuses": [200]},
+    "to": {"method": "POST", "route": "/api/start", "statuses": [201]}
+  }
+]
+```
+
+`route`は同じファイルの`routes[].name`を使う。`statuses`省略時は2xxを対象とし、
+HTTP statusだけでは業務上の成功を判別できないAPIは選ばない。
+RUNごとに設定を保存し、`task q-sync`が負荷期間内の完了応答から次の開始要求までを
+`operation_progress`へ集計する。追加のログ回収は行わず、API時系列と同じ読込みを使う。
+
+- `from_events`・`from_sessions`：識別できた起点操作の件数・セッション数。`unidentified_from_events`は識別できず、次の操作を追跡できなかった起点の件数。
+- `reached_events`・`reached_sessions`：次の対象操作が観測された件数・セッション数。
+- `gap_avg_ms`・`gap_p50_ms`・`gap_p95_ms`と時間帯別件数：起点の応答完了から次の要求開始まで。
+- `not_observed_events`：負荷期間の終了まで次の対象操作がなかった件数。失敗や失った得点とはみなさない。
+- `superseded_events`：次の対象操作の前に、新しい起点操作があった件数。次の対象操作を複数の起点へ重複計上しない。
+- `overlap_events`：次の対象操作が起点の完了前に始まった、または開始時刻が同じ件数。順序や待ち時間を確定せず、時間分布から除く。
+
+起点も到達先も、要求開始と応答完了が負荷期間に収まるものだけを使う。期間末にまだ応答が終わっていない
+対象操作は到達件数に含めない。時間分布は到達した対象だけの値であり、未到達件数と一緒に読む。
+古いRUNで設定が保存されていない場合や負荷期間が判定できない場合は、0件ではなく集計なしとなる。
+
+例：`task q -- "SELECT * FROM operation_progress WHERE run_id='RUN_ID';"`
+
+接続の基本集計は`connection_reuse`に保存する。接続IDはホスト・プロセスの起動世代内で一意にし、
+欠損を0回利用した接続として扱わない。RTTの計測や操作速度との相関は、通信待ちの仮説を調べるときに追加する。
+
 ## 必要時の詳細分析と確認
 
 標準の集計結果で仮説を区別できない場合は、対象RUN・問い・必要な履歴の範囲を決めて追加分析する。原文を保存するなら、容量と保持期間を決め、Git対象外の`runs/<RUN_ID>/raw/`等へ置く。過去のデータが失われた場合は、そのRUNで保存した集計の範囲だけを扱い、現在の状態で代用しない。

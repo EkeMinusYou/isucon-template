@@ -23,11 +23,7 @@ func TestHTTPTrafficPreservesRoutesBucketsAndLogSelection(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Use overlapping generic routes to check that the first pattern wins.
-	requests := strings.Index(string(schema), "\nrequests as ")
-	if requests < 0 {
-		t.Fatal("access log schema has no requests CTE")
-	}
-	schema = []byte("create or replace view http_traffic_buckets as\nwith routes as (select ['^/items/', '^/items/[^/]+$'] as patterns)," + string(schema[requests:]))
+	schema = []byte(strings.Replace(string(schema), "'^/initialize$'", "'^/items/', '^/items/[^/]+$'", 1))
 	runDir := filepath.Join(t.TempDir(), "runs", "20260901-120000")
 	writeTestFile(t, runDir, "raw/access-entry-a.log", `{"msec":"1800000005.25","response_time":0.5,"method":"GET","uri":"/items/a","status":200,"body_bytes":10,"upstream_time":"0.2"}
 {"msec":"1800000004.9","response_time":0.4,"method":"GET","uri":"/items/b","status":404,"body_bytes":20,"upstream_time":"0.001, 0.002"}
@@ -89,11 +85,7 @@ func TestHTTPTrafficCountsConnectionsAndClientGaps(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	requests := strings.Index(string(schema), "\nrequests as ")
-	if requests < 0 {
-		t.Fatal("access log schema has no requests CTE")
-	}
-	schema = []byte("create or replace view http_traffic_buckets as\nwith routes as (select ['^/a$'] as patterns)," + string(schema[requests:]))
+	schema = []byte(strings.Replace(string(schema), "'^/initialize$'", "'^/a$'", 1))
 	runDir := filepath.Join(t.TempDir(), "runs", "20260901-120000")
 	// Connection 7 carries two requests; connection 8 resumes TLS; the last line
 	// predates the connection fields and must not join any connection.

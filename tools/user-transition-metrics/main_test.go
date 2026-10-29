@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -154,5 +156,32 @@ func TestEventLimitFailsClosed(t *testing.T) {
 	}, "\n")
 	if err := agg.scan(strings.NewReader(input)); err == nil {
 		t.Fatal("event limit did not fail")
+	}
+}
+
+func TestOperationDefinitionsAreValidatedAndRetained(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.OperationPairs = []operationPair{{Name: "next_item", From: operationSelector{Method: "post", Route: "/api/item/:id", Statuses: []int{201}}, To: operationSelector{Method: "GET", Route: "/api/list"}}}
+	body, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "routes.json")
+	if err := os.WriteFile(path, body, 0600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := loadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep := newAggregator(loaded, 10).buildReport(10)
+	if rep.OperationConfig.OperationPairs[0].From.Method != "POST" {
+		t.Fatal("normalized definition was not retained")
+	}
+	loaded.OperationPairs[0].To.Route = "/missing"
+	body, _ = json.Marshal(loaded)
+	os.WriteFile(path, body, 0600)
+	if _, err := loadConfig(path); err == nil {
+		t.Fatal("undeclared operation route accepted")
 	}
 }

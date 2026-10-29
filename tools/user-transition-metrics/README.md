@@ -4,7 +4,7 @@ Go HTTP server の構造化 access log を Cookie 由来の識別子で束ね、
 正規化 API の連続する遷移とシナリオ群を集計するオフラインツールです。`after-bench` の
 `user-transitions` digesterから呼ばれ、`runs/<RUN_ID>/user-transitions.json` を作ります。
 
-標準計測として既定で有効です。`isucon-setup`で識別列の出力とアプリ固有のAPI分類を整えます。
+標準計測として既定で有効です。`isucon-bootstrap`で識別列の出力とアプリ固有のAPI分類を整えます。
 識別情報がない場合は集計の有効化だけでは成立せず、RUNの必須成果物検査が失敗します。
 仕様上成立しない場合は理由を残して宣言を無効化し、未設定と対象外を区別してください。
 
@@ -45,3 +45,18 @@ Cookie発行前のログイン／登録は対象外であり、Cookie付きの�
 
 既定上限は500万イベント、256 route、4 MiB/ログ行、64 MiB/成果物です。上限超過は
 切り捨てずに失敗させ、`user-transitions.stderr` と `run.json` のartifact statusへ残します。
+
+## 重要な操作間の進行
+
+隣接APIの遷移に加え、bootstrapで`routes.json`の`operation_pairs`を設定します。
+例えば「完了→次の開始」の間に検索等が入っても、同じ`session_id`の次の対象操作までを調べられます。
+方法は[状態・操作の計測](../../docs/measurement/state-and-operations.md#重要な操作間の標準集計)を参照してください。
+
+設定は`user-transitions.json`の`operation_config`へ保存します。`task q-sync`がそのRUNの設定と
+既存アクセスログを使い、負荷期間内の`operation_progress`を生成します。古い設定で収集したRUNを
+現在の定義で読み替えません。`operation_config`のない旧RUNではこの表の行がありません。
+隣接APIとシナリオの既存集計は収集全期間のままで、負荷期間だけの表と混ぜません。
+
+`connection_reuse`も同じログ読込みを使い、ホスト別に負荷期間内の接続数、複数要求を処理した
+接続数、接続あたり要求数の平均・中央値・p95・最大を保存します。ログに接続IDがない件数も示します。
+接続全寿命の要求数ではなく、負荷期間に観測した要求数です。RTTの採取・相関分析は標準には含めません。

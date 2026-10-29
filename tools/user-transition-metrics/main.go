@@ -37,9 +37,22 @@ type routeConfig struct {
 }
 
 type config struct {
-	CookieField string        `json:"cookie_field"`
-	APIPrefix   string        `json:"api_prefix"`
-	Routes      []routeConfig `json:"routes"`
+	CookieField    string          `json:"cookie_field"`
+	APIPrefix      string          `json:"api_prefix"`
+	Routes         []routeConfig   `json:"routes"`
+	OperationPairs []operationPair `json:"operation_pairs,omitempty"`
+}
+
+type operationSelector struct {
+	Method   string `json:"method"`
+	Route    string `json:"route"`
+	Statuses []int  `json:"statuses,omitempty"`
+}
+
+type operationPair struct {
+	Name string            `json:"name"`
+	From operationSelector `json:"from"`
+	To   operationSelector `json:"to"`
 }
 
 type accessLog struct {
@@ -184,6 +197,7 @@ type report struct {
 	Summary          summary          `json:"summary"`
 	Edges            []edgeReport     `json:"edges"`
 	Scenarios        []scenarioReport `json:"scenarios"`
+	OperationConfig  *config          `json:"operation_config,omitempty"`
 }
 
 type aggregator struct {
@@ -270,6 +284,31 @@ func loadConfig(path string) (config, error) {
 		route.re, err = regexp.Compile(route.Pattern)
 		if err != nil {
 			return config{}, fmt.Errorf("route %q: %w", route.Name, err)
+		}
+	}
+	if len(cfg.OperationPairs) > 0 && cfg.CookieField != "session_id" {
+		return config{}, errors.New("operation_pairs require the standard session_id access-log field")
+	}
+	if len(cfg.OperationPairs) > 16 {
+		return config{}, errors.New("operation_pairs must contain at most 16 entries")
+	}
+	pairs := make(map[string]bool)
+	for i := range cfg.OperationPairs {
+		pair := &cfg.OperationPairs[i]
+		if pair.Name == "" || pairs[pair.Name] {
+			return config{}, fmt.Errorf("operation_pairs[%d] requires a unique name", i)
+		}
+		pairs[pair.Name] = true
+		for _, selector := range []*operationSelector{&pair.From, &pair.To} {
+			selector.Method = strings.ToUpper(strings.TrimSpace(selector.Method))
+			if selector.Method == "" || !seen[selector.Route] {
+				return config{}, fmt.Errorf("operation pair %q requires method and a declared route", pair.Name)
+			}
+			for _, status := range selector.Statuses {
+				if status < 100 || status > 599 {
+					return config{}, fmt.Errorf("operation pair %q has invalid status %d", pair.Name, status)
+				}
+			}
 		}
 	}
 	return cfg, nil
@@ -422,6 +461,7 @@ func (a *aggregator) buildReport(maxScenarios int) report {
 		Summary:          a.summary,
 		Edges:            edgeReports(edges),
 		Scenarios:        scenarios,
+		OperationConfig:  &a.config,
 	}
 }
 

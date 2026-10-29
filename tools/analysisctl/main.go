@@ -82,7 +82,7 @@ var (
 )
 
 // Increment when persisted sources or analysis-window semantics change.
-const importSchemaVersion = "17"
+const importSchemaVersion = "18"
 
 func main() {
 	if err := runCLI(os.Args[1:], os.Stdout, os.Stderr); err != nil {
@@ -453,7 +453,33 @@ func (r runner) syncSelection(runGlob string, dirs, runIDs []string) error {
 		declared = append(declared, map[string]string{"run_id": id, "started_at": w.StartedAt.Format(time.RFC3339Nano), "ended_at": w.EndedAt.Format(time.RFC3339Nano), "status": w.Status})
 	}
 	encoded, _ := json.Marshal(declared)
-	schema = append([]byte("set variable analysis_windows = "+sqlString(string(encoded))+";\n"), schema...)
+	// Preserve each RUN's declared operation definitions when importing old logs.
+	var definitions []map[string]any
+	for _, dir := range dirs {
+		body, err := os.ReadFile(filepath.Join(dir, "user-transitions.json"))
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		var report struct {
+			OperationConfig json.RawMessage `json:"operation_config"`
+		}
+		if err := json.Unmarshal(body, &report); err != nil {
+			return fmt.Errorf("read operation definitions: %w", err)
+		}
+		if len(report.OperationConfig) > 0 && string(report.OperationConfig) != "null" {
+			definitions = append(definitions, map[string]any{"run_id": filepath.Base(dir), "config": report.OperationConfig})
+		}
+	}
+	pairJSON, err := json.Marshal(definitions)
+	if err != nil {
+		return err
+	}
+	prefix := "set variable analysis_windows = " + sqlString(string(encoded)) + ";\n" +
+		"set variable operation_definitions = " + sqlString(string(pairJSON)) + ";\n"
+	schema = append([]byte(prefix), schema...)
 	sql := r.buildImportSQL(active, runIDs, windows)
 	schemaPath := filepath.Join(tempDir, "schema.sql")
 	sqlPath := filepath.Join(tempDir, "import.sql")
