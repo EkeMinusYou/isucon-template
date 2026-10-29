@@ -60,6 +60,33 @@ RUNごとに設定を保存し、`task q-sync`が負荷期間内の完了応答�
 接続の基本集計は`connection_reuse`に保存する。接続IDはホスト・プロセスの起動世代内で一意にし、
 欠損を0回利用した接続として扱わない。RTTの計測や操作速度との相関は、通信待ちの仮説を調べるときに追加する。
 
+## 同時に進行している操作と空き時間
+
+bootstrapで`operation_intervals`に開始・終了を指定する。`operation_pairs`が「完了から次の開始まで」を見るのに対し、こちらは「開始から完了まで」の進行中の区間を見る。
+
+```json
+"operation_intervals": [
+  {
+    "name": "active_operation",
+    "start": {"method": "POST", "route": "/api/start", "statuses": [201]},
+    "end": {"method": "POST", "route": "/api/complete", "statuses": [200]}
+  }
+]
+```
+
+開始の成功応答から終了の成功応答までを同一`session_id`で対応付け、負荷期間の`operation_concurrency`へ集計する。一つの定義につき同一セッションで同時に一つだけ進行する操作が対象。並行した注文等は、対象IDを識別する別のイベント計測で補う。
+
+- `peak_concurrent`・`avg_concurrent`：観測した同時実行数の最大・時間平均。
+- `active_person_seconds`：各セッションの進行中の秒数の合計。
+- `idle_seconds`：該当する操作が一件も進行していなかった秒数。
+- `observed_peak_occupancy_ratio`：平均同時数÷観測した最大同時数。ベンチの仕様上の上限や稼働率とは決めつけない。
+- `open_intervals`：終了を観測できず、観測上は負荷終了まで継続していた区間の件数。
+
+開始が見つからない終了、開始の重複、時刻の同一、識別情報の欠落がある場合は件数と`status=partial`を残し、`idle_seconds`をNULLにする。欠落を空き時間と解釈しない。
+ログの読込み・API分類は既存の進行集計と共有し、DBには定義ごとの集計だけを保存する。
+
+例：`task q -- "SELECT * FROM operation_concurrency WHERE run_id='RUN_ID';"`
+
 ## 必要時の詳細分析と確認
 
 標準の集計結果で仮説を区別できない場合は、対象RUN・問い・必要な履歴の範囲を決めて追加分析する。原文を保存するなら、容量と保持期間を決め、Git対象外の`runs/<RUN_ID>/raw/`等へ置く。過去のデータが失われた場合は、そのRUNで保存した集計の範囲だけを扱い、現在の状態で代用しない。

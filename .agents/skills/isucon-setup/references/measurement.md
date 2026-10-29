@@ -7,12 +7,12 @@ bootstrapで新実装へ下表の計測を組み込み、実RUNで確認する�
 | 対象 | 確認する経路と不足 |
 | --- | --- |
 | スコア記録 | 公式の採点仕様と出力形式を確認し、生成元、自動取得の手順、RUNへの紐付け、保存先・形式を整える。最終スコア、成功・失敗判定、公式出力にある内訳・ペナルティが元の結果と一致し、DuckDBのqueryで読めることを確認する。未取得・未判定を0点や成功に置き換えない。 |
-| Go access log | [Goのアクセスログ](../../../../docs/measurement/go-access-log.md)に従い、HTTP入口のJSON出力・識別列・権限・flushを揃える。実ログでalp・user-transition・負荷期間推定まで確認する。 |
+| Go access log | [Goのアクセスログ](../../../../docs/measurement/go-access-log.md)に従い、HTTP入口のJSON出力・識別列・権限・flushを揃える。実読取量・Content-Lengthとログの受理・書出・queue長も記録し、実ログでalp・user-transition・負荷期間推定まで確認する。 |
 | Go pprof | CPUの連続採取・2秒ごとのheap/goroutine・1秒のruntime指標を標準で自動収集し、endpointの実装・handler登録と実際のlistener、collectorの取得URL・実行ホスト、有効宣言と起動経路を確認。`Taskfile.yml`にURLがあるだけでは公開済みとしない。取得ファイルを`go tool pprof -top`等で解析する。 |
 | ホスト・service | 全対象ホストのCPU・メモリ・disk・ネットワークと、実際のunit/process/cgroupの対応を確認。全Goプロセスを対象に含める。欠損、counter reset、単位、sampling間隔を確認する。 |
 | 障害・整合性 | appのjournal、kernel/OOM、panic、service再起動が同じload windowで追えるか確認する。正常系のprofileだけで網羅済みにしない。 |
 | その他の依存サービス | 競技ごとの公式資料と稼働serviceから依存経路を列挙する。既存service metrics・journalで見える範囲と、処理件数・失敗・遅延など追加観測が必要な範囲を分ける。 |
-| user-transition | 標準対象。アプリのセッション仕様に合わせた識別列と有限個のAPI分類を整える。実ログに識別列があり、認証済みリクエストを結び付けられ、RUNのJSON集計を読めることを確認する。隣接APIの収集全期間の集計を負荷期間の値へ混ぜない。重要な操作間は[状態・操作の標準集計](../../../../docs/measurement/state-and-operations.md#重要な操作間の標準集計)を設定し、`operation_progress`で読む。未設定はoptionalではない。 |
+| user-transition | 標準対象。アプリのセッション仕様に合わせた識別列と有限個のAPI分類を整える。実ログに識別列があり、認証済みリクエストを結び付けられ、RUNのJSON集計を読めることを確認する。隣接APIの収集全期間の集計を負荷期間の値へ混ぜない。重要な操作間は[状態・操作の標準集計](../../../../docs/measurement/state-and-operations.md#重要な操作間の標準集計)を設定し、`operation_progress`と`operation_concurrency`で読む。未設定はoptionalではない。 |
 | 状態・操作 | [状態・操作の計測](../../../../docs/measurement/state-and-operations.md)に従い、得点に関わる件数・進行・待ち時間を確認できるようにする。取得元は採用した実装に合わせ、永続化方式を前提にしない。 |
 | アプリ内部・追加計測 | queue・lock待ち、処理件数などは既存profile・標準計測で説明できない問いがある場合に追加する。fgprof、高頻度task-stateも目的・負荷・停止方法を確認して選ぶ。 |
 | RUN全体 | load windowと各計測の開始・終了、ホスト時計、取得遅延・欠落、roles/source、artifact status、rawから集計・分析への対応を確認。ヘッダーだけのfallbackと実測値を区別する。 |

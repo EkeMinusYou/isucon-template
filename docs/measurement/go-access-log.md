@@ -8,6 +8,8 @@ HTTP入口を担当するGoプロセスから、1要求につき1行のJSONを`A
 | `method`, `uri`, `status` | HTTP method、要求URI、応答status |
 | `response_time` | 要求受付から応答書き出し完了までの秒数 |
 | `body_bytes` | 応答bodyの送信byte数 |
+| `request_body_bytes` | アプリが実際に読み取った要求bodyのbyte数 |
+| `request_content_length` | 要求のContent-Length。不明な場合は負値または省略 |
 | `session_id` | 操作を結び付ける安定した識別値。生の認証tokenは出さない |
 | `connection`, `connection_requests` | ホスト・起動世代内で一意な接続IDと接続内の要求数。標準で記録し、取得できなければ省略して理由を示す |
 | `ssl_session_reused` | TLS再利用時`r`、新規時`.`。未観測なら省略 |
@@ -23,3 +25,17 @@ bootstrapで全HTTP入口のログと`app_traffic` roleを揃えます。`alp.ym
 `connection_reuse`で、負荷期間内の接続数・再利用された接続数・接続あたり要求数を比較する。
 再起動でIDを使い回す場合は起動世代を含む番号にするなど、同じホストのログ内で衝突させない。
 TCPのRTT・再送数などは、通信待ちの診断で必要になったときに採取範囲と負荷を決めて追加する。
+
+## 受信量を記録する
+
+bootstrapでは`app.ObserveRequestBody(r)`をhandlerの読み取り前に呼び、返り値の`BytesRead()`を応答時に`request_body_bytes`へ記録する。空bodyでは返り値はnilだが、`BytesRead()`は0を返す。要求全体を計測のために読み込まず、handlerが実際に消費した分だけを数える。`request_content_length`には`r.ContentLength`を記録し、実読取量と区別する。
+
+`http_traffic`と`http_traffic_series`には実読取量の`sum_request_body_bytes`・`request_body_samples`、ヘッダー値の`sum_request_content_length`・`request_content_length_samples`がある。API・時間帯ごとに比較でき、旧ログや不明値は0 byteで補わず、取得件数とNULLで示す。
+
+## ログ出力状況を記録する
+
+既存loggerへ共通moduleの`app.AccessLogStats`を接続する。出力対象に受理したとき`Enqueued()`、1行の書き出しに成功したとき`Written()`、破棄したとき`Dropped()`を呼ぶ。既存の並行処理・出力方針は変えず、`Metrics(len(queue))`を`Options.Snapshot`の指標へ加える。同期loggerのqueue長は0とする。
+
+1秒ごとのruntime計測から`access_log_health`で記録数・書出数・破棄数の期間差分、queue長の最大・最終値を確認できる。プロセス再起動をまたぐ差分は計算せず、未計測の値はNULLのまま残す。書出数はwriterへの出力成功数であり、bufferのflush完了やディスク永続化の保証ではない。
+
+負荷後にqueueとbufferを排出し、記録数・書出数・破棄数を照合する。負荷中のqueue残量や記録数と書出数の差だけを、ログ欠損と決めつけない。計測のCPU負荷は既存profileで確認し、これらのcounterをCPU負荷そのものとは解釈しない。

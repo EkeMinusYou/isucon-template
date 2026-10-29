@@ -8,6 +8,7 @@ semantic_schemas:
   - schema/semantic.sql
   - schema/bottleneck.sql
   - schema/go-runtime.sql
+  - schema/access-log-health.sql
   # Views over the contest's own benchmark log live under ../contest/analysis-schema/
   # because they depend on that benchmarker's output format. Add score breakdowns
   # for the contest there as well; the view names stay the readers' contract.
@@ -98,6 +99,10 @@ sources:
     schema: schema/operation-progress.sql
     match: "raw/access-*.log*"
     view: operation_progress
+  - table: operation_concurrency
+    schema: schema/operation-concurrency.sql
+    match: "raw/access-*.log*"
+    view: operation_concurrency
   - table: connection_reuse
     schema: schema/connection-reuse.sql
     match: "raw/access-*.log*"

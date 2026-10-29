@@ -1,3 +1,28 @@
+-- Normalize only operation-related requests once for progress and concurrency.
+create or replace temp table operation_requests as
+with configs as (
+    select json_extract_string(value,'$.run_id') as run_id,
+           json_extract(value,'$.config') as config
+    from json_each(coalesce(getvariable('operation_definitions')::varchar,'[]'))
+), paths as materialized (
+    select distinct r.run_id, split_part(r.uri,'?',1) as path
+    from http_access_requests r
+    where list_contains(getvariable('operation_methods')::varchar[],r.method)
+), normalized as materialized (
+    select p.run_id, p.path,
+           (select json_extract_string(route.value,'$.name')
+            from json_each(json_extract(c.config,'$.routes')) route
+            where regexp_matches(p.path,json_extract_string(route.value,'$.pattern'))
+            order by route.key::integer limit 1) as route
+    from paths p join configs c using(run_id)
+)
+select r.run_id,r.event_id,r.identity_key,r.method,r.status,n.route,
+       r.logged_at_epoch,r.response_time_sec
+from http_access_requests r join normalized n
+ on n.run_id=r.run_id and n.path=split_part(r.uri,'?',1)
+where list_contains(getvariable('operation_methods')::varchar[],r.method)
+ and r.valid_timing and to_timestamp(r.logged_at_epoch)<=r.analysis_ended_at;
+
 -- Selected operations can have other API calls between them. Definitions are
 -- captured with the RUN, rather than read from today's contest configuration.
 create or replace view operation_progress as
@@ -9,31 +34,19 @@ with configs as (
     select c.run_id, c.config, p.value as definition,
            json_extract_string(p.value,'$.name') as name
     from configs c, json_each(json_extract(c.config,'$.operation_pairs')) p
-), paths as materialized (
-    select distinct r.run_id, split_part(r.uri,'?',1) as path, c.config
-    from http_access_requests r join configs c using (run_id)
-), normalized as materialized (
-    select p.run_id, p.path,
-           (select json_extract_string(route.value,'$.name')
-            from json_each(json_extract(p.config,'$.routes')) route
-            where regexp_matches(p.path,json_extract_string(route.value,'$.pattern'))
-            order by route.key::integer limit 1) as route
-    from paths p
 ), matched as (
     select r.*, p.name, p.definition,
            r.method=json_extract_string(p.definition,'$.from.method')
-             and n.route=json_extract_string(p.definition,'$.from.route')
+             and r.route=json_extract_string(p.definition,'$.from.route')
              and case when coalesce(json_array_length(p.definition,'$.from.statuses'),0)=0
                  then r.status between 200 and 299
                  else list_contains(from_json(json_extract(p.definition,'$.from.statuses'),'["INTEGER"]'),r.status::integer) end as is_from,
            r.method=json_extract_string(p.definition,'$.to.method')
-             and n.route=json_extract_string(p.definition,'$.to.route')
+             and r.route=json_extract_string(p.definition,'$.to.route')
              and case when coalesce(json_array_length(p.definition,'$.to.statuses'),0)=0
                  then r.status between 200 and 299
                  else list_contains(from_json(json_extract(p.definition,'$.to.statuses'),'["INTEGER"]'),r.status::integer) end as is_to
-    from http_access_requests r join pairs p using(run_id)
-    join normalized n on n.run_id=r.run_id and n.path=split_part(r.uri,'?',1)
-    where r.valid_timing and to_timestamp(r.logged_at_epoch) <= r.analysis_ended_at
+    from operation_requests r join pairs p using(run_id)
 ), ordered as (
     select *, row_number() over (
         partition by run_id,name,identity_key

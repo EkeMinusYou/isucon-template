@@ -37,10 +37,11 @@ type routeConfig struct {
 }
 
 type config struct {
-	CookieField    string          `json:"cookie_field"`
-	APIPrefix      string          `json:"api_prefix"`
-	Routes         []routeConfig   `json:"routes"`
-	OperationPairs []operationPair `json:"operation_pairs,omitempty"`
+	CookieField        string              `json:"cookie_field"`
+	APIPrefix          string              `json:"api_prefix"`
+	Routes             []routeConfig       `json:"routes"`
+	OperationPairs     []operationPair     `json:"operation_pairs,omitempty"`
+	OperationIntervals []operationInterval `json:"operation_intervals,omitempty"`
 }
 
 type operationSelector struct {
@@ -53,6 +54,12 @@ type operationPair struct {
 	Name string            `json:"name"`
 	From operationSelector `json:"from"`
 	To   operationSelector `json:"to"`
+}
+
+type operationInterval struct {
+	Name  string            `json:"name"`
+	Start operationSelector `json:"start"`
+	End   operationSelector `json:"end"`
 }
 
 type accessLog struct {
@@ -286,29 +293,52 @@ func loadConfig(path string) (config, error) {
 			return config{}, fmt.Errorf("route %q: %w", route.Name, err)
 		}
 	}
-	if len(cfg.OperationPairs) > 0 && cfg.CookieField != "session_id" {
-		return config{}, errors.New("operation_pairs require the standard session_id access-log field")
+	if len(cfg.OperationPairs)+len(cfg.OperationIntervals) > 0 && cfg.CookieField != "session_id" {
+		return config{}, errors.New("operation definitions require the standard session_id access-log field")
 	}
-	if len(cfg.OperationPairs) > 16 {
-		return config{}, errors.New("operation_pairs must contain at most 16 entries")
+	if len(cfg.OperationPairs) > 16 || len(cfg.OperationIntervals) > 16 {
+		return config{}, errors.New("operation_pairs and operation_intervals each allow at most 16 entries")
 	}
-	pairs := make(map[string]bool)
-	for i := range cfg.OperationPairs {
-		pair := &cfg.OperationPairs[i]
-		if pair.Name == "" || pairs[pair.Name] {
-			return config{}, fmt.Errorf("operation_pairs[%d] requires a unique name", i)
+	validate := func(name string, selectors ...*operationSelector) error {
+		if strings.TrimSpace(name) == "" {
+			return errors.New("operation definition requires a name")
 		}
-		pairs[pair.Name] = true
-		for _, selector := range []*operationSelector{&pair.From, &pair.To} {
+		for _, selector := range selectors {
 			selector.Method = strings.ToUpper(strings.TrimSpace(selector.Method))
 			if selector.Method == "" || !seen[selector.Route] {
-				return config{}, fmt.Errorf("operation pair %q requires method and a declared route", pair.Name)
+				return fmt.Errorf("operation %q requires method and a declared route", name)
 			}
 			for _, status := range selector.Statuses {
 				if status < 100 || status > 599 {
-					return config{}, fmt.Errorf("operation pair %q has invalid status %d", pair.Name, status)
+					return fmt.Errorf("operation %q has invalid status %d", name, status)
 				}
 			}
+		}
+		return nil
+	}
+	names := map[string]bool{}
+	for i := range cfg.OperationPairs {
+		p := &cfg.OperationPairs[i]
+		if names[p.Name] {
+			return config{}, fmt.Errorf("duplicate operation pair %q", p.Name)
+		}
+		names[p.Name] = true
+		if err := validate(p.Name, &p.From, &p.To); err != nil {
+			return config{}, err
+		}
+	}
+	names = map[string]bool{}
+	for i := range cfg.OperationIntervals {
+		p := &cfg.OperationIntervals[i]
+		if names[p.Name] {
+			return config{}, fmt.Errorf("duplicate operation interval %q", p.Name)
+		}
+		names[p.Name] = true
+		if err := validate(p.Name, &p.Start, &p.End); err != nil {
+			return config{}, err
+		}
+		if p.Start.Method == p.End.Method && p.Start.Route == p.End.Route {
+			return config{}, fmt.Errorf("operation interval %q requires distinct start and end operations", p.Name)
 		}
 	}
 	return cfg, nil

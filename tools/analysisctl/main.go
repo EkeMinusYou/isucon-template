@@ -82,7 +82,7 @@ var (
 )
 
 // Increment when persisted sources or analysis-window semantics change.
-const importSchemaVersion = "18"
+const importSchemaVersion = "19"
 
 func main() {
 	if err := runCLI(os.Args[1:], os.Stdout, os.Stderr); err != nil {
@@ -804,6 +804,8 @@ func (r runner) importSchemaCurrent() (bool, error) {
 }
 
 func (r runner) duckdbCommand(env []string, args ...string) error {
+	// Import commands do not consume rendered output; select a stable batch format.
+	args = append([]string{"-batch", "-list", "-noheader"}, args...)
 	_, err := r.duckdbOutput(env, args...)
 	return err
 }

@@ -48,12 +48,12 @@ Cookie発行前のログイン／登録は対象外であり、Cookie付きの�
 
 ## 重要な操作間の進行
 
-隣接APIの遷移に加え、bootstrapで`routes.json`の`operation_pairs`を設定します。
+隣接APIの遷移に加え、bootstrapで`routes.json`の`operation_pairs`（完了→次の開始）と`operation_intervals`（開始→完了）を設定します。
 例えば「完了→次の開始」の間に検索等が入っても、同じ`session_id`の次の対象操作までを調べられます。
 方法は[状態・操作の計測](../../docs/measurement/state-and-operations.md#重要な操作間の標準集計)を参照してください。
 
 設定は`user-transitions.json`の`operation_config`へ保存します。`task q-sync`がそのRUNの設定と
-既存アクセスログを使い、負荷期間内の`operation_progress`を生成します。古い設定で収集したRUNを
+既存アクセスログを使い、負荷期間内の`operation_progress`と、同時実行数・空き時間の`operation_concurrency`を生成します。古い設定で収集したRUNを
 現在の定義で読み替えません。`operation_config`のない旧RUNではこの表の行がありません。
 隣接APIとシナリオの既存集計は収集全期間のままで、負荷期間だけの表と混ぜません。
 

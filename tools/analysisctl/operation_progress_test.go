@@ -76,7 +76,15 @@ select count(*) from operation_progress where from_events<>reached_events+not_ob
 	if err := json.Unmarshal([]byte(defs), &definitions); err != nil {
 		t.Fatal(err)
 	}
-	body, _ := json.Marshal(map[string]any{"operation_config": definitions[0].Config})
+	var savedConfig map[string]any
+	if err := json.Unmarshal(definitions[0].Config, &savedConfig); err != nil {
+		t.Fatal(err)
+	}
+	savedConfig["operation_intervals"] = []any{map[string]any{
+		"name": "visit", "start": map[string]any{"method": "POST", "route": "/api/enter/:id"},
+		"end": map[string]any{"method": "DELETE", "route": "/api/exit/:id"},
+	}}
+	body, _ := json.Marshal(map[string]any{"operation_config": savedConfig})
 	writeTestFile(t, dir, "user-transitions.json", string(body))
 	stamp := func(sec int64) string { return time.Unix(sec, 0).UTC().Format(time.RFC3339) }
 	writeTestFile(t, dir, "bench.log", stamp(998)+"\tBENCHMARK_START\n"+stamp(1000)+"\tload begins\n"+stamp(1020)+"\tload stops\n"+stamp(1022)+"\tBENCHMARK_END\n")
@@ -86,6 +94,7 @@ select count(*) from operation_progress where from_events<>reached_events+not_ob
 	for _, item := range []struct{ table, schema, view string }{
 		{"http_traffic", "access-log.sql", "http_traffic_buckets"},
 		{"operation_progress", "operation-progress.sql", "operation_progress"},
+		{"operation_concurrency", "operation-concurrency.sql", "operation_concurrency"},
 		{"connection_reuse", "connection-reuse.sql", "connection_reuse"},
 	} {
 		schema, _ := filepath.Abs("../analysis/schema/" + item.schema)
@@ -98,11 +107,11 @@ select count(*) from operation_progress where from_events<>reached_events+not_ob
 	if err := r.syncSelection(filepath.ToSlash(dir), []string{dir}, []string{"20260901-120000"}); err != nil {
 		t.Fatal(err)
 	}
-	got, err := r.duckdbOutput(nil, "-readonly", "-noheader", "-list", r.db, "-c", "select reached_events,unidentified_from_events from operation_progress where name='next_visit'; select count(*) from information_schema.tables where table_name='http_access_requests';")
+	got, err := r.duckdbOutput(nil, "-readonly", "-noheader", "-list", r.db, "-c", "select reached_events,unidentified_from_events from operation_progress where name='next_visit'; select count(*) from information_schema.tables where table_name in ('http_access_requests','operation_requests'); select count(*) from operation_concurrency;")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.TrimSpace(got) != "2|1\n0" {
+	if strings.TrimSpace(got) != "2|1\n0\n1" {
 		t.Fatalf("saved aggregate or temporary raw data: %s", got)
 	}
 }

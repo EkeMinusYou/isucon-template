@@ -185,3 +185,26 @@ func TestOperationDefinitionsAreValidatedAndRetained(t *testing.T) {
 		t.Fatal("undeclared operation route accepted")
 	}
 }
+
+func TestIntervalDefinitionsAreSavedWithoutInferringEndpoints(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.OperationIntervals = []operationInterval{{Name: "working", Start: operationSelector{Method: "post", Route: "/api/item/:id"}, End: operationSelector{Method: "get", Route: "/api/list"}}}
+	body, _ := json.Marshal(cfg)
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(path, body, 0600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := loadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := newAggregator(loaded, 10).buildReport(10).OperationConfig.OperationIntervals[0]; got.Start.Method != "POST" || got.End.Method != "GET" {
+		t.Fatalf("saved interval: %#v", got)
+	}
+	cfg.OperationIntervals[0].End = cfg.OperationIntervals[0].Start
+	body, _ = json.Marshal(cfg)
+	os.WriteFile(path, body, 0600)
+	if _, err := loadConfig(path); err == nil {
+		t.Fatal("indistinguishable interval endpoints accepted")
+	}
+}

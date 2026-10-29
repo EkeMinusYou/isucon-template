@@ -8,11 +8,15 @@ set variable access_files = (
     )
 );
 set variable operation_methods = (
-    select list_distinct(flatten(list([
-        json_extract_string(p.value,'$.from.method'), json_extract_string(p.value,'$.to.method')
-    ])))
-    from json_each(coalesce(getvariable('operation_definitions')::varchar,'[]')) d,
-         json_each(json_extract(d.value,'$.config.operation_pairs')) p
+    select list_distinct(flatten(list(methods))) from (
+        select [json_extract_string(p.value,'$.from.method'),json_extract_string(p.value,'$.to.method')] as methods
+        from json_each(coalesce(getvariable('operation_definitions')::varchar,'[]')) d,
+             json_each(json_extract(d.value,'$.config.operation_pairs')) p
+        union all
+        select [json_extract_string(p.value,'$.start.method'),json_extract_string(p.value,'$.end.method')]
+        from json_each(coalesce(getvariable('operation_definitions')::varchar,'[]')) d,
+             json_each(json_extract(d.value,'$.config.operation_intervals')) p
+    )
 );
 create or replace temp table http_access_requests as
 with windows as (
@@ -42,7 +46,9 @@ with windows as (
         try_cast(status as bigint) as status,
         coalesce(try_cast(body_bytes as double), 0.0) as body_bytes,
         try_cast(connection_requests as bigint) as connection_requests,
-        ssl_session_reused
+        ssl_session_reused,
+        case when request_body_bytes >= 0 and isfinite(request_body_bytes) then request_body_bytes end as request_body_bytes,
+        case when request_content_length >= 0 and isfinite(request_content_length) then request_content_length end as request_content_length
     from read_json(
         getvariable('access_files'),
         format = 'newline_delimited',
@@ -56,6 +62,8 @@ with windows as (
             'status': 'BIGINT',
             'response_time': 'DOUBLE',
             'body_bytes': 'DOUBLE',
+            'request_body_bytes': 'DOUBLE',
+            'request_content_length': 'DOUBLE',
             'session_id': 'VARCHAR',
             'connection': 'VARCHAR',
             'connection_requests': 'VARCHAR',
@@ -121,6 +129,10 @@ buckets as (
         sum(r.response_time_sec) as sum_time_sec,
         max(r.response_time_sec) as max_time_sec,
         sum(r.body_bytes) as sum_body_bytes,
+        sum(r.request_body_bytes) as sum_request_body_bytes,
+        count(r.request_body_bytes) as request_body_samples,
+        sum(r.request_content_length) as sum_request_content_length,
+        count(r.request_content_length) as request_content_length_samples,
         -- 接続の 1 本目の要求の route に新規接続を計上する。母数は connection_samples。
         count(r.connection_requests) as connection_samples,
         count(*) filter (where r.connection_requests = 1) as new_connections,

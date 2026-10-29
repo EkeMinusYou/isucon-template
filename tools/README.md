@@ -131,7 +131,7 @@ scoreには1つのcapture groupを持たせ、該当する行がない項目は�
 
 `tools/contest/user-transition-routes.json`のCookie列・API prefix・正規化routeを当日のAPIへ合わせる。
 bootstrapでは[重要な操作間の標準集計](../docs/measurement/state-and-operations.md#重要な操作間の標準集計)も設定する。
-`task q`で`operation_progress`と`connection_reuse`を比較できる。routeは動的IDを
+`task q`で`operation_progress`・`operation_concurrency`・`connection_reuse`を比較できる。受信量は`http_traffic_series`、ログ出力counterは`access_log_health`で読む。routeは動的IDを
 そのまま残さず、限定された正規表現を上から具体的な順に並べる。Cookieを持たない競技や、識別子を
 安全にログへ出せない場合は、この集計を無効にする。access logの時系列bucket
 （`tools/analysis/schema/access-log.sql`の`# >>> contest values >>>`区画）と`alp.yml`の
