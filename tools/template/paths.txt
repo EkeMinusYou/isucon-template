@@ -34,6 +34,10 @@ nginx/common/snippets/proxy-app.conf
 nginx/common/snippets/static-cache.conf
 nginx/roles/edge/sites-enabled/app.conf
 etc/systemd/system/nginx.service.d/limits.conf
+webapp/go/main.go
+webapp/go/server.go
+webapp/go/measurement.go
+webapp/go/server_test.go
 tools
 tools/contest/README.md
 

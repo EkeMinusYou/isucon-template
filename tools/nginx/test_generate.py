@@ -84,6 +84,10 @@ class GenerationTest(unittest.TestCase):
         self.assertIn("172.31.0.126:8080", first)
         self.assertIn("172.31.5.116:8080", second)
         self.assertNotIn("172.31.0.126:8080", second)
+        unit = (self.root / "generated/systemd/app.service").read_text()
+        self.assertIn("ExecStart=/home/isucon/webapp/go/app", unit)
+        self.assertIn("Environment=APP_ADDR=:8080", unit)
+        self.assertIn("Environment=MEASUREMENT_ADDR=127.0.0.1:6060", unit)
 
     def test_regeneration_removes_old_host_and_files(self):
         self.render()

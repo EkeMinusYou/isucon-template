@@ -6,7 +6,7 @@
 
 ## Goから補う測定値
 
-Goは応答ヘッダーの確定前に次を設定します。
+Goは応答ヘッダーの確定前に次を設定します。汎用土台の`webapp/go/measurement.go`に`setMeasurementHeaders`を用意しています。bootstrapで認証とbody読み取りの実装箇所へ接続し、未取得の値は渡しません。
 
 - `X-Measurement-Session-ID`: 認証セッションから作る安定した非可逆の識別値。全Goホストで同じセッションが同じ値になるようにする。未認証で識別できない要求では省略する。ログイン成功応答では発行したセッション、ログアウトでは終了したセッションを使う。値に生のtokenを含めない。
 - `X-Measurement-Request-Body-Bytes`: 必要な場合だけ、アプリが実際に読み取った非負整数のbyte数。共通moduleの`app.ObserveRequestBody`を利用できる。ストリーミングでヘッダー確定後まで読み取る場合等、最終値を送れないときは省略し、0にしない。

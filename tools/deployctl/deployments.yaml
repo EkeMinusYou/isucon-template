@@ -4,7 +4,7 @@ deployments:
     uploads:
       - label: systemd unit
         role: app
-        local: 'etc/systemd/system/{var:service}.service'
+        local: 'generated/systemd/{var:service}.service'
         remote: '/etc/systemd/system/{var:service}.service'
         validate: 'sudo systemd-analyze verify /etc/systemd/system/{var:service}.service'
     activations:
@@ -26,7 +26,7 @@ deployments:
         excludes: ['node_modules', '*.pprof', 'default.pgo']
       - label: systemd unit
         role: app
-        local: 'etc/systemd/system/{var:service}.service'
+        local: 'generated/systemd/{var:service}.service'
         remote: '/etc/systemd/system/{var:service}.service'
     activations:
       - label: restart application

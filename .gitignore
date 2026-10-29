@@ -61,3 +61,7 @@ __pycache__/
 
 # Rebuilt by task gen from nginx sources and Taskfile topology.
 /generated/nginx/
+
+# Local application binary and generated service units.
+/webapp/go/app
+/generated/systemd/

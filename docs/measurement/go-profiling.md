@@ -5,7 +5,7 @@ Go runtimeのgoroutine数、heap量、allocation・GCのcounterはruntime collec
 固定秒数後の一回だけのsnapshotは使わず、採取後に負荷期間を選ぶ。
 fgprofは任意で既定無効。必要な問いがある場合に追加する。
 
-テンプレートはアプリ実装を持たないため、bootstrapで新実装へ[共通計測module](../../tools/measurement/README.md)を接続する。
+テンプレートの`webapp/go/server.go`は[共通計測module](../../tools/measurement/README.md)へ接続済み。bootstrapで業務ロジックを実装するときも接続を維持する。
 公式ルールを確認し、ローカルのGoアプリへ組み込み、正規deploy経路で反映する。
 
 ## 開始・停止の契約

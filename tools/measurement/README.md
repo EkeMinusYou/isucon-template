@@ -11,7 +11,7 @@ Goアプリの計測と独立したGo collectorを管理します。アプリは
 
 ## アプリへ接続する
 
-`webapp/go/go.mod`から共通moduleへ参照を追加します。
+テンプレートの`webapp/go/go.mod`・`server.go`は接続済みです。起動方法を置き換える場合も同じmoduleを使います。別moduleからは次の参照を追加します。
 
 ```go
 require github.com/EkeMinusYou/isucon-template/tools/measurement v0.0.0

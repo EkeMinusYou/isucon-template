@@ -200,7 +200,7 @@ tasks:
       - task --list
 
   setup:
-    desc: 空の新規実装先を準備し旧ソースを別の調査用領域へ取得する
+    desc: 汎用Go実装先を準備し旧ソースを別の調査用領域へ取得する
     cmds:
       - mkdir -p '{{.APP_DIR}}' docs/official
       - task: setup-webapp
@@ -351,6 +351,11 @@ tasks:
     dir: '{{.MEASUREMENT_DIR}}'
     cmds: [go test -race -run '^TestProfile' ./app]
 
+  test-app:
+    desc: 汎用Goサーバーの起動・計測分離・終了処理を検証
+    dir: '{{.APP_DIR}}'
+    cmds: [go test -race ./...]
+
   test-nginx:
     desc: ホスト別nginx設定の生成を検証（NGINX_TEST_IMAGE指定時はDockerでも検証）
     cmds: [python3 -m unittest discover -s tools/nginx -p 'test_*.py']
@@ -442,7 +447,7 @@ tasks:
         done
 
         [ -d "$ISUCON_APP_DIR" ] || fail "application directory is missing: $ISUCON_APP_DIR"
-        [ -f "etc/systemd/system/$ISUCON_SERVICE.service" ] || fail "application systemd unit is missing"
+        [ -f "generated/systemd/$ISUCON_SERVICE.service" ] || fail "application systemd unit is missing"
         [ -f etc/sysctl.conf ] || fail "sysctl configuration is missing"
         for host in $ISUCON_NGINX_HOSTS; do
           [ -f "generated/nginx/$host/nginx.conf" ] || fail "generated nginx configuration is missing for $host"
@@ -496,6 +501,7 @@ tasks:
         [ "$failures" -eq 0 ] || exit 1
       - sh -c "$ISUCON_CONFIG_CHECK_COMMAND"
       - task: build
+      - task: test-app
       - task: test-nginx
       - task: test-tools
         vars:
@@ -529,6 +535,27 @@ tasks:
       ISUCON_ACCESS_LOG_PATH: '{{.ACCESS_LOG_PATH}}'
     cmds:
       - python3 tools/nginx/generate.py
+      - mkdir -p generated/systemd
+      - |
+        cat > 'generated/systemd/{{.SERVICE}}.service' <<'UNIT'
+        [Unit]
+        Description=ISUCON Go application
+        After=network.target
+
+        [Service]
+        Type=simple
+        User={{.ISUCON_USER}}
+        WorkingDirectory={{.REMOTE_HOME}}/{{.APP_DIR}}
+        ExecStart={{.REMOTE_HOME}}/{{.APP_DIR}}/{{.APP_NAME}}
+        Environment=APP_ADDR=:{{.LISTEN_PORT}}
+        Environment=MEASUREMENT_ADDR=127.0.0.1:6060
+        Restart=on-failure
+        TimeoutStopSec=15
+        LimitNOFILE=65536
+
+        [Install]
+        WantedBy=multi-user.target
+        UNIT
       - task: gen-contest-routing
 
   deploy:

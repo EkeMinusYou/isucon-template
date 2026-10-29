@@ -7,7 +7,7 @@ HTTP/TLS・静的配信・圧縮・リバースプロキシをnginx、業務処�
 ## 3段階
 
 1. [isucon-setup](.agents/skills/isucon-setup/SKILL.md)で初期ソースと公式資料を確認し、外部仕様を`docs/behavior.md`へ整理します。旧ソースはリポジトリ外の`REFERENCE_DIR`へ取得します。初期データはGoから直接読めるファイルへ分離します。
-2. **別の新しいセッション**の[isucon-bootstrap](.agents/skills/isucon-bootstrap/SKILL.md)で外部仕様・提供データ・資源条件から設計し、空の`webapp/go/`へ実装します。計測・配布・初期化・復元を整え、公式ベンチの初回PASSまで確認します。
+2. **別の新しいセッション**の[isucon-bootstrap](.agents/skills/isucon-bootstrap/SKILL.md)で外部仕様・提供データ・資源条件から設計し、汎用土台のある`webapp/go/`へ業務ロジックを新規実装します。計測・配布・初期化・復元を整え、公式ベンチの初回PASSまで確認します。
 3. [isucon-agent](.agents/skills/isucon-agent/SKILL.md)で、得点への効果から仮説を選び、実装・計測・比較を続けます。
 
 setupの会話・初期ソース・内部構成はbootstrapへ渡しません。bootstrapからagentへは同じセッションで進めます。
@@ -20,7 +20,7 @@ setupの会話・初期ソース・内部構成はbootstrapへ渡しません。
 
 ```sh
 task inspect-hosts     # 使用可能な資源の確認
-task setup             # 調査用ソースと空の実装先を準備
+task setup             # 汎用Go土台を維持し、旧ソースを調査用領域へ取得
 # ここで外部仕様・データを準備し、別セッションへ切り替える
 
 task setup-check       # 新実装のbuild・検査・配布計画を確認
@@ -53,6 +53,16 @@ task artifacts-run RUN=runs/<RUN_ID>
 詳細は[Tools](tools/README.md)、判断基準は[Evidence](.agents/skills/_shared/evidence.md)を参照してください。
 
 競技サーバーの初期nginx設定は、他の初期ソースと同様にリポジトリへ含めません。`task setup-nginx`は`REFERENCE_DIR`へ取得し、setupは外部仕様だけを渡します。テンプレートには[秘伝のタレ](docs/special-sources/nginx.md)に基づく汎用ベースを同梱し、bootstrapでTLS・URL・静的資材など競技固有の条件を設定します。
+
+## 業務ロジックを持たないGo土台
+
+`webapp/go/`は起動・終了処理と共通計測moduleへの接続だけを持ちます。API・認証・状態管理・永続化はbootstrapで実装します。既定で`/healthz`だけを提供し、`/initialize`や競技APIは未実装の404です。
+
+nginxが公開HTTP/TLSを受け、内部HTTPでGoへ転送します。Goの`APP_ADDR`は既定`:8080`、計測用の`MEASUREMENT_ADDR`は`127.0.0.1:6060`です。計測は別listenerに分離し、公開routerには登録しません。Goの起動方法や待受を変更しても、共通計測moduleとcollectorのURLを対応させれば構いません。
+
+`server.go`の`serverConfig.Snapshot`に内部指標を追加できます。`measurement.go`の`setMeasurementHeaders`は、bootstrapが選んだ認証セッションと実際のbody読取量をnginxログへ渡す接続口です。Cookie名や認証方式は仮定しません。標準アクセスログはnginxが出し、Goでは重複出力しません。
+
+`task gen`はsystemd unitも`generated/systemd/<SERVICE>.service`へ生成し、`APP_NAME`・`APP_DIR`・`REMOTE_HOME`・`ISUCON_USER`・`LISTEN_PORT`を反映します。`task deploy`でこのunitとGoバイナリを配布します。`task test-app`で起動・計測分離・終了を確認できます。初期化・復元・公式ベンチPASSは業務実装後にbootstrapで検証します。
 
 ## 複数台のnginx設定
 
