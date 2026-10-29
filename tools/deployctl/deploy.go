@@ -166,6 +166,7 @@ func validateRemotePath(remote string, delete bool, extraPaths ...string) error 
 		return fmt.Errorf("remote path に正規化されていない要素があります: %q", remote)
 	}
 	allowed := remote == "/etc/sysctl.conf" ||
+		strings.HasPrefix(remote, "/etc/nginx/") ||
 		strings.HasPrefix(remote, "/home/isucon/") ||
 		strings.HasPrefix(remote, "/etc/systemd/system/") ||
 		strings.HasPrefix(remote, "/usr/local/bin/")

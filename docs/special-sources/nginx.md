@@ -1,0 +1,182 @@
+# nginx（nginx.conf）
+
+nginx の設定。リポジトリでは `nginx/nginx.conf`、`nginx/conf.d/`、`nginx/sites-enabled/` などを管理し、
+`task deploy-nginx` で `NGINX_HOSTS` に配布する。反映前に vhost、TLS、ログ形式、upstream を確認し、
+資料の設定を既存ブロックへ統合する。
+
+以下の `events {}` と `http {}` は既存の nginx.conf の各ブロックへ統合する。同じコンテキストを
+複数追加しない。
+
+## ファイルディスクリプタと接続数
+
+```nginx
+worker_processes auto;
+worker_rlimit_nofile 16384;
+error_log /var/log/nginx/error.log warn;
+
+events {
+  worker_connections 8192;
+  multi_accept on;
+}
+```
+
+- `worker_connections` は worker 1 プロセスあたりの同時接続数で、クライアント側だけでなく upstream 側の
+  接続も数える。worker 数を掛けた値がそのまま処理可能な HTTP リクエスト数になるわけではない。
+- `worker_rlimit_nofile=16384` は worker ごとの FD 上限を `worker_connections=8192` より大きくし、
+  ログなど接続以外の FD にも余裕を設ける。systemd 側の上限がこれより低い場合は、サービス側も設定する。
+- `worker_processes auto` の worker 数はホストの CPU 数などから決まる。接続数と FD 上限は各 worker に適用される。
+- 接続枠が少なくなると nginx は待機接続を閉じて枠を確保する。この警告を保存するため、`error_log` は
+  `warn` を指定する。レベルを省略すると `error` になり、この警告は記録されない。ログのパスは既存設定に合わせる。
+
+## 基本設定
+
+```nginx
+http {
+  sendfile on;
+  tcp_nopush on;
+  tcp_nodelay on;
+  types_hash_max_size 2048;
+  server_tokens off;
+}
+```
+
+`sendfile` は静的ファイル配信、`tcp_nopush` は主に `sendfile` と組み合わせた送信、`tcp_nodelay` は
+keepalive 接続での小さい応答の待ちを減らすための設定である。`types_hash_max_size` は MIME type の検索表の
+サイズ、`server_tokens off` はエラーページなどに nginx のバージョンを表示しない設定である。静的ファイルを
+配信しない構成では `sendfile` と `tcp_nopush` は静的ファイル配信に効果を持たない。
+
+## クライアント接続の keepalive request 上限
+
+```nginx
+http {
+  keepalive_requests 1000000;
+}
+```
+
+`keepalive_requests` は、一つのクライアント keepalive 接続で処理するリクエスト数の上限である。上限に達すると
+nginx が接続を閉じるため、クライアントがリクエストを続ける場合は TCP 接続と TLS handshake が再度必要になる。
+`1000000` は接続ごとの上限を高くし、上限到達による再接続を減らすための有限値である。
+
+これはクライアントと nginx の間の設定であり、次節の upstream keepalive とは別である。
+
+大きい値は接続単位のメモリーを長く保持する。反映後はレスポンスの正当性に加えて、worker の FD 使用量、
+メモリー、接続エラーを確認する。
+
+## nginx と upstream の keepalive
+
+upstream keepalive は、nginx が upstream サーバーへのアイドル接続を再利用する仕組みである。`keepalive` の
+値は同時リクエスト数ではなく、worker ごとに保持するアイドル接続数の上限である。
+
+```nginx
+keepalive 1024;
+keepalive_requests 100000;
+```
+
+- `keepalive 1024` は、負荷のピークでもアイドル接続が足りずに upstream へ新しく接続し直すことを避ける値である。
+  小さい値（例えば 60〜128）では、ピーク時に一部のリクエストが毎回新しい接続を張る。保持するアイドル接続も
+  `worker_connections` の枠を使うので、クライアント接続と合わせて `worker_connections` に収まることを確認する。
+- `keepalive_requests` は、一つの upstream 接続で処理するリクエスト数の上限である。既定値は 1000 で、上限に
+  達するたびに接続を閉じて張り直す。前節のクライアント側の `keepalive_requests` とは別の設定で、`upstream`
+  ブロックに書く。`100000` は、張り直しを負荷中にほぼ起こさないための有限値である。
+
+`keepalive` と `keepalive_requests` は既存の `upstream` ブロックへ追加する。その upstream を使う既存の `location` には
+次の2行を追加する。
+
+```nginx
+proxy_http_version 1.1;
+proxy_set_header Connection "";
+```
+
+upstream の接続先と `proxy_pass` はアプリケーションの配置・ルーティングに合わせて維持する。
+
+upstream のアプリケーションが keepalive を受け付ける必要がある。Go の `net/http` サーバーは通常これに対応
+しているが、アプリケーション側で keepalive を無効化していないこと、read/write timeout で早期切断しないことを
+確認する。
+
+`proxy_http_version 1.1` と `proxy_set_header Connection ""` は upstream keepalive のための組み合わせで
+あり、片方だけを変更しない。`proxy_read_timeout` は keepalive の設定ではなく応答待ちのタイムアウトなので、
+遅いエンドポイントに必要な場合だけ設定する。長くしすぎると、詰まったリクエストが接続や worker を占有する。
+
+`proxy_pass` は `location` の末尾スラッシュの有無で URI の書き換え結果が変わる。既存の API ルーティングを
+維持するため、既存の `proxy_pass` とリクエストパスを確認する。
+
+## multi_accept
+
+`multi_accept on` はイベント通知1回で複数の待機接続を受け付ける設定である。バースト時の接続受付を改善する
+場合がある一方、worker が受付処理に偏ることもある。設定は上記の `events` ブロックに含める。
+
+## 静的ファイルのキャッシュと圧縮
+
+nginx が `root`・`try_files` で直接返している静的ファイル（フロントエンドの HTML・JavaScript・CSS・画像など）の
+`location` に、有効期限・ファイル情報のキャッシュ・圧縮を追加する。API へ proxy する `location` には追加しない。
+
+```nginx
+location / {
+  expires 1d;
+  open_file_cache max=1024 inactive=60s;
+  open_file_cache_valid 60s;
+  open_file_cache_min_uses 2;
+  try_files $uri /index.html;
+}
+```
+
+```nginx
+http {
+  gzip on;
+  gzip_vary on;
+  gzip_min_length 1024;
+  gzip_types text/css application/javascript image/svg+xml;
+}
+```
+
+- `expires 1d` は `Cache-Control: max-age` と `Expires` を付け、クライアントの条件付き再取得（304 応答）を減らす。
+  競技中に静的ファイルを差し替えない前提の値である。
+- `open_file_cache` はファイルディスクリプタと stat 結果を保持し、同じファイルへの open・stat を減らす。
+- `gzip_types` は静的ファイルの型に限る。`text/html` は既定で圧縮対象に含まれる。JSON の API 応答まで
+  圧縮すると、アプリの応答ごとに CPU を使う。
+- `try_files` と `root` は既存の設定を維持する。上の `location` は追加する行の例で、既存の `location` へ統合する。
+
+## HTTP/2
+
+TLS を終端する `server` の `listen` に `http2` を付け、クライアントが一つの接続で複数のリクエストを
+並行して送れるようにする。
+
+```nginx
+server {
+  listen 443 ssl http2;
+}
+```
+
+- nginx 1.25.1 以降では、`listen` に付ける代わりに `server` ブロックへ `http2 on;` を書く。`nginx -v` で
+  バージョンを確認し、どちらかの書き方にする。
+- 同じ IP・ポートを使う `server` ブロックは、HTTP/2 の有効・無効をそろえる。
+- 平文の HTTP（TLS なし）で受ける `server` には付けない。
+
+反映後は `curl -sI --http2 https://<host>/` の応答行が `HTTP/2` になることを確認する。
+
+## このリポジトリでの注意点と確認
+
+同梱の`nginx/nginx.conf`・`snippets/proxy-app.conf`に基本設定を反映済み。公開静的資材は`public/`からnginxホストへ配布し、rootは`task gen`が`STATIC_REMOTE_DIR`から生成する。静的キャッシュは`snippets/static-cache.conf`を、仕様を確認した静的locationだけでincludeする。URLを推測してAPIを静的配信へ切り替えない。HTML・同一URLで更新される画像・認可付き資材は、更新や初期化後の可視性を満たす期限・validatorを別に決める。SSEは専用locationで`proxy_buffering off`、またはGoの`X-Accel-Buffering: no`を使い、イベントが随時届くことを確認する。WebSocketはUpgrade転送を専用locationへ設定する。
+
+`nginx/sites-enabled/app.conf`の公開listener・TLS・body上限を公式契約に合わせ、公開入口で200/304、`Cache-Control`・`Expires`・`Content-Encoding`を確認する。キャッシュによるリクエスト削減とAPI処理時間短縮を区別してベンチを比較する。計測形式は[nginxアクセスログ](../measurement/nginx-access-log.md)に従う。
+
+
+`nginx/conf.d/upstream.conf` は `task gen` の生成物である。`APP_TRAFFIC_HOSTS` を変更する
+場合は [`Taskfile.yml`](../../Taskfile.yml) の役割定義を編集し、生成後の upstream を直接編集しない。
+
+`task deploy-nginx` は設定を配布したあと `nginx -t` を実行して reload する。反映後は設定の読み込みとサービスの
+状態を確認する。
+
+```shell
+sudo nginx -T
+sudo systemctl is-active nginx
+```
+
+upstream keepalive の実効状態は、nginx と app 側の接続数、`upstream_response_time`、エラー率で確認する。
+
+## 公式リファレンス
+
+- [upstream keepalive](https://nginx.org/en/docs/http/ngx_http_upstream_module.html#keepalive)
+- [proxy・buffering](https://nginx.org/en/docs/http/ngx_http_proxy_module.html)
+- [expires / Cache-Control](https://nginx.org/en/docs/http/ngx_http_headers_module.html#expires)
+- [JSON access log / flush](https://nginx.org/en/docs/http/ngx_http_log_module.html)

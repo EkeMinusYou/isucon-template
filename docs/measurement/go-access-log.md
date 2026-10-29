@@ -1,5 +1,7 @@
 # Goのアクセスログ
 
+既定のnginx＋Go構成では[nginxアクセスログ](nginx-access-log.md)を標準集計に使います。この文書はGo内部の追加診断、または明示的にGoを入口に変更した場合の契約です。二つのログを同じ入口の要求として重複集計しません。
+
 HTTP入口を担当するGoプロセスから、1要求につき1行のJSONを`ACCESS_LOG_PATH`へ出します。標準集計と負荷期間推定はこのログを読みます。
 
 | 列 | 内容 |
@@ -16,7 +18,7 @@ HTTP入口を担当するGoプロセスから、1要求につき1行のJSONを`A
 
 JSON encoderでescapeします。loggerは並行書込みを直列化し、`O_APPEND`で開いて1秒以内にflushします。RUN開始前に同じファイルをtruncateするため、書込み位置への依存や長時間の未flushを避けます。ディレクトリ・ファイルはSSH操作ユーザーがtruncate・回収できる権限へ設定します。書込み失敗・欠落を検出し、成功扱いで隠しません。
 
-bootstrapでは共通moduleの`app.NewAccessLogger`と`app.AccessLogEntry`を使う。既定は4,096件のqueue、5msごとのまとめ書き、100msごとのflushで、型の決まったJSONを応答経路の外で生成する。queueが満杯なら空きを待ち、記録を黙って捨てない。サイズ・間隔は`AccessLoggerOptions`で変更できる。
+Goアクセスログを追加する場合は共通moduleの`app.NewAccessLogger`と`app.AccessLogEntry`を使う。既定は4,096件のqueue、5msごとのまとめ書き、100msごとのflushで、型の決まったJSONを応答経路の外で生成する。queueが満杯なら空きを待ち、記録を黙って捨てない。サイズ・間隔は`AccessLoggerOptions`で変更できる。
 
 `Log`へ渡したentryとその参照先は変更しない。追加の診断項目は`Details`へ型を定義して渡せるが、標準項目をそこへ移さない。HTTP受付を止め、handlerが終了してから`Close`を呼ぶと残りを排出・flushする。ファイル自体は呼出側で閉じる。`Log`・`Close`のエラーを処理し、非同期書出しの失敗は`Err()`と`Metrics()`でも確認する。
 
@@ -32,7 +34,7 @@ TCPのRTT・再送数などは、通信待ちの診断で必要になったと�
 
 ## 受信量を記録する
 
-bootstrapでは`app.ObserveRequestBody(r)`をhandlerの読み取り前に呼び、返り値の`BytesRead()`を応答時に`request_body_bytes`へ記録する。空bodyでは返り値はnilだが、`BytesRead()`は0を返す。要求全体を計測のために読み込まず、handlerが実際に消費した分だけを数える。`request_content_length`には`r.ContentLength`を記録し、実読取量と区別する。
+Goで実読取量を測る場合は`app.ObserveRequestBody(r)`をhandlerの読み取り前に呼び、返り値の`BytesRead()`を応答時に`request_body_bytes`へ記録する。空bodyでは返り値はnilだが、`BytesRead()`は0を返す。要求全体を計測のために読み込まず、handlerが実際に消費した分だけを数える。`request_content_length`には`r.ContentLength`を記録し、実読取量と区別する。
 
 `http_traffic`と`http_traffic_series`には実読取量の`sum_request_body_bytes`・`request_body_samples`、ヘッダー値の`sum_request_content_length`・`request_content_length_samples`がある。API・時間帯ごとに比較でき、旧ログや不明値は0 byteで補わず、取得件数とNULLで示す。
 

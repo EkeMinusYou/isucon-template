@@ -38,9 +38,44 @@ deployments:
           sudo systemctl restart {var:service}
           sudo systemctl is-active --quiet {var:service}
 
-
-
-
+  nginx:
+    uploads:
+      - label: public static assets
+        role: nginx
+        local: '{var:static_dir}/'
+        remote: '{var:static_remote_dir}/'
+        delete: true
+        excludes: [.gitkeep]
+      - label: nginx service limits
+        role: nginx
+        local: etc/systemd/system/nginx.service.d/
+        remote: /etc/systemd/system/nginx.service.d/
+      - label: nginx configuration
+        role: nginx
+        local: nginx/
+        remote: /etc/nginx/
+        excludes: [tls/, mime.types, "*.key", "*.pem", "*.crt"]
+        delete: true
+        validate: sudo nginx -t
+    activations:
+      - label: reload nginx
+        role: nginx
+        script: |
+          set -eu
+          sudo systemctl daemon-reload
+          if sudo systemctl is-active --quiet nginx; then
+            pid=$(sudo systemctl show nginx -p MainPID --value)
+            current=$(sudo awk '/Max open files/ {print $4}' "/proc/$pid/limits")
+            configured=$(sudo systemctl show nginx -p LimitNOFILESoft --value)
+            if [ "$current" = "$configured" ]; then
+              sudo systemctl reload nginx
+            else
+              sudo systemctl restart nginx
+            fi
+          else
+            sudo systemctl enable --now nginx
+          fi
+          sudo systemctl is-active --quiet nginx
 
   sysctl:
     uploads:
@@ -55,12 +90,6 @@ deployments:
           set -eu
           sudo sysctl -p >/dev/null
 
-
-
-
-
-
-
   app-initialize:
     activations:
       - label: initialize application data once
@@ -71,7 +100,7 @@ deployments:
 
   roles-off:
     activations:
-      - label: stop middleware and unassigned Go services
+      - label: stop unused services and unassigned nginx/Go services
         role: all
         script: |
           set -eu
@@ -84,15 +113,22 @@ deployments:
           }
           for unit in $(printf '%s' '{var:disabled_services}' | tr ',' ' '); do disable_unit "$unit"; done
           case ',{var:app_hosts},' in *',{host},'*) ;; *) disable_unit '{var:service}';; esac
+          case ',{var:nginx_hosts},' in *',{host},'*) ;; *) disable_unit nginx;; esac
 
   roles-on:
     activations:
-      - label: enable assigned Go services
-        role: app
+      - label: enable assigned nginx/Go services
+        role: all
         script: |
           set -eu
-          sudo systemctl enable --now '{var:service}'
-          sudo systemctl is-active --quiet '{var:service}'
+          case ',{var:app_hosts},' in *',{host},'*)
+            sudo systemctl enable --now '{var:service}'
+            sudo systemctl is-active --quiet '{var:service}'
+            ;; esac
+          case ',{var:nginx_hosts},' in *',{host},'*)
+            sudo systemctl enable --now nginx
+            sudo systemctl is-active --quiet nginx
+            ;; esac
 
 plans:
   deploy-all:
@@ -100,7 +136,8 @@ plans:
       roles-off: {}
       sysctl: {needs: [roles-off]}
       app: {needs: [roles-off]}
-      roles-on: {needs: [app]}
+      nginx: {needs: [app]}
+      roles-on: {needs: [nginx]}
   initialize:
     deployments:
       app-initialize: {}

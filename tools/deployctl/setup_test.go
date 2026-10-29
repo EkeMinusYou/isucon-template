@@ -105,53 +105,122 @@ func TestSetupWebappUsesCustomExcludesWithoutDroppingVendor(t *testing.T) {
 	}
 }
 
-func TestGoRolesStopMiddlewareBeforeStartingApplication(t *testing.T) {
+func TestNginxGoRolesOnlyManageAssignedServices(t *testing.T) {
 	cfg, err := loadConfig("deployments.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	tmp := t.TempDir()
-	log := filepath.Join(tmp, "calls")
-	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$ISUCON_TEST_CALLS\"\nif [ \"$2\" = is-active ]; then echo inactive; fi\n"
-	if err := os.WriteFile(filepath.Join(tmp, "sudo"), []byte(script), 0755); err != nil {
-		t.Fatal(err)
-	}
-	for _, host := range []string{"app-host", "unused-host"} {
-		r := deployRunner{roles: map[string][]string{"all": {host}, "app": {"app-host"}}, vars: map[string]string{"app_hosts": "app-host", "service": "app", "disabled_services": "nginx,mysql,redis-server"}}
-		jobs, err := r.activationJobs(cfg.Deployments["roles-off"].Activations)
-		if err != nil || len(jobs) != 1 {
-			t.Fatalf("jobs=%v err=%v", jobs, err)
-		}
-		cmd := exec.Command("sh", "-c", jobs[0].script)
-		cmd.Env = append(os.Environ(), "PATH="+tmp+string(os.PathListSeparator)+os.Getenv("PATH"), "ISUCON_TEST_CALLS="+log)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("%v: %s", err, out)
-		}
-	}
-	body, err := os.ReadFile(log)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, unit := range []string{"nginx", "mysql", "redis-server", "app"} {
-		if !strings.Contains(string(body), "disable --now "+unit) {
-			t.Fatalf("not disabled: %s: %s", unit, body)
-		}
-	}
-	if strings.Contains(string(body), "enable") {
-		t.Fatalf("middleware enabled: %s", body)
+	for _, host := range []string{"app-host", "edge-host", "unused-host"} {
+		t.Run(host, func(t *testing.T) {
+			tmp := t.TempDir()
+			log := filepath.Join(tmp, "calls")
+			script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$ISUCON_TEST_CALLS\"\nif [ \"$2\" = is-active ]; then echo inactive; fi\n"
+			if err := os.WriteFile(filepath.Join(tmp, "sudo"), []byte(script), 0755); err != nil {
+				t.Fatal(err)
+			}
+			r := deployRunner{roles: map[string][]string{"all": {host}}, vars: map[string]string{"app_hosts": "app-host", "nginx_hosts": "edge-host", "service": "app", "disabled_services": "mysql,redis-server"}}
+			for _, phase := range []string{"roles-off", "roles-on"} {
+				jobs, err := r.activationJobs(cfg.Deployments[phase].Activations)
+				if err != nil || len(jobs) != 1 {
+					t.Fatalf("jobs=%v err=%v", jobs, err)
+				}
+				cmd := exec.Command("sh", "-c", jobs[0].script)
+				cmd.Env = append(os.Environ(), "PATH="+tmp+string(os.PathListSeparator)+os.Getenv("PATH"), "ISUCON_TEST_CALLS="+log)
+				if out, err := cmd.CombinedOutput(); err != nil {
+					t.Fatalf("%v: %s", err, out)
+				}
+			}
+			body, err := os.ReadFile(log)
+			if err != nil {
+				t.Fatal(err)
+			}
+			calls := string(body)
+			for _, unit := range []string{"mysql", "redis-server", "app", "nginx"} {
+				assigned := (unit == "app" && host == "app-host") || (unit == "nginx" && host == "edge-host")
+				if strings.Contains(calls, "enable --now "+unit) != assigned || strings.Contains(calls, "disable --now "+unit) == assigned {
+					t.Fatalf("wrong role for %s: %s", unit, calls)
+				}
+			}
+		})
 	}
 }
 
-func TestTaskfileDefaultsToGoOnlyRuntime(t *testing.T) {
+func TestTaskfileDefaultsToNginxGoRuntime(t *testing.T) {
 	cfg := readSetupTaskfile(t)
 	cfg["tasks"] = map[string]interface{}{"show": map[string]interface{}{"silent": true, "cmds": []string{"echo '{{.MANAGED_SERVICES}}'", "echo '{{.DEPLOYCTL_COMMON}}'", "echo '{{.MEASURECTL_ROLES}}'"}}}
-	out := runSetupFixture(t, cfg, t.TempDir(), nil, "show")
-	for _, unwanted := range []string{"-role mysql=", "-role nginx=", "-var sql_dir="} {
+	out := runSetupFixture(t, cfg, t.TempDir(), nil, "show", "NGINX_HOSTS=isucon-2")
+	for _, unwanted := range []string{"-role mysql=", "-var sql_dir=", "disabled_services=nginx"} {
 		if strings.Contains(out, unwanted) {
 			t.Fatal(out)
 		}
 	}
-	if !strings.HasPrefix(out, "app\n") || !strings.Contains(out, "-role app_traffic=isucon-1") {
-		t.Fatal(out)
+	for _, want := range []string{"app,nginx\n", "-role app_traffic=isucon-1", "-role ingress=isucon-2", "-role nginx=isucon-2", "-role entry=isucon-2", "-var listen_port=8080", "-var static_remote_dir=/home/isucon/public", "-var extra_service_roles=nginx:nginx"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %s: %s", want, out)
+		}
+	}
+}
+
+func TestNginxUpstreamFollowsTrafficHosts(t *testing.T) {
+	cfg := readSetupTaskfile(t)
+	tasks := cfg["tasks"].(map[string]interface{})
+	tasks["gen-contest-routing"] = map[string]interface{}{"cmds": []string{"true"}}
+	dir := t.TempDir()
+	runSetupFixture(t, cfg, dir, nil, "gen", "APP_TRAFFIC_HOSTS=isucon-2 isucon-3")
+	body, err := os.ReadFile(filepath.Join(dir, "nginx/conf.d/upstream.conf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"server 172.31.7.50:8080;", "server 172.31.5.116:8080;", "keepalive 1024;", "keepalive_requests 100000;"} {
+		if !strings.Contains(string(body), want) {
+			t.Fatalf("missing %s: %s", want, body)
+		}
+	}
+	if strings.Contains(string(body), "172.31.0.126") {
+		t.Fatal(string(body))
+	}
+}
+
+func TestNginxReloadRestartsOnlyForChangedServiceLimit(t *testing.T) {
+	cfg, err := loadConfig("deployments.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ current, want, unwanted string }{
+		{"65536", "reload nginx", "restart nginx"},
+		{"1024", "restart nginx", "reload nginx"},
+	} {
+		t.Run(tc.current, func(t *testing.T) {
+			tmp := t.TempDir()
+			log := filepath.Join(tmp, "calls")
+			script := `#!/bin/sh
+printf '%s\n' "$*" >> "$ISUCON_TEST_CALLS"
+case "$*" in
+  'systemctl show nginx -p MainPID --value') echo 123;;
+  'systemctl show nginx -p LimitNOFILESoft --value') echo 65536;;
+  awk*) echo "$ISUCON_TEST_LIMIT";;
+esac
+`
+			if err := os.WriteFile(filepath.Join(tmp, "sudo"), []byte(script), 0755); err != nil {
+				t.Fatal(err)
+			}
+			r := deployRunner{roles: map[string][]string{"nginx": {"edge-host"}}}
+			jobs, err := r.activationJobs(cfg.Deployments["nginx"].Activations)
+			if err != nil || len(jobs) != 1 {
+				t.Fatalf("jobs=%v err=%v", jobs, err)
+			}
+			cmd := exec.Command("sh", "-c", jobs[0].script)
+			cmd.Env = append(os.Environ(), "PATH="+tmp+string(os.PathListSeparator)+os.Getenv("PATH"), "ISUCON_TEST_CALLS="+log, "ISUCON_TEST_LIMIT="+tc.current)
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("%v: %s", err, out)
+			}
+			calls, err := os.ReadFile(log)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(calls), tc.want) || strings.Contains(string(calls), tc.unwanted) {
+				t.Fatal(string(calls))
+			}
+		})
 	}
 }

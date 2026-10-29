@@ -17,7 +17,7 @@ tasks:
     desc: deployへ載せる前に初期データを生成・検証する（deploy系のhook、既定は何もしない）
 
   gen-contest-routing:
-    desc: Goアプリのホスト別設定を追加する（genのhook、既定は何もしない）
+    desc: nginx経路とGoアプリのホスト別設定を追加する（genのhook、既定は何もしない）
 
   setup-contest-assets:
     desc: 標準の取得対象外にある競技固有の資材を取得する（setupのhook、既定は何もしない）

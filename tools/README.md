@@ -1,6 +1,6 @@
 # Tools
 
-ビルド・配布・ベンチ・RUN管理・分析の共通ツールです。競技の通常処理はGoだけで動かし、これらの道具は計測・操作用に使います。
+ビルド・配布・ベンチ・RUN管理・分析の共通ツールです。競技の通常処理はnginx＋Goで動かし、これらの道具は計測・操作用に使います。
 
 ## 構成
 
@@ -32,13 +32,13 @@
 
 ### 計測と集計
 
-`measurectl/collectors.yaml`と`digesters.yaml`が生成・回収の正本です。Goアクセスログの出力先は`ACCESS_LOG_PATH`、roleは`app_traffic`です。標準profile、runtime、proc、journal、alpと操作遷移を収集します。`enabled_by_default: false`の計測は必要な場合だけ有効にします。
+`measurectl/collectors.yaml`と`digesters.yaml`が生成・回収の正本です。nginxアクセスログの出力先は`ACCESS_LOG_PATH`、roleは`ingress`（`NGINX_HOSTS`）です。標準profile、runtime、proc、journal、alpと操作遷移を収集します。`enabled_by_default: false`の計測は必要な場合だけ有効にします。
 
 計測を変えるときは生成側、宣言、回収側、分析側、dashboardの読者を揃え、`task artifacts`で照合します。RUN開始時の成果物契約は`run.json`へ保存し、後日の設定変更で必須対象を変えません。欠損・空・解析失敗・対象外は区別します。
 
 ### access log
 
-[Goアクセスログ](../docs/measurement/go-access-log.md)にJSON列・時刻・識別方法をまとめています。API分類は`alp.yml`、`tools/contest/user-transition-routes.json`、`analysis/schema/access-log.sql`で揃えます。生ログはRUNごとに保存・圧縮し、負荷期間を選んでからDuckDBへ集計します。
+[nginxアクセスログ](../docs/measurement/nginx-access-log.md)にJSON列・時刻・識別方法をまとめています。API分類は`alp.yml`、`tools/contest/user-transition-routes.json`、`analysis/schema/access-log.sql`で揃えます。生ログはRUNごとに保存・圧縮し、負荷期間を選んでからDuckDBへ集計します。
 
 ### RUNの比較
 

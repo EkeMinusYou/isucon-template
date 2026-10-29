@@ -76,7 +76,7 @@ with windows as (
        and to_timestamp(try_cast(msec as double)-coalesce(try_cast(response_time as double),0))<w.ended_at
     );
 
--- Go HTTP server の生 access log (raw/access-<host>.log[.zst]) の 5 秒 bucket。
+-- HTTP ingress の生 access log (raw/access-<host>.log[.zst]) の 5 秒 bucket。
 -- alp.json は走行 1 回ぶんの集計なので、処理量と応答時間の時間発展はここで見る。
 -- route 正規化は alp.yml の matching_groups が正本。setup で当日の route を入れるときは
 -- 両方へ同じ正規化を書く。どの pattern にも一致しない URI は、そのまま route になる。

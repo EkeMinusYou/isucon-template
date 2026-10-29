@@ -55,3 +55,6 @@ etc/hosts/*/env.sh
 
 # Python bytecode cache
 __pycache__/
+
+# TLS credentials stay on the managed hosts.
+/nginx/tls/

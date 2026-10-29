@@ -208,6 +208,7 @@ func TestValidateRemotePath(t *testing.T) {
 		"/",
 		"/tmp/app",
 		"/etc/",
+		"/etc/nginx-other/",
 		"/usr/local/",
 		"/home/isucon/ingress/../shadow",
 		"/home/isucon/../../etc/passwd",
@@ -222,6 +223,8 @@ func TestValidateRemotePath(t *testing.T) {
 		"/home/isucon/ingress/",
 		"/home/isucon/worker/",
 		"/etc/sysctl.conf",
+		"/etc/nginx/",
+		"/etc/nginx/nginx.conf",
 	} {
 		if err := validateRemotePath(remote, false); err != nil {
 			t.Errorf("validateRemotePath(%q) = %v", remote, err)
@@ -234,7 +237,7 @@ func TestRepositoryConfigContainsEveryDeployTarget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"app", "sysctl"} {
+	for _, name := range []string{"app", "sysctl", "nginx"} {
 		if _, ok := cfg.Deployments[name]; !ok {
 			t.Errorf("deployment %q is missing", name)
 		}
@@ -313,7 +316,8 @@ func TestAdditionalRemotePaths(t *testing.T) {
 			t.Fatalf("unexpectedly allowed %s", target)
 		}
 	}
-	for _, extra := range []string{"/", "/etc/", "/etc/custom/../", "relative/path"} {
+	for _, extra := range []string{"/", "/etc/",
+		"/etc/nginx-other/", "/etc/custom/../", "relative/path"} {
 		if err := validateRemotePath("/etc/custom/config", false, extra); err == nil {
 			t.Fatalf("invalid root allowed: %s", extra)
 		}

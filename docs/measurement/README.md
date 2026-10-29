@@ -5,7 +5,8 @@ collectorや集計ツール自体の説明は各ツールのREADMEと[tools/READ
 
 ## 一覧
 
-- [Goアクセスログ](go-access-log.md) — 要求・操作遷移・負荷期間の記録
+- [nginxアクセスログ](nginx-access-log.md) — 公開入口の要求・操作遷移・負荷期間の記録
+- [Goアクセスログ](go-access-log.md) — Go内部の追加診断用
 - [Go profileの自動収集](go-profiling.md) — アプリへ標準pprof・RUN別開始確認endpointを組み込む。fgprofは任意
 - [状態・操作の計測](state-and-operations.md) — 永続化方式によらない件数・進行・待ち時間の確認と集計の保存
 

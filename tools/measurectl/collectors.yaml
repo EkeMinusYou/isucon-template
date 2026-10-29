@@ -2,12 +2,13 @@
 # by Taskfile.yml through measurectl's -role flags.
 prepare:
   - name: access-log
-    label: Go access log
-    hosts: app_traffic
+    label: nginx access log
+    hosts: ingress
     script: |
       set -eu
-      test -f '{var:access_log_path}'
-      truncate -s 0 '{var:access_log_path}'
+      sudo test -f '{var:access_log_path}'
+      sudo truncate -s 0 '{var:access_log_path}'
+      sudo nginx -s reopen
 
 oneshots:
   - name: fgprof

@@ -41,6 +41,8 @@ docs/official
 docs/plans
 etc
 generated
+nginx
+public
 runs
 tools/contest
 webapp
