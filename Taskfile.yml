@@ -347,10 +347,6 @@ tasks:
     dir: '{{.MEASUREMENT_DIR}}'
     cmds: [go test -race -run '^TestProfile' ./app]
 
-  test-nginx:
-    desc: Dockerのnginxで設定構文・proxy・キャッシュ・圧縮・計測ログを検証
-    cmds: [python3 tools/nginx/test_config.py]
-
   test-measurectl:
     desc: 計測制御ツールをローカルで検証
     dir: '{{.MEASURECTL_DIR}}'

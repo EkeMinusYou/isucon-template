@@ -52,8 +52,8 @@ task artifacts-run RUN=runs/<RUN_ID>
 
 詳細は[Tools](tools/README.md)、判断基準は[Evidence](.agents/skills/_shared/evidence.md)を参照してください。
 
-nginxの基本設定・接続再利用・圧縮は同梱済みです。[秘伝のタレ](.agents/skills/isucon-special-sauce/SKILL.md)を初回ベンチ前に適用し、競技のURL・更新仕様に合う静的キャッシュとTLS/SSE等を整えます。`task setup-nginx`は旧設定を調査用領域へ取得し、同梱設定を上書きしません。`task gen`は転送先、`task deploy-nginx`は構文確認付きの配布・reloadを行います。
+nginxの初期設定は、他の初期ソースと同様にリポジトリへ含めません。`task setup-nginx`は`REFERENCE_DIR`へ取得し、setupは外部仕様だけを渡します。bootstrapが[nginxの秘伝のタレ](docs/special-sources/nginx.md)を参照して設定を新規作成し、初回ベンチ前に適用します。`task gen`は新構成の転送先と静的配信rootを生成し、`task deploy-nginx`は構文確認付きの配布・reloadを行います。
 
-公開静的資材は`STATIC_DIR`（既定`public/`）から全NGINX_HOSTSの`STATIC_REMOTE_DIR`へ`task deploy-nginx`で配布します。`app.conf`で仕様を確認したURLだけを`try_files`等で直接配信し、適切なlocationに`static-cache.conf`をincludeします。動的アップロードや永続データは、配布時に削除されるこのディレクトリへ置かず、別の保存・同期経路を設計してください。
+公開静的資材は`STATIC_DIR`（既定`public/`）から全NGINX_HOSTSの`STATIC_REMOTE_DIR`へ`task deploy-nginx`で配布します。新規作成する`nginx/sites-enabled/app.conf`で仕様を確認したURLだけを`try_files`等で直接配信し、キャッシュ設定を加えます。動的アップロードや永続データは、配布時に削除されるこのディレクトリへ置かず、別の保存・同期経路を設計してください。
 
-テンプレート側のnginx設定は`task test-nginx`でDocker内のnginxを使って検証できます。実環境では`task deploy-nginx-dry`で配布先を確認し、nginxのバージョンとTLS・公開portを合わせてから反映してください。
+新規作成した設定は、`task deploy-nginx-dry`で配布先を確認し、nginxのバージョンとTLS・公開portを合わせてから反映してください。

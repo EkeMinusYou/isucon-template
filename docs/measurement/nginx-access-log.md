@@ -2,7 +2,7 @@
 
 標準集計の入口は`NGINX_HOSTS`（measurectlの`ingress` role）です。`nginx/nginx.conf`のJSONログを`ACCESS_LOG_PATH`へ出し、alp・操作遷移・負荷期間の推定・DuckDBで同じファイルを読みます。Goのpprof・runtimeは`APP_HOSTS`から引き続き収集します。
 
-同梱設定は応答終了時刻`msec`（Unix秒）、`method`・`uri`・`status`、全体の秒数`response_time`、転送bodyの`body_bytes`、接続ID・接続内要求数・TLS再利用、転送先・upstream応答時間を記録します。`buffer=32k flush=1s`で書き出し、回収前に2秒待ちます。ベンチ前にはsudoでtruncate・reopenします。ログの親ディレクトリにSSHユーザーの通過権限、ファイルに読み取り権限を与え、`task setup-postflight`と実RUNで回収を確認してください。認証CookieやAuthorizationそのものをログに追加しません。
+新規作成するnginx設定では応答終了時刻`msec`（Unix秒）、`method`・`uri`・`status`、全体の秒数`response_time`、転送bodyの`body_bytes`、接続ID・接続内要求数・TLS再利用、転送先・upstream応答時間を記録します。`buffer=32k flush=1s`で書き出し、回収前に2秒待ちます。ベンチ前にはsudoでtruncate・reopenします。ログの親ディレクトリにSSHユーザーの通過権限、ファイルに読み取り権限を与え、`task setup-postflight`と実RUNで回収を確認してください。認証CookieやAuthorizationそのものをログに追加しません。
 
 ## Goから補う測定値
 

@@ -18,7 +18,10 @@ JavaScript・CSS・画像・生成済みコンテンツの本体配信をnginx�
 
 ```nginx
 location /assets/ {
-    include /etc/nginx/snippets/static-cache.conf;
+    expires 1d;
+    open_file_cache max=1024 inactive=60s;
+    open_file_cache_valid 60s;
+    open_file_cache_min_uses 2;
     try_files $uri =404;
 }
 ```

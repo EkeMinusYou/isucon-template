@@ -1,10 +1,10 @@
 # nginx（nginx.conf）
 
-nginx の設定。リポジトリでは `nginx/nginx.conf`、`nginx/conf.d/`、`nginx/sites-enabled/` などを管理し、
+nginxの初期設定は他の初期ソースと同様にリポジトリへ含めず、bootstrapが外部仕様と本資料から新規作成する。リポジトリでは `nginx/nginx.conf`、`nginx/conf.d/`、`nginx/sites-enabled/` などを管理し、
 `task deploy-nginx` で `NGINX_HOSTS` に配布する。反映前に vhost、TLS、ログ形式、upstream を確認し、
-資料の設定を既存ブロックへ統合する。
+外部仕様に合わせて設定する。
 
-以下の `events {}` と `http {}` は既存の nginx.conf の各ブロックへ統合する。同じコンテキストを
+以下の `events {}` と `http {}` は新規作成する nginx.conf の各ブロックへ統合する。同じコンテキストを
 複数追加しない。
 
 ## ファイルディスクリプタと接続数
@@ -156,7 +156,7 @@ server {
 
 ## このリポジトリでの注意点と確認
 
-同梱の`nginx/nginx.conf`・`snippets/proxy-app.conf`に基本設定を反映済み。公開静的資材は`public/`からnginxホストへ配布し、rootは`task gen`が`STATIC_REMOTE_DIR`から生成する。静的キャッシュは`snippets/static-cache.conf`を、仕様を確認した静的locationだけでincludeする。URLを推測してAPIを静的配信へ切り替えない。HTML・同一URLで更新される画像・認可付き資材は、更新や初期化後の可視性を満たす期限・validatorを別に決める。SSEは専用locationで`proxy_buffering off`、またはGoの`X-Accel-Buffering: no`を使い、イベントが随時届くことを確認する。WebSocketはUpgrade転送を専用locationへ設定する。
+bootstrapが`nginx/nginx.conf`と`nginx/sites-enabled/app.conf`を新規作成し、本文の設定を統合する。`nginx.conf`から`conf.d/*.conf`と`sites-enabled/*`を読み込む。公開静的資材は`public/`からnginxホストへ配布し、rootは`task gen`が`STATIC_REMOTE_DIR`から`snippets/static-root.conf`へ生成するため、serverでincludeする。静的キャッシュは、仕様を確認した静的locationだけに設定する。URLを推測してAPIを静的配信へ切り替えない。HTML・同一URLで更新される画像・認可付き資材は、更新や初期化後の可視性を満たす期限・validatorを別に決める。SSEは専用locationで`proxy_buffering off`、またはGoの`X-Accel-Buffering: no`を使い、イベントが随時届くことを確認する。WebSocketはUpgrade転送を専用locationへ設定する。
 
 `nginx/sites-enabled/app.conf`の公開listener・TLS・body上限を公式契約に合わせ、公開入口で200/304、`Cache-Control`・`Expires`・`Content-Encoding`を確認する。キャッシュによるリクエスト削減とAPI処理時間短縮を区別してベンチを比較する。計測形式は[nginxアクセスログ](../measurement/nginx-access-log.md)に従う。
 
