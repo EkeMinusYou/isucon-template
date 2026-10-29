@@ -1,7 +1,7 @@
 // topology-screen replays saved access logs through alternative shard
 // assignments. Everything problem-specific -- where the shard key lives, how it
 // is hashed, which routes are in scope, and what the log columns are called --
-// is a flag. Defaults accept the complete vhost as a generic shard key; use
+// is a flag. Defaults accept the complete host as a generic shard key; use
 // -key-regex when a tenant or user identifier is embedded in that value.
 package main
 
@@ -112,7 +112,7 @@ func run(args []string, output io.Writer, diagnostics io.Writer) error {
 	inputs := fs.String("input", "", "comma-separated log paths or globs; overrides -run-dir")
 	format := fs.String("format", "json", "access log format: json or ltsv")
 
-	keyField := fs.String("key-field", "vhost", "log field holding the shard key")
+	keyField := fs.String("key-field", "host", "log field holding the shard key")
 	keyPattern := fs.String("key-regex", `^(.+)$`, "regexp with one capture group extracting the shard key; non-matching records are skipped")
 	keyExclude := fs.String("key-exclude", ``, "regexp of extracted keys to drop; empty keeps every key")
 	keyLower := fs.Bool("key-lower", true, "lowercase the key field before matching and hashing")

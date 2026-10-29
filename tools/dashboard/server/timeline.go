@@ -17,7 +17,7 @@ import (
 )
 
 // accessLogLine mirrors the fields of one ingress access-<host>.log JSON line
-// that the benchmarker timeline needs (see nginx/common/nginx.conf log_format json).
+// that the benchmarker timeline needs (see webapp/go/measurement.go).
 type accessLogLine struct {
 	Msec         json.RawMessage `json:"msec"`
 	Time         string          `json:"time"`

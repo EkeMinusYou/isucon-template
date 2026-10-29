@@ -1,12 +1,11 @@
 # 計測の組み込み
 
-nginx・Goアプリケーションとホストから計測データを出すための設定・実装手順をまとめる。
+Goアプリケーションとホストから計測データを出すための設定・実装手順をまとめる。
 collectorや集計ツール自体の説明は各ツールのREADMEと[tools/README.md](../../tools/README.md)に置く。
 
 ## 一覧
 
-- [nginxアクセスログ](nginx-access-log.md) — 公開入口の要求・操作遷移・負荷期間の記録
-- [Goアクセスログ](go-access-log.md) — Go内部の追加診断用
+- [Goアクセスログ](go-access-log.md) — 公開入口の要求・操作遷移・負荷期間の記録
 - [Go profileの自動収集](go-profiling.md) — アプリへ標準pprof・RUN別開始確認endpointを組み込む。fgprofは任意
 - [状態・操作の計測](state-and-operations.md) — 永続化方式によらない件数・進行・待ち時間の確認と集計の保存
 
@@ -32,4 +31,4 @@ DuckDBの分析値は`load_windows`の負荷期間に限定する。入口のtra
 
 ## 取得後の表示
 
-[ダッシュボード](../../tools/dashboard/web/README.md)では、nginx/Goの役割、ホスト・サービス資源、Go runtime、profile、nginxログに基づく要求の推移を表示します。runtimeは汎用Go土台から接続済みです。セッション識別・操作分類・アプリ固有指標はbootstrapで業務実装へ接続してください。Goの`access_log_health`は追加のGoロガーを使う場合だけの指標で、nginxのログ欠損を表すものではありません。
+[ダッシュボード](../../tools/dashboard/web/README.md)では、Goの役割、ホスト・サービス資源、Go runtime、profile、Goログに基づく要求の推移を表示します。runtimeは汎用Go土台から接続済みです。セッション識別・操作分類・アプリ固有指標はbootstrapで業務実装へ接続してください。Goの`access_log_health`でログの受理・書出し・欠落・出力エラーを確認できます。

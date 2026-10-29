@@ -11,7 +11,7 @@ version: '3'
 
 tasks:
   build-contest-assets:
-    desc: アプリbuildに付随する競技固有binaryをビルドする（buildのhook、既定は何もしない）
+    desc: HTTP資材生成・Go build前の競技固有資材をビルドする（genのhook、既定は何もしない）
 
   prepare-initial-data:
     desc: deployへ載せる前に初期データを生成・検証する（deploy系のhook、既定は何もしない）

@@ -23,7 +23,7 @@ net.core.wmem_max=16777216
 | 項目 | 役割 | 注意点 |
 | --- | --- | --- |
 | `net.core.somaxconn` | `listen(2)` の accept 待ち行列のカーネル側上限 | アプリケーションが指定した backlog の上限を超えて増やすことはできない |
-| `net.ipv4.ip_local_port_range` | 外向き TCP 接続に使う一時ポートの範囲 | nginxからGo、Goプロセス間通信 などの発信接続に関係する。待受ポートの範囲ではない |
+| `net.ipv4.ip_local_port_range` | 外向き TCP 接続に使う一時ポートの範囲 | Goプロセス間通信や外部サービスの発信接続に関係する。待受ポートの範囲ではない |
 | `net.core.rmem_max` / `net.core.wmem_max` | ソケットの受信・送信バッファの最大値 | 最大値を引き上げるだけで、各ソケットがその量を確保するわけではない |
 
 `somaxconn=65535` は accept 待ち行列の上限、`10000 60999` は外向き TCP 接続に使うポート範囲、

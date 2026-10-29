@@ -39,4 +39,4 @@
 - [Goのバージョンを上げる](upgrade-go-version.md) — ツールチェーンを更新し、互換性とビルド経路を整える実装パターン
 - [オンメモリ化](in-memory.md) — キャッシュ・read modelと、メモリを実行時の正本とする状態処理の選択
 - [GoのWAL付きオンメモリ状態](wal-backed-in-memory-state.md) — 更新の記録・公開・復元と初期化を一体で扱う実装パターン
-- [静的データをnginxから配信する](nginx-static-files.md) — 公開資材の直接配信・キャッシュと、Goでの認可・更新の分担
+- [静的データをGoから直接配信する](go-static-files.md) — 公開資材の事前圧縮・直接配信・キャッシュと認可・更新
