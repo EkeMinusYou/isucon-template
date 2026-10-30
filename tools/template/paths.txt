@@ -42,6 +42,8 @@ tools
 tools/contest/README.md
 
 [contest]
+data
+docs/behavior.md
 Taskfile.contest.yml
 docs/analysis
 docs/conversation
