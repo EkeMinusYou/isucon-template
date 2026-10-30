@@ -29,19 +29,19 @@ docs/measurement
 docs/official/README.md
 docs/solutions
 docs/special-sources
-nginx/common/nginx.conf
-nginx/common/snippets/proxy-app.conf
-nginx/common/snippets/static-cache.conf
-nginx/roles/edge/sites-enabled/app.conf
-etc/systemd/system/nginx.service.d/limits.conf
 webapp/go/main.go
 webapp/go/server.go
 webapp/go/measurement.go
 webapp/go/server_test.go
+webapp/go/static.go
+webapp/go/static_test.go
+tls/.gitkeep
+etc/sysctl.conf
 tools
 tools/contest/README.md
 
 [contest]
+tls
 data
 docs/behavior.md
 Taskfile.contest.yml
@@ -52,7 +52,6 @@ docs/official
 docs/plans
 etc
 generated
-nginx
 public
 runs
 tools/contest

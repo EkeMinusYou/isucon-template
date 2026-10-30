@@ -1,6 +1,6 @@
 # Tools
 
-ビルド・配布・ベンチ・RUN管理・分析の共通ツールです。競技の通常処理はnginx＋Goで動かし、これらの道具は計測・操作用に使います。
+ビルド・配布・ベンチ・RUN管理・分析の共通ツールです。競技の通常処理はGo単体で動かし、これらの道具は計測・操作用に使います。
 
 ## 構成
 
@@ -9,7 +9,7 @@
 - `measurement/cmd/runtime-metrics`：1秒間隔のruntime・内部指標。
 - `measurement/cmd/json-metrics-collector`：必要な場合だけ有効化する追加集計。
 - `measurectl`：宣言に基づく計測・回収・集計・品質検査。
-- `deployctl`：Goアプリ・nginx・systemd・OS設定の配布、初期化、役割確認。
+- `deployctl`：Goアプリ・静的資材・TLS・systemd・OS設定の配布、初期化、役割確認。
 - `portal-bench`・`bench-output`：ポータル操作と公式結果の保存・解釈。
 - `analysisctl`・`analysis`：保存済みRUNの負荷期間をDuckDBへ同期・比較。
 - `dashboard`：保存済みRUNの任意の可視化。
@@ -26,7 +26,7 @@
 
 ### デプロイ
 
-`tools/deployctl/deployments.yaml`が配布と実行順を定義します。`deploy-all`は停止対象unitを無効化し、Goアプリとホスト別に生成したnginx設定を配布・起動します。`initialize`は稼働中アプリの初期化APIを呼びます。並行処理の停止・初期状態の公開・全ホストの同期はGoの初期化処理で実装してください。
+`tools/deployctl/deployments.yaml`が配布と実行順を定義します。`deploy-all`は停止対象unitを無効化し、Goアプリと静的資材・TLS資材を配布・起動します。`initialize`は稼働中アプリの初期化APIを呼びます。並行処理の停止・初期状態の公開・全ホストの同期はGoの初期化処理で実装してください。
 
 `local`・`remote`には`{host}`を指定でき、ホスト別設定を配布できます。`validate`付きuploadは転送先を退避し、検査失敗時にそのuploadを復元します。`DEPLOYCTL_CONFIG`で競技固有の設定を選び、`include`で共通graphを再利用できます。新たなGoサービスのrole・実行・状態確認も同じ設定へ追加します。
 
@@ -46,18 +46,18 @@ HTTPのredirectを追跡せず、指定statusになるまで再試行し、期�
 `/healthz`の200だけで、受理済みデータや操作間の正当性まで検証できたとは扱いません。
 同じアプリのReadinessを確認する`ready`と、通常再起動前後のデータ照合を行う競技側テストは分けて使います。
 
-nginx設定の同期では、生成物で管理するファイルを更新し、TLS資材・OSの`mime.types`・`modules-enabled/`は保持します。
+TLS資材はGit対象外の`tls/`から配布し、静的資材は`public/`からGoホストへ配布します。
 `APP_ENV`はTaskfileからsystemd unitへ生成する非機密の環境変数mapです。値中の`%`はsystemd用にescapeします。
 
 ### 計測と集計
 
-`measurectl/collectors.yaml`と`digesters.yaml`が生成・回収の正本です。nginxアクセスログの出力先は`ACCESS_LOG_PATH`、roleは`ingress`（`NGINX_HOSTS`）です。標準profile、runtime、proc、journal、alpと操作遷移を収集します。`enabled_by_default: false`の計測は必要な場合だけ有効にします。
+`measurectl/collectors.yaml`と`digesters.yaml`が生成・回収の正本です。Goアクセスログの出力先は`ACCESS_LOG_PATH`、roleは`ingress`（`INGRESS_HOSTS`）です。標準profile、runtime、proc、journal、alpと操作遷移を収集します。`enabled_by_default: false`の計測は必要な場合だけ有効にします。
 
 計測を変えるときは生成側、宣言、回収側、分析側、dashboardの読者を揃え、`task artifacts`で照合します。RUN開始時の成果物契約は`run.json`へ保存し、後日の設定変更で必須対象を変えません。欠損・空・解析失敗・対象外は区別します。
 
 ### access log
 
-[nginxアクセスログ](../docs/measurement/nginx-access-log.md)にJSON列・時刻・識別方法をまとめています。API分類は`tools/contest/user-transition-routes.json`を正本にし、alp・操作遷移・DuckDBが共用します。生ログはRUNごとに保存・圧縮し、負荷期間を選んでからDuckDBへ集計します。
+[Goアクセスログ](../docs/measurement/go-access-log.md)にJSON列・時刻・識別方法をまとめています。API分類は`tools/contest/user-transition-routes.json`を正本にし、alp・操作遷移・DuckDBが共用します。生ログはRUNごとに保存・圧縮し、負荷期間を選んでからDuckDBへ集計します。
 
 ### RUNの比較
 
@@ -150,7 +150,7 @@ scoreには1つのcapture groupを持たせ、該当する行がない項目は�
 
 `tools/contest/user-transition-routes.json`のCookie列・API prefix・正規化routeを当日のAPIへ合わせる。
 bootstrapでは[重要な操作間の標準集計](../docs/measurement/state-and-operations.md#重要な操作間の標準集計)も設定する。
-`task q`で`operation_progress`・`operation_concurrency`・`connection_reuse`を比較できる。受信量は`http_traffic_series`、Goの追加アクセスロガーを使う場合だけログ出力counterを`access_log_health`で読む。nginxログの健全性をこのcounterで判断しない。
+`task q`で`operation_progress`・`operation_concurrency`・`connection_reuse`を比較できる。受信量は`http_traffic_series`、標準Goロガーの出力counterを`access_log_health`で読み、TCPサンプルを`tcp_samples`、上流への通信を`upstream_requests`で比較する。
 
 routeは正本のJSONに名前と正規表現を具体的な順に宣言する。既定はqueryを除いたデコード済みpathで照合し、queryの条件を区別するrouteだけ`match_query: true`で元のURIへ照合する。API prefix内の未分類要求は`<unclassified-api>`として件数を残し、動的IDを集計ラベルにしない。`alp.yml`は表示設定だけを持ち、SQLに競技固有のpatternは書かない。
 

@@ -47,6 +47,9 @@ with windows as (
         coalesce(try_cast(body_bytes as double), 0.0) as body_bytes,
         try_cast(connection_requests as bigint) as connection_requests,
         ssl_session_reused,
+        protocol,
+        tcp,
+        upstream,
         case when request_body_bytes >= 0 and isfinite(request_body_bytes) then request_body_bytes end as request_body_bytes,
         case when request_content_length >= 0 and isfinite(request_content_length) then request_content_length end as request_content_length
     from read_json(
@@ -67,7 +70,10 @@ with windows as (
             'session_id': 'VARCHAR',
             'connection': 'VARCHAR',
             'connection_requests': 'VARCHAR',
-            'ssl_session_reused': 'VARCHAR'
+            'ssl_session_reused': 'VARCHAR',
+            'protocol': 'VARCHAR',
+            'tcp': 'STRUCT(rtt_us UBIGINT, rtt_variance_us UBIGINT, total_retransmits UBIGINT)',
+            'upstream': 'STRUCT(address VARCHAR, reused BOOLEAN, connect_seconds DOUBLE, tls_seconds DOUBLE, header_seconds DOUBLE, total_seconds DOUBLE, body_bytes BIGINT, error VARCHAR)[]'
         })
     where getvariable('analysis_windows') is null or exists (
       select 1 from windows w
@@ -99,7 +105,7 @@ from paths p left join configs c using(run_id);
 create or replace view http_traffic_buckets as
 with requests as materialized (
     select *,
-        case when connection_id is not null then
+        case when connection_id is not null and (protocol is null or protocol in ('HTTP/1.0','HTTP/1.1')) then
             logged_at_epoch-response_time_sec-lag(logged_at_epoch) over (
                 partition by run_id,ingress_host,connection_id
                 order by logged_at_epoch-response_time_sec

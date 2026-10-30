@@ -63,29 +63,3 @@ func TestReadinessRejectsInvalidConditions(t *testing.T) {
 		}
 	}
 }
-
-func TestNginxDeploymentPreservesOSModuleConfiguration(t *testing.T) {
-	cfg, err := loadConfig("deployments.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var excluded []string
-	for _, upload := range cfg.Deployments["nginx"].Uploads {
-		if upload.Remote == "/etc/nginx/" {
-			excluded = upload.Excludes
-		}
-	}
-	// OS-provided files do not affect the generated configuration fingerprint.
-	root := t.TempDir()
-	os.Mkdir(filepath.Join(root, "modules-enabled"), 0755)
-	os.WriteFile(filepath.Join(root, "nginx.conf"), []byte("configuration"), 0644)
-	before, err := localFingerprint(root+"/", excluded)
-	if err != nil {
-		t.Fatal(err)
-	}
-	os.WriteFile(filepath.Join(root, "modules-enabled/50-module.conf"), []byte("package-managed"), 0644)
-	after, err := localFingerprint(root+"/", excluded)
-	if err != nil || before != after {
-		t.Fatalf("OS module config is not preserved: %v", err)
-	}
-}

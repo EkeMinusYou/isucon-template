@@ -14,22 +14,26 @@ import (
 // AccessLogEntry is the shared log contract. Byte counts are absent when
 // unknown. Referenced values must remain immutable after Log returns.
 type AccessLogEntry struct {
-	Msec                 float64 `json:"msec"`
-	Method               string  `json:"method"`
-	URI                  string  `json:"uri"`
-	Status               int     `json:"status"`
-	ResponseTime         float64 `json:"response_time"`
-	BodyBytes            int64   `json:"body_bytes"`
-	RequestBodyBytes     *int64  `json:"request_body_bytes,omitempty"`
-	RequestContentLength *int64  `json:"request_content_length,omitempty"`
-	SessionID            string  `json:"session_id"`
-	Host                 string  `json:"host,omitempty"`
-	Connection           uint64  `json:"connection,omitempty"`
-	ConnectionRequests   uint64  `json:"connection_requests,omitempty"`
-	ConnectionClosed     bool    `json:"connection_closed,omitempty"`
-	AcceptToFirst        float64 `json:"accept_to_first_request,omitempty"`
-	SSLSessionReused     string  `json:"ssl_session_reused,omitempty"`
-	Details              any     `json:"details,omitempty"`
+	RequestID            uint64                `json:"request_id,omitempty"`
+	Protocol             string                `json:"protocol,omitempty"`
+	TCP                  *TCPObservation       `json:"tcp,omitempty"`
+	Upstream             []UpstreamObservation `json:"upstream,omitempty"`
+	Msec                 float64               `json:"msec"`
+	Method               string                `json:"method"`
+	URI                  string                `json:"uri"`
+	Status               int                   `json:"status"`
+	ResponseTime         float64               `json:"response_time"`
+	BodyBytes            int64                 `json:"body_bytes"`
+	RequestBodyBytes     *int64                `json:"request_body_bytes,omitempty"`
+	RequestContentLength *int64                `json:"request_content_length,omitempty"`
+	SessionID            string                `json:"session_id"`
+	Host                 string                `json:"host,omitempty"`
+	Connection           uint64                `json:"connection,omitempty"`
+	ConnectionRequests   uint64                `json:"connection_requests,omitempty"`
+	ConnectionClosed     bool                  `json:"connection_closed,omitempty"`
+	AcceptToFirst        float64               `json:"accept_to_first_request,omitempty"`
+	SSLSessionReused     string                `json:"ssl_session_reused,omitempty"`
+	Details              any                   `json:"details,omitempty"`
 }
 
 type AccessLoggerOptions struct {

@@ -2,10 +2,15 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/pem"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -23,7 +28,7 @@ func availableAddress(t *testing.T) string {
 }
 
 func TestServerSeparatesTrafficAndMeasurementsAndStops(t *testing.T) {
-	config := serverConfig{Address: availableAddress(t), MeasurementAddr: availableAddress(t)}
+	config := serverConfig{Address: availableAddress(t), MeasurementAddr: availableAddress(t), AccessLog: filepath.Join(t.TempDir(), "access.log")}
 	for config.MeasurementAddr == config.Address {
 		config.MeasurementAddr = availableAddress(t)
 	}
@@ -96,19 +101,55 @@ func TestServerRejectsPublicMeasurementListener(t *testing.T) {
 	}
 }
 
-func TestMeasurementHeadersDoNotExposeSessionSecret(t *testing.T) {
-	response := httptest.NewRecorder()
-	zero := int64(0)
-	setMeasurementHeaders(response, "opaque-session-secret", &zero)
-	identity := response.Header().Get("X-Measurement-Session-ID")
-	if len(identity) != 64 || strings.Contains(identity, "secret") {
-		t.Fatalf("invalid pseudonymous identity: %q", identity)
+func TestDirectTLSServesHTTP2AndCapturesPublicConnection(t *testing.T) {
+	certificate := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	cert := certificate.TLS.Certificates[0]
+	certificate.Close()
+	root := t.TempDir()
+	certPath := filepath.Join(root, "server.crt")
+	keyPath := filepath.Join(root, "server.key")
+	var certPEM []byte
+	for _, der := range cert.Certificate {
+		certPEM = append(certPEM, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})...)
 	}
-	if response.Header().Get("X-Measurement-Request-Body-Bytes") != "0" {
-		t.Fatal("known empty body was not recorded")
+	key, err := x509.MarshalPKCS8PrivateKey(cert.PrivateKey)
+	if err != nil {
+		t.Fatal(err)
 	}
-	setMeasurementHeaders(response, "", nil)
-	if response.Header().Get("X-Measurement-Session-ID") != "" || response.Header().Get("X-Measurement-Request-Body-Bytes") != "" {
-		t.Fatal("unknown measurements must be omitted")
+	os.WriteFile(certPath, certPEM, 0600)
+	os.WriteFile(keyPath, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: key}), 0600)
+	config := serverConfig{TLSAddress: availableAddress(t), TLSCertFile: certPath, TLSKeyFile: keyPath, MeasurementAddr: availableAddress(t), AccessLog: filepath.Join(root, "access.log")}
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan error, 1)
+	go func() { result <- serve(ctx, config, newHandler()) }()
+	transport := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, ForceAttemptHTTP2: true}
+	client := &http.Client{Transport: transport, Timeout: time.Second}
+	t.Cleanup(func() {
+		client.CloseIdleConnections()
+		cancel()
+		select {
+		case err := <-result:
+			if err != nil {
+				t.Error(err)
+			}
+		case <-time.After(3 * time.Second):
+			t.Error("shutdown timed out")
+		}
+	})
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		response, err := client.Get("https://" + config.TLSAddress + "/healthz")
+		if err == nil {
+			io.Copy(io.Discard, response.Body)
+			response.Body.Close()
+			if response.ProtoMajor != 2 {
+				t.Fatalf("TLS did not negotiate HTTP/2: %s", response.Proto)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal(err)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }

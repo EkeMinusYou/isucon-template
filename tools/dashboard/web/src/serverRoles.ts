@@ -13,7 +13,7 @@ export function serverRoles(roles: RunRoles): { host: string; labels: string[] }
   add(roles.app, 'Go')
   add(roles.ingress, 'HTTP入口')
   add(roles.additional?.nginx, 'nginx')
-  add(roles.app_traffic, 'API転送先')
+  add(roles.app_traffic, 'API処理')
   add(roles.entry ? [roles.entry] : [], 'ベンチ入口')
   for (const [name, members] of Object.entries(roles.additional ?? {})) {
     if (!['all', 'nginx', 'app', 'app_traffic', 'ingress', 'entry'].includes(name)) add(members, name)

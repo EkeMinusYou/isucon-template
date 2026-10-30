@@ -19,7 +19,7 @@ func TestTaskfileDryDeployTasksInvokeDeployctlDryRun(t *testing.T) {
 		task string
 		want string
 	}{
-		{task: "deploy-nginx-dry", want: "deployctl apply nginx -dry-run"},
+		{task: "deploy-static-dry", want: "deployctl apply static -dry-run"},
 		{task: "deploy-app-dry", want: "deployctl apply app -dry-run"},
 		{task: "deploy-all-dry", want: "deployctl apply-plan deploy-all -dry-run"},
 		{task: "initialize-dry", want: "deployctl apply-plan initialize -dry-run"},

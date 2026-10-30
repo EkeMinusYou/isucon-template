@@ -112,6 +112,14 @@ sources:
     schema: schema/connection-reuse.sql
     match: "raw/access-*.log*"
     view: connection_reuse
+  - table: tcp_samples
+    schema: schema/transport.sql
+    match: "raw/access-*.log*"
+    view: tcp_samples
+  - table: upstream_requests
+    schema: schema/transport.sql
+    match: "raw/access-*.log*"
+    view: upstream_requests
   - table: user_transition_edges
     schema: schema/user-transitions.sql
     match: user-transitions.json

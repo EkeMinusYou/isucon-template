@@ -37,6 +37,7 @@ deployments:
         script: |
           set -eu
           sudo chown -R {var:isucon_user}:{var:isucon_user} {var:remote_home}/{var:app_dir}
+          sudo install -d -m 0775 -o {var:isucon_user} -g {var:isucon_user} {var:access_log_dir}
           sudo systemctl daemon-reload
           sudo systemctl restart {var:service}
           sudo systemctl is-active --quiet {var:service}
@@ -44,44 +45,34 @@ deployments:
           url: http://127.0.0.1:{var:listen_port}/healthz
           timeout: 30s
 
-  nginx:
+  static:
     uploads:
       - label: public static assets
-        role: nginx
+        role: app
         local: '{var:static_dir}/'
         remote: '{var:static_remote_dir}/'
         delete: true
         excludes: [.gitkeep]
-      - label: nginx service limits
-        role: nginx
-        local: etc/systemd/system/nginx.service.d/
-        remote: /etc/systemd/system/nginx.service.d/
-      - label: nginx configuration
-        role: nginx
-        local: generated/nginx/{host}/
-        remote: /etc/nginx/
-        excludes: [tls/, modules-enabled/, mime.types, "*.key", "*.pem", "*.crt"]
-        delete: true
-        validate: sudo nginx -t
     activations:
-      - label: reload nginx
-        role: nginx
+      - label: make static assets readable by Go
+        role: app
+        script: sudo chown -R {var:isucon_user}:{var:isucon_user} {var:static_remote_dir}
+
+  tls:
+    uploads:
+      - label: private TLS material
+        role: app
+        local: tls/
+        remote: '{var:tls_remote_dir}/'
+        excludes: [.gitkeep]
+    activations:
+      - label: restrict TLS material to the application user
+        role: app
         script: |
           set -eu
-          sudo systemctl daemon-reload
-          if sudo systemctl is-active --quiet nginx; then
-            pid=$(sudo systemctl show nginx -p MainPID --value)
-            current=$(sudo awk '/Max open files/ {print $4}' "/proc/$pid/limits")
-            configured=$(sudo systemctl show nginx -p LimitNOFILESoft --value)
-            if [ "$current" = "$configured" ]; then
-              sudo systemctl reload nginx
-            else
-              sudo systemctl restart nginx
-            fi
-          else
-            sudo systemctl enable --now nginx
-          fi
-          sudo systemctl is-active --quiet nginx
+          sudo chown -R {var:isucon_user}:{var:isucon_user} {var:tls_remote_dir}
+          sudo chmod 700 {var:tls_remote_dir}
+          sudo find {var:tls_remote_dir} -type f -exec chmod 600 {} +
 
   sysctl:
     uploads:
@@ -106,7 +97,7 @@ deployments:
 
   roles-off:
     activations:
-      - label: stop unused services and unassigned nginx/Go services
+      - label: stop unused services and unassigned Go services
         role: all
         script: |
           set -eu
@@ -119,11 +110,10 @@ deployments:
           }
           for unit in $(printf '%s' '{var:disabled_services}' | tr ',' ' '); do disable_unit "$unit"; done
           case ',{var:app_hosts},' in *',{host},'*) ;; *) disable_unit '{var:service}';; esac
-          case ',{var:nginx_hosts},' in *',{host},'*) ;; *) disable_unit nginx;; esac
 
   roles-on:
     activations:
-      - label: enable assigned nginx/Go services
+      - label: enable assigned Go services
         role: all
         script: |
           set -eu
@@ -131,19 +121,16 @@ deployments:
             sudo systemctl enable --now '{var:service}'
             sudo systemctl is-active --quiet '{var:service}'
             ;; esac
-          case ',{var:nginx_hosts},' in *',{host},'*)
-            sudo systemctl enable --now nginx
-            sudo systemctl is-active --quiet nginx
-            ;; esac
 
 plans:
   deploy-all:
     deployments:
       roles-off: {}
       sysctl: {needs: [roles-off]}
-      app: {needs: [roles-off]}
-      nginx: {needs: [app]}
-      roles-on: {needs: [nginx]}
+      static: {needs: [roles-off]}
+      tls: {needs: [roles-off]}
+      app: {needs: [static, tls]}
+      roles-on: {needs: [app]}
   initialize:
     deployments:
       app-initialize: {}

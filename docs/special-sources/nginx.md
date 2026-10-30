@@ -1,183 +1,37 @@
-# nginx（nginx.conf）
+# nginxの秘伝のタレをGoへ適用する
 
-競技サーバーの初期設定は他の初期ソースと同様にリポジトリへ含めない。本資料から作った汎用ベースの`nginx/common/`と`nginx/roles/`を管理し、Taskfileの配置定義からホスト別の設定を生成する。
-`task deploy-nginx` で `NGINX_HOSTS` に配布する。反映前に vhost、TLS、ログ形式、upstream を確認し、
-外部仕様に合わせて設定する。
+このテンプレートはGoが公開HTTP/TLSと静的配信を直接処理する。nginx設定の狙いを次のように初期実装へ移している。競技サーバーの元のnginx設定は外部仕様の調査用に`REFERENCE_DIR`へ取得し、稼働構成へ持ち込まない。
 
-以下の `events {}` と `http {}` は新規作成する nginx.conf の各ブロックへ統合する。同じコンテキストを
-複数追加しない。
+| 元の設定・狙い | Goでの初期状態 |
+| --- | --- |
+| `worker_processes auto` | Go runtimeの標準CPU並列度を使用。固定のGOMAXPROCSを追加しない |
+| `worker_rlimit_nofile 65536` | 生成systemd unitの`LimitNOFILE=65536` |
+| `worker_connections 32768`, `multi_accept on` | nginx workerの設定は対象外。Goのaccept loop・netpollを使用し、接続数・FD・CPUを実測する |
+| `tcp_nodelay on` | GoのTCP接続の標準動作を利用 |
+| `sendfile on` | 大きい非圧縮ファイルは`http.ServeContent`。ログwrapperも`io.ReaderFrom`を維持する。TLS・OS等でゼロコピー可否は異なる |
+| `tcp_nopush`, `types_hash_max_size`, `server_tokens off` | nginx固有の設定は対象外。MIMEはGoで設定し、nginxのバージョンヘッダーは存在しない |
+| client `keepalive_requests 1000000` | HTTP/1で100万要求を上限とし正常応答後にclose。idle timeoutは120秒。HTTP/2の接続管理はnet/httpが担当 |
+| upstream `keepalive 1024` | `measurement.NewUpstreamTransport()`は全体・接続先ごとのidle pool上限1024、idle timeout 120秒 |
+| upstream `keepalive_requests 100000` | Go標準Transportに同一の設定はない。再利用を有効にし、要求回数だけを理由に1000回で切断しない。必要なら競技側で有限上限を設計する |
+| `expires 1d` | 宣言した不変の公開静的prefixだけに`Cache-Control: public, max-age=86400`と`Expires` |
+| `open_file_cache max=1024 inactive=60s` | 内容・validator・圧縮済み表現を最大1024件・64MiBまで保持。最も古い利用項目から追い出し、60秒で再検証。8MiB超はファイルから配信 |
+| 静的gzip・`gzip_min_length 1024` | 1KiB以上のHTML/CSS/JavaScript/SVGだけを事前圧縮して再利用。JSON APIへ一律適用しない |
+| `gzip_vary on` | `Vary: Accept-Encoding`。q値でgzip拒否を尊重し、gzipとidentityのETagを分ける |
+| HTTP/2 | TLSのALPNで有効化。平文HTTPはHTTP/1。TLS1.2以上 |
+| buffered JSON access log | 共通の非同期ロガーで5ms batch・100ms flush、最大4096件queue、欠損・出力失敗を計測 |
 
-## ファイルディスクリプタと接続数
+`STATIC_URL_PREFIX`は外部仕様で確認した静的URLだけに設定する。既定の`/static/`は開始用の値であり、競技のURLを推測する根拠にはしない。同一URLで更新する画像、HTML、認証付き資材、初期化で置き換わるファイルへ1日の期限を一律適用しない。静的cacheはプロセス内にあるため、`task deploy-static`後の通常restartで更新できる。即時更新や厳密な初期化が必要なものは専用のhandlerとcache無効化を設計する。
 
-```nginx
-worker_processes auto;
-worker_rlimit_nofile 65536;
-error_log /var/log/nginx/error.log warn;
+HTTP/1 keepalive、FD上限、静的cacheの容量と期限、gzip対象、TCPサンプル間隔は初期値であり最適値ではない。スコア効果の事前実測は導入条件にしないが、仕様上の矛盾と資源上限は確認する。
 
-events {
-  worker_connections 32768;
-  multi_accept on;
-}
-```
+## 反映と確認
 
-- `worker_connections` は worker 1 プロセスあたりの同時接続数で、クライアント側だけでなく upstream 側の
-  接続も数える。worker 数を掛けた値がそのまま処理可能な HTTP リクエスト数になるわけではない。
-- `worker_rlimit_nofile=65536` は worker ごとの FD 上限を `worker_connections=32768` より大きくし、
-  ログなど接続以外の FD にも余裕を設ける。systemd 側も `LimitNOFILE=65536` を初期値とする。
-- これらは初期値であり、すべての競技での最適値ではない。構成と実測に応じて調整し、接続数・FD 使用量・
-  メモリー・上限到達の警告を確認する。反映後は稼働中プロセスの FD 上限も確認する。
-- `worker_processes auto` の worker 数はホストの CPU 数などから決まる。接続数と FD 上限は各 worker に適用される。
-- 接続枠が少なくなると nginx は待機接続を閉じて枠を確保する。この警告を保存するため、`error_log` は
-  `warn` を指定する。レベルを省略すると `error` になり、この警告は記録されない。ログのパスは既存設定に合わせる。
+コードは`webapp/go/`と共通の`tools/measurement/app/`、配布値は`Taskfile.yml`を編集し、`task deploy-all`で反映する。systemdのFD上限・bind capabilityは再起動後に実プロセスでも確認する。静的配信は200/304、HEAD・Range、ETag、Cache-Control・Expires、gzipと非圧縮の両表現を検証する。TLSは公式の証明書・信頼点でホスト名と有効期間を検証し、HTTP/2を確認する。
 
-## 基本設定
+`task test-app`はローカルHTTP/TLS、HTTP/2、静的配信を検証する。競技固有の公開URL・更新・認可・初期化条件は`tools/contest/validation.json`と競技側テストへ宣言する。アプリ・計測の起動成功だけで競技の正当性まで確認済みとしない。
 
-```nginx
-http {
-  sendfile on;
-  tcp_nopush on;
-  tcp_nodelay on;
-  types_hash_max_size 2048;
-  server_tokens off;
-}
-```
+## 元の設定のリファレンス
 
-`sendfile` は静的ファイル配信、`tcp_nopush` は主に `sendfile` と組み合わせた送信、`tcp_nodelay` は
-keepalive 接続での小さい応答の待ちを減らすための設定である。`types_hash_max_size` は MIME type の検索表の
-サイズ、`server_tokens off` はエラーページなどに nginx のバージョンを表示しない設定である。静的ファイルを
-配信しない構成では `sendfile` と `tcp_nopush` は静的ファイル配信に効果を持たない。
-
-## クライアント接続の keepalive request 上限
-
-```nginx
-http {
-  keepalive_requests 1000000;
-}
-```
-
-`keepalive_requests` は、一つのクライアント keepalive 接続で処理するリクエスト数の上限である。上限に達すると
-nginx が接続を閉じるため、クライアントがリクエストを続ける場合は TCP 接続と TLS handshake が再度必要になる。
-`1000000` は接続ごとの上限を高くし、上限到達による再接続を減らすための有限値である。
-
-これはクライアントと nginx の間の設定であり、次節の upstream keepalive とは別である。
-
-大きい値は接続単位のメモリーを長く保持する。反映後はレスポンスの正当性に加えて、worker の FD 使用量、
-メモリー、接続エラーを確認する。
-
-## nginx と upstream の keepalive
-
-upstream keepalive は、nginx が upstream サーバーへのアイドル接続を再利用する仕組みである。`keepalive` の
-値は同時リクエスト数ではなく、worker ごとに保持するアイドル接続数の上限である。
-
-```nginx
-keepalive 1024;
-keepalive_requests 100000;
-```
-
-- `keepalive 1024` は、負荷のピークでもアイドル接続が足りずに upstream へ新しく接続し直すことを避ける値である。
-  小さい値（例えば 60〜128）では、ピーク時に一部のリクエストが毎回新しい接続を張る。保持するアイドル接続も
-  `worker_connections` の枠を使うので、クライアント接続と合わせて `worker_connections` に収まることを確認する。
-- `keepalive_requests` は、一つの upstream 接続で処理するリクエスト数の上限である。既定値は 1000 で、上限に
-  達するたびに接続を閉じて張り直す。前節のクライアント側の `keepalive_requests` とは別の設定で、`upstream`
-  ブロックに書く。`100000` は、張り直しを負荷中にほぼ起こさないための有限値である。
-
-`keepalive` と `keepalive_requests` は既存の `upstream` ブロックへ追加する。その upstream を使う既存の `location` には
-次の2行を追加する。
-
-```nginx
-proxy_http_version 1.1;
-proxy_set_header Connection "";
-```
-
-upstream の接続先と `proxy_pass` はアプリケーションの配置・ルーティングに合わせて維持する。
-
-upstream のアプリケーションが keepalive を受け付ける必要がある。Go の `net/http` サーバーは通常これに対応
-しているが、アプリケーション側で keepalive を無効化していないこと、read/write timeout で早期切断しないことを
-確認する。
-
-`proxy_http_version 1.1` と `proxy_set_header Connection ""` は upstream keepalive のための組み合わせで
-あり、片方だけを変更しない。`proxy_read_timeout` は keepalive の設定ではなく応答待ちのタイムアウトなので、
-遅いエンドポイントに必要な場合だけ設定する。長くしすぎると、詰まったリクエストが接続や worker を占有する。
-
-`proxy_pass` は `location` の末尾スラッシュの有無で URI の書き換え結果が変わる。既存の API ルーティングを
-維持するため、既存の `proxy_pass` とリクエストパスを確認する。
-
-## multi_accept
-
-`multi_accept on` はイベント通知1回で複数の待機接続を受け付ける設定である。バースト時の接続受付を改善する
-場合がある一方、worker が受付処理に偏ることもある。設定は上記の `events` ブロックに含める。
-
-## 静的ファイルのキャッシュと圧縮
-
-nginx が `root`・`try_files` で直接返している静的ファイル（フロントエンドの HTML・JavaScript・CSS・画像など）の
-`location` に、有効期限・ファイル情報のキャッシュ・圧縮を追加する。API へ proxy する `location` には追加しない。
-
-```nginx
-location / {
-  expires 1d;
-  open_file_cache max=1024 inactive=60s;
-  open_file_cache_valid 60s;
-  open_file_cache_min_uses 2;
-  try_files $uri /index.html;
-}
-```
-
-```nginx
-http {
-  gzip on;
-  gzip_vary on;
-  gzip_min_length 1024;
-  gzip_types text/css application/javascript image/svg+xml;
-}
-```
-
-- `expires 1d` は `Cache-Control: max-age` と `Expires` を付け、クライアントの条件付き再取得（304 応答）を減らす。
-  競技中に静的ファイルを差し替えない前提の値である。
-- `open_file_cache` はファイルディスクリプタと stat 結果を保持し、同じファイルへの open・stat を減らす。
-- `gzip_types` は静的ファイルの型に限る。`text/html` は既定で圧縮対象に含まれる。JSON の API 応答まで
-  圧縮すると、アプリの応答ごとに CPU を使う。
-- `try_files` と `root` は既存の設定を維持する。上の `location` は追加する行の例で、既存の `location` へ統合する。
-
-## HTTP/2
-
-TLS を終端する `server` の `listen` に `http2` を付け、クライアントが一つの接続で複数のリクエストを
-並行して送れるようにする。
-
-```nginx
-server {
-  listen 443 ssl http2;
-}
-```
-
-- nginx 1.25.1 以降では、`listen` に付ける代わりに `server` ブロックへ `http2 on;` を書く。`nginx -v` で
-  バージョンを確認し、どちらかの書き方にする。
-- 同じ IP・ポートを使う `server` ブロックは、HTTP/2 の有効・無効をそろえる。
-- 平文の HTTP（TLS なし）で受ける `server` には付けない。
-
-反映後は `curl -sI --http2 https://<host>/` の応答行が `HTTP/2` になることを確認する。
-
-## このリポジトリでの注意点と確認
-
-汎用の基本設定は`nginx/common/nginx.conf`、proxy・静的キャッシュは同ディレクトリの`snippets/`へ反映済み。bootstrapは役割別の`nginx/roles/edge/sites-enabled/app.conf`等を外部仕様に合わせる。生成・配布の分担は[README](../../README.md#複数台のnginx設定)を参照する。公開静的資材は`public/`からnginxホストへ配布し、rootは`task gen`が`STATIC_REMOTE_DIR`から生成する。静的キャッシュは、仕様を確認した静的locationだけで`snippets/static-cache.conf`をincludeする。URLを推測してAPIを静的配信へ切り替えない。HTML・同一URLで更新される画像・認可付き資材は、更新や初期化後の可視性を満たす期限・validatorを別に決める。SSEは専用locationで`proxy_buffering off`、またはGoの`X-Accel-Buffering: no`を使い、イベントが随時届くことを確認する。WebSocketはUpgrade転送を専用locationへ設定する。
-
-役割別server設定の公開listener・TLS・body上限を公式契約に合わせ、公開入口で200/304、`Cache-Control`・`Expires`・`Content-Encoding`を確認する。キャッシュによるリクエスト削減とAPI処理時間短縮を区別してベンチを比較する。計測形式は[nginxアクセスログ](../measurement/nginx-access-log.md)に従う。
-
-
-`generated/nginx/<host>/conf.d/upstream.conf`は`task gen`の生成物である。`APP_TRAFFIC_HOSTS`または`NGINX_HOST_CONFIG`を変更する場合は[`Taskfile.yml`](../../Taskfile.yml)を編集し、生成後のupstreamを直接編集しない。
-
-`task deploy-nginx` は設定を配布したあと `nginx -t` を実行して reload する。反映後は設定の読み込みとサービスの
-状態を確認する。
-
-```shell
-sudo nginx -T
-sudo systemctl is-active nginx
-```
-
-upstream keepalive の実効状態は、nginx と app 側の接続数、`upstream_response_time`、エラー率で確認する。
-
-## 公式リファレンス
-
-- [upstream keepalive](https://nginx.org/en/docs/http/ngx_http_upstream_module.html#keepalive)
-- [proxy・buffering](https://nginx.org/en/docs/http/ngx_http_proxy_module.html)
-- [expires / Cache-Control](https://nginx.org/en/docs/http/ngx_http_headers_module.html#expires)
-- [JSON access log / flush](https://nginx.org/en/docs/http/ngx_http_log_module.html)
+- [nginx upstream keepalive](https://nginx.org/en/docs/http/ngx_http_upstream_module.html#keepalive)
+- [nginx expires](https://nginx.org/en/docs/http/ngx_http_headers_module.html#expires)
+- [Go HTTP server / Transport](https://pkg.go.dev/net/http)

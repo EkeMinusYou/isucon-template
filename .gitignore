@@ -56,10 +56,11 @@ etc/hosts/*/env.sh
 # Python bytecode cache
 __pycache__/
 
-# TLS credentials stay on the managed hosts.
-/nginx/tls/
+# TLS credentials are local deployment inputs and are never committed.
+/tls/*
+!/tls/.gitkeep
 
-# Rebuilt by task gen from nginx sources and Taskfile topology.
+# Historical generated nginx assets remain disposable.
 /generated/nginx/
 
 # Local application binary and generated service units.
