@@ -17,7 +17,7 @@ $isucon-bootstrap docs/behavior.mdを入力に、初期ソースを参照せず�
 $isucon-agent task benchでPASS・100万点を達成するまで改善してください。
 ```
 
-setupはdocs/behavior.mdを保存して終了し、bootstrapは新しいセッションで開始する。setupの会話やソースを引き継がない。設計・実装までならbootstrap完了で終了し、目標までの継続依頼ならbootstrapからagentへ同じセッションで進んでよい。
+setupはdocs/behavior.mdを保存して終了し、bootstrapは新しいセッションで開始する。bootstrapへsetupの会話やソースを引き継がない。設計・実装までならbootstrap完了で終了し、目標までの継続依頼ならbootstrapからagentへ同じセッションで進んでよい。
 
 ## 共通規律と資料
 
