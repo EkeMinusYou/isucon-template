@@ -31,7 +31,7 @@ OS・systemd、ビルド・配布・ベンチ・分析の道具は利用する�
 
 - [isucon-setup](.agents/skills/isucon-setup/SKILL.md)は既存ソースから外部の振る舞いを抽出し、別セッションへ渡す仕様・提供データ・資源・接続先・ポータル操作を準備する。旧実装の計測導入・再デプロイ・基準RUN取得を既定の完了条件にしない。
 - [isucon-bootstrap](.agents/skills/isucon-bootstrap/SKILL.md)は外部仕様と資源条件から新構成を設計して全機能を実装する。新構成へ計測と正規の配布・初期化経路を組み込み、正当性・復元・初回PASSと分析を確認する。
-- [isucon-agent](.agents/skills/isucon-agent/SKILL.md)は新実装の設計予測と実測を照合し、構成を含めて改善対象を選ぶ。
+- [isucon-agent](.agents/skills/isucon-agent/SKILL.md)は新実装と保存済みRUNから得点制約を調べ、Evidence基準に従って設計上の選択を含む改善候補を選び、検証する。
 
 setupは`docs/behavior.md`等を保存して終了し、bootstrapは新しいセッションで開始する。setupの会話・ソースを引き継がない。設計・実装だけの依頼はbootstrapの完了条件で終了し、目標までの継続依頼ではbootstrapからagentへ同じセッションで進んでよい。
 
