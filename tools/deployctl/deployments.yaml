@@ -7,10 +7,6 @@ deployments:
         local: 'generated/systemd/{var:service}.service'
         remote: '/etc/systemd/system/{var:service}.service'
         validate: 'sudo systemd-analyze verify /etc/systemd/system/{var:service}.service'
-      - label: Go HTTP configuration
-        role: app
-        local: 'generated/http/{host}.json'
-        remote: '{var:remote_home}/http.json'
     activations:
       - label: reload unit and start stopped application
         role: app
@@ -32,26 +28,54 @@ deployments:
         role: app
         local: 'generated/systemd/{var:service}.service'
         remote: '/etc/systemd/system/{var:service}.service'
-      - label: Go HTTP configuration
-        role: app
-        local: 'generated/http/{host}.json'
-        remote: '{var:remote_home}/http.json'
-      - label: public static assets
-        role: app
-        local: '{var:static_dir}/'
-        remote: '{var:static_remote_dir}/'
-        delete: true
-        excludes: [.gitkeep]
     activations:
       - label: restart application
         role: app
         script: |
           set -eu
-          sudo chown -R {var:isucon_user}:{var:isucon_user} {var:remote_home}/{var:app_dir} {var:static_remote_dir}
-          sudo chown {var:isucon_user}:{var:isucon_user} {var:remote_home}/http.json
+          sudo chown -R {var:isucon_user}:{var:isucon_user} {var:remote_home}/{var:app_dir}
           sudo systemctl daemon-reload
           sudo systemctl restart {var:service}
           sudo systemctl is-active --quiet {var:service}
+
+  nginx:
+    uploads:
+      - label: public static assets
+        role: nginx
+        local: '{var:static_dir}/'
+        remote: '{var:static_remote_dir}/'
+        delete: true
+        excludes: [.gitkeep]
+      - label: nginx service limits
+        role: nginx
+        local: etc/systemd/system/nginx.service.d/
+        remote: /etc/systemd/system/nginx.service.d/
+      - label: nginx configuration
+        role: nginx
+        local: generated/nginx/{host}/
+        remote: /etc/nginx/
+        excludes: [tls/, mime.types, "*.key", "*.pem", "*.crt"]
+        delete: true
+        validate: sudo nginx -t
+    activations:
+      - label: reload nginx
+        role: nginx
+        script: |
+          set -eu
+          sudo systemctl daemon-reload
+          if sudo systemctl is-active --quiet nginx; then
+            pid=$(sudo systemctl show nginx -p MainPID --value)
+            current=$(sudo awk '/Max open files/ {print $4}' "/proc/$pid/limits")
+            configured=$(sudo systemctl show nginx -p LimitNOFILESoft --value)
+            if [ "$current" = "$configured" ]; then
+              sudo systemctl reload nginx
+            else
+              sudo systemctl restart nginx
+            fi
+          else
+            sudo systemctl enable --now nginx
+          fi
+          sudo systemctl is-active --quiet nginx
 
   sysctl:
     uploads:
@@ -72,14 +96,11 @@ deployments:
         role: app_init
         script: |
           set -eu
-          # This direct local request also supports a public TLS listener whose
-          # contest certificate is not issued for the loopback address.
-          url=$(python3 -c 'import json; c=json.load(open("{var:remote_home}/http.json")); scheme="https" if c["tls_cert_file"] else "http"; host,port=c["address"].rsplit(":",1); host=host.strip("[]"); host="127.0.0.1" if host in ("", "0.0.0.0", "::") else host; authority="["+host+"]" if ":" in host else host; print(scheme+"://"+authority+":"+port)')
-          curl --insecure --noproxy '*' --fail-with-body --silent --show-error --max-time 120 -X POST "$url{var:initialize_path}"
+          curl --fail-with-body --silent --show-error --max-time 120 -X POST 'http://127.0.0.1:{var:listen_port}{var:initialize_path}'
 
   roles-off:
     activations:
-      - label: stop unused services and unassigned Go services
+      - label: stop unused services and unassigned nginx/Go services
         role: all
         script: |
           set -eu
@@ -92,10 +113,11 @@ deployments:
           }
           for unit in $(printf '%s' '{var:disabled_services}' | tr ',' ' '); do disable_unit "$unit"; done
           case ',{var:app_hosts},' in *',{host},'*) ;; *) disable_unit '{var:service}';; esac
+          case ',{var:nginx_hosts},' in *',{host},'*) ;; *) disable_unit nginx;; esac
 
   roles-on:
     activations:
-      - label: enable assigned Go services
+      - label: enable assigned nginx/Go services
         role: all
         script: |
           set -eu
@@ -103,14 +125,19 @@ deployments:
             sudo systemctl enable --now '{var:service}'
             sudo systemctl is-active --quiet '{var:service}'
             ;; esac
+          case ',{var:nginx_hosts},' in *',{host},'*)
+            sudo systemctl enable --now nginx
+            sudo systemctl is-active --quiet nginx
+            ;; esac
 
 plans:
   deploy-all:
     deployments:
       roles-off: {}
       sysctl: {needs: [roles-off]}
-      app: {needs: [sysctl]}
-      roles-on: {needs: [app]}
+      app: {needs: [roles-off]}
+      nginx: {needs: [app]}
+      roles-on: {needs: [nginx]}
   initialize:
     deployments:
       app-initialize: {}

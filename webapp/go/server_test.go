@@ -5,7 +5,7 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"path/filepath"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -23,7 +23,7 @@ func availableAddress(t *testing.T) string {
 }
 
 func TestServerSeparatesTrafficAndMeasurementsAndStops(t *testing.T) {
-	config := serverConfig{Address: availableAddress(t), MeasurementAddr: availableAddress(t), AccessLogPath: filepath.Join(t.TempDir(), "access.log")}
+	config := serverConfig{Address: availableAddress(t), MeasurementAddr: availableAddress(t)}
 	for config.MeasurementAddr == config.Address {
 		config.MeasurementAddr = availableAddress(t)
 	}
@@ -93,5 +93,22 @@ func TestServerRejectsPublicMeasurementListener(t *testing.T) {
 	err := serve(context.Background(), serverConfig{Address: "127.0.0.1:0", MeasurementAddr: "0.0.0.0:6060"}, newHandler())
 	if err == nil || !strings.Contains(err.Error(), "loopback") {
 		t.Fatalf("public measurement listener accepted: %v", err)
+	}
+}
+
+func TestMeasurementHeadersDoNotExposeSessionSecret(t *testing.T) {
+	response := httptest.NewRecorder()
+	zero := int64(0)
+	setMeasurementHeaders(response, "opaque-session-secret", &zero)
+	identity := response.Header().Get("X-Measurement-Session-ID")
+	if len(identity) != 64 || strings.Contains(identity, "secret") {
+		t.Fatalf("invalid pseudonymous identity: %q", identity)
+	}
+	if response.Header().Get("X-Measurement-Request-Body-Bytes") != "0" {
+		t.Fatal("known empty body was not recorded")
+	}
+	setMeasurementHeaders(response, "", nil)
+	if response.Header().Get("X-Measurement-Session-ID") != "" || response.Header().Get("X-Measurement-Request-Body-Bytes") != "" {
+		t.Fatal("unknown measurements must be omitted")
 	}
 }

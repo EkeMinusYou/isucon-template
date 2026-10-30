@@ -7,7 +7,7 @@ bootstrapで新実装へ下表の計測を組み込み、実RUNで確認する�
 | 対象 | 確認する経路と不足 |
 | --- | --- |
 | スコア記録 | 公式の採点仕様と出力形式を確認し、生成元、自動取得の手順、RUNへの紐付け、保存先・形式を整える。最終スコア、成功・失敗判定、公式出力にある内訳・ペナルティが元の結果と一致し、DuckDBのqueryで読めることを確認する。未取得・未判定を0点や成功に置き換えない。 |
-| Go access log | [Goアクセスログ](../../../../docs/measurement/go-access-log.md)に従い、APP_TRAFFIC_HOSTSでGoのJSON出力・セッション識別列・権限・flushを揃える。実ログでalp・user-transition・負荷期間推定まで確認する。Goのpprof・runtimeはAPP_HOSTSで継続する。 |
+| nginx access log | [nginxアクセスログ](../../../../docs/measurement/nginx-access-log.md)に従い、全NGINX_HOSTSでJSON出力・セッション識別列・権限・flushを揃える。実ログでalp・user-transition・負荷期間推定まで確認する。Goのpprof・runtimeはAPP_HOSTSで継続する。 |
 | Go pprof | 汎用Go土台は共通計測moduleへ接続済み。CPUの連続採取・2秒ごとのheap/goroutine・1秒のruntime指標を標準で自動収集し、endpointの実装・handler登録と実際のlistener、collectorの取得URL・実行ホスト、有効宣言と起動経路を確認。`Taskfile.yml`にURLがあるだけでは公開済みとしない。取得ファイルを`go tool pprof -top`等で解析する。 |
 | ホスト・service | 全対象ホストのCPU・メモリ・disk・ネットワークと、実際のunit/process/cgroupの対応を確認。全Goプロセスを対象に含める。欠損、counter reset、単位、sampling間隔を確認する。 |
 | 障害・整合性 | appのjournal、kernel/OOM、panic、service再起動が同じload windowで追えるか確認する。正常系のprofileだけで網羅済みにしない。 |
@@ -50,8 +50,8 @@ setupは既存ソースも照合して外部仕様・提供データ・資源・
 - 形式・列名・時刻・単位を生成側とparserで一致させる。URIの動的IDは集計側で正規化し、途中切断や長時間応答も正しく扱えることを確認する。
 - user-transitionはセッションを安定して識別できる方法を調査し、認証Cookie等の生値を恒久保存しない識別列を出す。ログ列名とroutes.jsonのcookie_fieldを一致させ、集計成果物に識別値を残さない。識別方法が仕様上成立しない場合のみ理由を示して対象外とする。
 - routes.jsonの汎用プレースホルダーをそのまま完成扱いにしない。公式APIとGoのroute登録から動的IDを正規化し、未分類API・識別列欠損・時刻不正の件数も確認する。
-- Goアクセスログのmsec等、実際の出力形式をDuckDBの読み手まで照合する。圧縮ログ・空ログ・不正入力を確認し、分析結果にデータがない場合は未取得・空・解析失敗・設定無効を切り分ける。
-- 標準アクセスログはGoの`app.NewAccessLogger`で記録する。受理・書出し・queue長・出力エラーは汎用HTTP土台でruntimeへ接続済み。内部転送を追加した場合も公開入口と二重集計しない。
+- nginxアクセスログのmsec等、実際の出力形式をDuckDBの読み手まで照合する。圧縮ログ・空ログ・不正入力を確認し、分析結果にデータがない場合は未取得・空・解析失敗・設定無効を切り分ける。
+- 標準のアクセスログはnginxだけで記録する。Goの`app.NewAccessLogger`は内部診断に必要な場合だけ別出力として使い、その場合に受理・書出し・queue長・出力エラーを接続する。nginxのログにGoのlogger counterを対応させない。
 - 追加計測はsampling間隔、対象、timeout、出力量・cardinality、enable/disableとcleanupを定める。計測を増やした結果、CPU・I/O・disk容量を圧迫しないか検証する。
 
 ## 有効宣言と対象外判断

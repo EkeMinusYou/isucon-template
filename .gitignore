@@ -65,7 +65,3 @@ __pycache__/
 # Local application binary and generated service units.
 /webapp/go/app
 /generated/systemd/
-
-# Generated Go HTTP configuration and local smoke-test log.
-/generated/http/
-/webapp/go/access.log

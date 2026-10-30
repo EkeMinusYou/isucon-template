@@ -1,6 +1,6 @@
 # Tools
 
-ビルド・配布・ベンチ・RUN管理・分析の共通ツールです。競技の通常処理はGoのみで動かし、これらの道具は計測・操作用に使います。
+ビルド・配布・ベンチ・RUN管理・分析の共通ツールです。競技の通常処理はnginx＋Goで動かし、これらの道具は計測・操作用に使います。
 
 ## 構成
 
@@ -9,7 +9,7 @@
 - `measurement/cmd/runtime-metrics`：1秒間隔のruntime・内部指標。
 - `measurement/cmd/json-metrics-collector`：必要な場合だけ有効化する追加集計。
 - `measurectl`：宣言に基づく計測・回収・集計・品質検査。
-- `deployctl`：Goアプリ・HTTP設定・systemd・OS設定の配布、初期化、役割確認。
+- `deployctl`：Goアプリ・nginx・systemd・OS設定の配布、初期化、役割確認。
 - `portal-bench`・`bench-output`：ポータル操作と公式結果の保存・解釈。
 - `analysisctl`・`analysis`：保存済みRUNの負荷期間をDuckDBへ同期・比較。
 - `dashboard`：保存済みRUNの任意の可視化。
@@ -26,19 +26,19 @@
 
 ### デプロイ
 
-`tools/deployctl/deployments.yaml`が配布と実行順を定義します。`deploy-all`は停止対象unitを無効化し、Goアプリとホスト別に生成したHTTP設定・静的資材を配布・起動します。`initialize`は稼働中アプリの初期化APIを呼びます。並行処理の停止・初期状態の公開・全ホストの同期はGoの初期化処理で実装してください。
+`tools/deployctl/deployments.yaml`が配布と実行順を定義します。`deploy-all`は停止対象unitを無効化し、Goアプリとホスト別に生成したnginx設定を配布・起動します。`initialize`は稼働中アプリの初期化APIを呼びます。並行処理の停止・初期状態の公開・全ホストの同期はGoの初期化処理で実装してください。
 
 `local`・`remote`には`{host}`を指定でき、ホスト別設定を配布できます。`validate`付きuploadは転送先を退避し、検査失敗時にそのuploadを復元します。`DEPLOYCTL_CONFIG`で競技固有の設定を選び、`include`で共通graphを再利用できます。新たなGoサービスのrole・実行・状態確認も同じ設定へ追加します。
 
 ### 計測と集計
 
-`measurectl/collectors.yaml`と`digesters.yaml`が生成・回収の正本です。Goアクセスログの出力先は`ACCESS_LOG_PATH`、roleは`ingress`（`APP_TRAFFIC_HOSTS`）です。標準profile、runtime、proc、journal、alpと操作遷移を収集します。`enabled_by_default: false`の計測は必要な場合だけ有効にします。
+`measurectl/collectors.yaml`と`digesters.yaml`が生成・回収の正本です。nginxアクセスログの出力先は`ACCESS_LOG_PATH`、roleは`ingress`（`NGINX_HOSTS`）です。標準profile、runtime、proc、journal、alpと操作遷移を収集します。`enabled_by_default: false`の計測は必要な場合だけ有効にします。
 
 計測を変えるときは生成側、宣言、回収側、分析側、dashboardの読者を揃え、`task artifacts`で照合します。RUN開始時の成果物契約は`run.json`へ保存し、後日の設定変更で必須対象を変えません。欠損・空・解析失敗・対象外は区別します。
 
 ### access log
 
-[Goアクセスログ](../docs/measurement/go-access-log.md)にJSON列・時刻・識別方法をまとめています。API分類は`alp.yml`、`tools/contest/user-transition-routes.json`、`analysis/schema/access-log.sql`で揃えます。生ログはRUNごとに保存・圧縮し、負荷期間を選んでからDuckDBへ集計します。
+[nginxアクセスログ](../docs/measurement/nginx-access-log.md)にJSON列・時刻・識別方法をまとめています。API分類は`alp.yml`、`tools/contest/user-transition-routes.json`、`analysis/schema/access-log.sql`で揃えます。生ログはRUNごとに保存・圧縮し、負荷期間を選んでからDuckDBへ集計します。
 
 ### RUNの比較
 
@@ -131,7 +131,7 @@ scoreには1つのcapture groupを持たせ、該当する行がない項目は�
 
 `tools/contest/user-transition-routes.json`のCookie列・API prefix・正規化routeを当日のAPIへ合わせる。
 bootstrapでは[重要な操作間の標準集計](../docs/measurement/state-and-operations.md#重要な操作間の標準集計)も設定する。
-`task q`で`operation_progress`・`operation_concurrency`・`connection_reuse`を比較できる。受信量は`http_traffic_series`、Goアクセスログの出力counterを`access_log_health`で読む。routeは動的IDを
+`task q`で`operation_progress`・`operation_concurrency`・`connection_reuse`を比較できる。受信量は`http_traffic_series`、Goの追加アクセスロガーを使う場合だけ、ログ出力counterを`access_log_health`で読む。nginxログの健全性をこのcounterで判断しない。routeは動的IDを
 そのまま残さず、限定された正規表現を上から具体的な順に並べる。Cookieを持たない競技や、識別子を
 安全にログへ出せない場合は、この集計を無効にする。access logの時系列bucket
 （`tools/analysis/schema/access-log.sql`の`# >>> contest values >>>`区画）と`alp.yml`の

@@ -10,14 +10,14 @@
 |---|---|
 | サーバーの役割 | 各RUNの`run.json`。現在のTaskfileではなく、記録当時のGo・HTTP入口・nginx・追加サービスを表示 |
 | スコア・合否 | `runs/scores.tsv`、`run.json`、分析DBの採点結果 |
-| タイムライン・alp・操作遷移 | Goの`raw/access-*.log[.zst]`とRUNの集計成果物・ベンチ出力 |
+| タイムライン・alp・操作遷移 | nginxの`raw/access-*.log[.zst]`とRUNの集計成果物・ベンチ出力 |
 | ホスト・サービス資源 | `*-proc-metrics.tsv`、`*-service-metrics.tsv`。nginxとGoはservice名で区別 |
 | Go runtime | `*-runtime-metrics.tsv`。goroutine・heap・allocation速度・GCのCPU時間 |
 | Go pprof・任意fgprof | RUNに保存されたprofile。採取期間全体の値であり、初期化を含む場合がある |
 
 Go runtimeは、分析DBに有効な負荷期間があればそのサンプルだけを表示します。期間が未確定なら採取全体であることを画面に示します。未取得値は0にせず、counterの速度は同じプロセスの隣接サンプル間で計算します。再起動やcounter減少をまたぐ速度は表示しません。
 
-旧RUNにruntimeや役割がなくても、存在する他の成果物を表示できます。Goの標準アクセスロガー用counterを`access_log_health`で確認できます。アプリ固有の操作定義・セッション識別値は、bootstrapで接続してから確認してください。
+旧RUNにruntimeや役割がなくても、存在する他の成果物を表示できます。Goの追加アクセスロガー用counterはnginxのログ出力counterではありません。アプリ固有の操作定義・セッション識別値は、bootstrapで接続してから確認してください。
 
 ## 計測からの接続
 

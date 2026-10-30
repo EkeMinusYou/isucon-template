@@ -1,8 +1,8 @@
 # Goのアクセスログ
 
-Goが公開入口となり、`webapp/go/measurement.go`から共通の`app.NewAccessLogger`へJSONを出力します。`ACCESS_LOG_PATH`は既定`/home/isucon/access.log`です。`APP_TRAFFIC_HOSTS`をcollectorの`ingress` roleに接続し、alp・操作遷移・負荷期間の推定・DuckDB・ダッシュボードで同じログを使います。内部転送先のログを公開入口へ重複集計しません。
+既定のnginx＋Go構成では[nginxアクセスログ](nginx-access-log.md)を標準集計に使います。この文書はGo内部の追加診断、または明示的にGoを入口に変更した場合の契約です。二つのログを同じ入口の要求として重複集計しません。
 
-bootstrapは認証後に`setRequestSession(r, identity)`を呼び、操作間を結ぶ安定した識別値を渡します。土台でハッシュ化し、応答ヘッダーへ載せません。実body読取量・接続ID・TLS再利用・応答byte数は自動計測します。SSEはhandler終了時点の記録なので、接続中の進捗には状態・操作の計測を併用します。HTTP/2では接続間隔を利用者の待ち時間と解釈しません。
+Go内部の追加診断では、nginxの`ACCESS_LOG_PATH`とは別のファイルへJSONを出します。明示的にGoをHTTP入口に切り替える場合のみ、collectorの`ingress` role・ログパス・標準集計をそのGoログへ接続します。
 
 | 列 | 内容 |
 |---|---|

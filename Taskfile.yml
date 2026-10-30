@@ -22,11 +22,7 @@ vars:
   APP_NAME: app
   SERVICE: app
   LISTEN_PORT: '8080'
-  TLS_CERT_FILE: ''
-  TLS_KEY_FILE: ''
-  HTTP_MAX_CONNECTIONS: '32768'
-  # JSON array: explicit immutable static mounts and cache policy.
-  HTTP_STATIC_ROUTES: '[]'
+  NGINX_PORT: '80'
   TARGET_OS: linux
   TARGET_ARCH: amd64
   # Optional Go PGO profile path for build/build-pgo; unset uses -pgo=auto (default.pgo).
@@ -40,17 +36,16 @@ vars:
   CONFIG_CHECK_COMMAND: 'go -C {{.APP_DIR}} vet ./...'
   SETUP_SECRET_ALLOWLIST: ''
   # Services whose metrics and journals measurectl collects on every host.
-  MANAGED_SERVICES: '{{.SERVICE}}'
-  # Go owns public HTTP; disable the original ingress and unused middleware.
-  DISABLED_SERVICES: nginx,mysql,mariadb,redis,redis-server,memcached,pdns
-  ACCESS_LOG_PATH: /home/isucon/access.log
+  MANAGED_SERVICES: '{{.SERVICE}},nginx'
+  # Setup inventories unused middleware units; nginx remains managed.
+  DISABLED_SERVICES: mysql,mariadb,redis,redis-server,memcached,pdns
+  ACCESS_LOG_PATH: /var/log/nginx/access.log
   # <<< contest values <<<
 
   SSH_USER: ubuntu
   ISUCON_USER: isucon
   APP_DIR: webapp/go
-  STATIC_SOURCE_DIR: public
-  STATIC_DIR: generated/public
+  STATIC_DIR: public
   # Setup-only source checkout, excluded from the design workspace.
   REFERENCE_DIR: '{{.ROOT_DIR}}-reference'
   REMOTE_HOME: /home/isucon
@@ -72,20 +67,22 @@ vars:
       isucon-3: 172.31.5.116
   APP_HOSTS: isucon-1
   APP_TRAFFIC_HOSTS: isucon-1
-  # Per-host overrides use the fields in generated/http/<host>.json.
-  HTTP_HOST_CONFIG:
+  NGINX_HOSTS: isucon-1
+  # Optional overrides; unlisted hosts use role=edge and APP_TRAFFIC_HOSTS.
+  # Example: isucon-2: {role: edge, app_hosts: [isucon-2, isucon-3]}
+  NGINX_HOST_CONFIG:
     map: {}
   CONF_SRC: isucon-1
   # Additional Go services can declare their roles and deployment variables here.
   DEPLOYCTL_FLAGS: ''
-  # Optional extra systemd unit:role pairs.
+  # Extra systemd unit:role pairs, appended to the mandatory nginx role check.
   CONTEST_SERVICE_ROLES: ''
   # Optional extra measurectl roles referenced by contest collectors/digesters.
   # CONTEST_MEASURECTL_ROLES: >-
   #   -role matcher={{splitList " " .MATCHER_HOSTS | join ","}}
   # <<< contest values <<<
 
-  ENTRY_HOST: '{{splitList " " .APP_TRAFFIC_HOSTS | first}}'
+  ENTRY_HOST: '{{splitList " " .NGINX_HOSTS | first}}'
   ENTRY_IP: '{{index .IP .ENTRY_HOST}}'
   APP_IPS: '{{$ips := list}}{{range (splitList " " .APP_TRAFFIC_HOSTS)}}{{$ips = append $ips (index $.IP .)}}{{end}}{{join " " $ips}}'
   ALL_HOST_IPS: '{{range (splitList " " .ALL_HOSTS)}}{{.}}={{index $.IP .}} {{end}}'
@@ -133,7 +130,8 @@ vars:
     -role all={{splitList " " .ALL_HOSTS | join ","}}
     -role app={{splitList " " .APP_HOSTS | join ","}}
     -role app_traffic={{splitList " " .APP_TRAFFIC_HOSTS | join ","}}
-    -role ingress={{splitList " " .APP_TRAFFIC_HOSTS | join ","}}
+    -role ingress={{splitList " " .NGINX_HOSTS | join ","}}
+    -role nginx={{splitList " " .NGINX_HOSTS | join ","}}
     -role entry={{.ENTRY_HOST}}
     {{default "" .CONTEST_MEASURECTL_ROLES}}
   MEASURECTL_VARS: >-
@@ -165,7 +163,9 @@ vars:
     -role all={{splitList " " .ALL_HOSTS | join ","}}
     -role app={{splitList " " .APP_HOSTS | join ","}}
     -role app_init={{splitList " " .APP_HOSTS | first}}
-    -var extra_service_roles="{{.CONTEST_SERVICE_ROLES}}"
+    -role nginx={{splitList " " .NGINX_HOSTS | join ","}}
+    -var nginx_hosts={{splitList " " .NGINX_HOSTS | join ","}}
+    -var extra_service_roles=nginx:nginx{{if .CONTEST_SERVICE_ROLES}},{{.CONTEST_SERVICE_ROLES}}{{end}}
     -var listen_port={{.LISTEN_PORT}}
     -var initialize_path={{.INITIALIZE_PATH}}
     -var remote_home={{.REMOTE_HOME}}
@@ -193,6 +193,7 @@ tasks:
       - |
         echo "現在の役割:"
         echo "  APP   : {{.APP_HOSTS}} (traffic={{.APP_TRAFFIC_HOSTS}})"
+        echo "  NGINX : {{.NGINX_HOSTS}}"
         echo "  ENTRY : {{.ENTRY_HOST}} {{.ENTRY_IP}}"
         echo "  最新RUN: {{if .RUN}}{{.RUN}}{{else}}なし{{end}}"
         echo
@@ -255,16 +256,16 @@ tasks:
   build:
     desc: GoアプリをローカルでTARGET_OS/TARGET_ARCHへクロスコンパイル
     dir: '{{.APP_DIR}}'
-    deps: [gen]
     cmds:
       - '{{.GO_BUILD_ENV}} go build -pgo "{{default "auto" .PGO_PROFILE}}" -trimpath -ldflags "-s -w" -o {{.APP_NAME}} .'
+      - task: build-contest-assets
 
   build-pgo:
     desc: 指定profileまたはdefault.pgoを使ってGoアプリをビルド
     dir: '{{.APP_DIR}}'
-    deps: [gen]
     cmds:
       - '{{.GO_BUILD_ENV}} go build -pgo "{{default "auto" .PGO_PROFILE}}" -trimpath -ldflags "-s -w" -o {{.APP_NAME}} .'
+      - task: build-contest-assets
 
   build-proc-metrics:
     internal: true
@@ -355,9 +356,9 @@ tasks:
     dir: '{{.APP_DIR}}'
     cmds: [go test -race ./...]
 
-  test-http:
-    desc: Go HTTP設定・静的資材生成を検証
-    cmds: [python3 -m unittest discover -s tools/http -p 'test_*.py']
+  test-nginx:
+    desc: ホスト別nginx設定の生成を検証（NGINX_TEST_IMAGE指定時はDockerでも検証）
+    cmds: [python3 -m unittest discover -s tools/nginx -p 'test_*.py']
 
   test-measurectl:
     desc: 計測制御ツールをローカルで検証
@@ -397,11 +398,12 @@ tasks:
           '
 
   setup-preflight:
-    desc: 初期化前のローカル資材・Go role・reset plan確認
+    desc: 初期化前のローカル資材・nginx/Go role・reset plan確認
     deps: [build-deployctl]
     env:
       ISUCON_ALL_HOSTS: '{{.ALL_HOSTS}}'
       ISUCON_APP_HOSTS: '{{.APP_HOSTS}}'
+      ISUCON_NGINX_HOSTS: '{{.NGINX_HOSTS}}'
       ISUCON_APP_TRAFFIC_HOSTS: '{{.APP_TRAFFIC_HOSTS}}'
       ISUCON_HOST_IPS: '{{.ALL_HOST_IPS}}'
       ISUCON_APP_DIR: '{{.APP_DIR}}'
@@ -426,8 +428,9 @@ tasks:
 
         [ -n "$ISUCON_ALL_HOSTS" ] || fail "ALL_HOSTS is empty"
         [ -n "$ISUCON_APP_HOSTS" ] || fail "APP_HOSTS is empty"
+        [ -n "$ISUCON_NGINX_HOSTS" ] || fail "NGINX_HOSTS is empty"
         [ -n "$ISUCON_APP_TRAFFIC_HOSTS" ] || fail "APP_TRAFFIC_HOSTS is empty"
-        for host in $ISUCON_APP_HOSTS $ISUCON_APP_TRAFFIC_HOSTS; do
+        for host in $ISUCON_APP_HOSTS $ISUCON_APP_TRAFFIC_HOSTS $ISUCON_NGINX_HOSTS; do
           contains_host "$ISUCON_ALL_HOSTS" "$host" || fail "role host is not in ALL_HOSTS: $host"
         done
         for host in $ISUCON_APP_TRAFFIC_HOSTS; do
@@ -446,8 +449,8 @@ tasks:
         [ -d "$ISUCON_APP_DIR" ] || fail "application directory is missing: $ISUCON_APP_DIR"
         [ -f "generated/systemd/$ISUCON_SERVICE.service" ] || fail "application systemd unit is missing"
         [ -f etc/sysctl.conf ] || fail "sysctl configuration is missing"
-        for host in $ISUCON_APP_HOSTS; do
-          [ -f "generated/http/$host.json" ] || fail "generated HTTP configuration is missing for $host"
+        for host in $ISUCON_NGINX_HOSTS; do
+          [ -f "generated/nginx/$host/nginx.conf" ] || fail "generated nginx configuration is missing for $host"
         done
 
         if [ "$ISUCON_RESET_INPUTS" = none ]; then
@@ -499,7 +502,7 @@ tasks:
       - sh -c "$ISUCON_CONFIG_CHECK_COMMAND"
       - task: build
       - task: test-app
-      - task: test-http
+      - task: test-nginx
       - task: test-tools
         vars:
           TOOL_MODULE_EXCLUDE: tools/dashboard/*
@@ -517,23 +520,21 @@ tasks:
       - '{{.MEASURECTL_DIR}}/measurectl collect check-clean -config {{.MEASURECTL_COLLECTORS_CONFIG}} {{.MEASURECTL_REMOTE}}'
 
   gen:
-    desc: ホスト別Go HTTP設定と事前圧縮した静的資材を生成
+    desc: 共通・役割別nginx設定からホスト別配布物を生成
     silent: true
     env:
       ISUCON_ALL_HOSTS: '{{.ALL_HOSTS}}'
+      ISUCON_NGINX_HOSTS: '{{.NGINX_HOSTS}}'
       ISUCON_APP_HOSTS: '{{.APP_HOSTS}}'
-      ISUCON_HTTP_HOST_CONFIG: '{{toJson .HTTP_HOST_CONFIG}}'
-      ISUCON_HTTP_STATIC_ROUTES: '{{.HTTP_STATIC_ROUTES}}'
+      ISUCON_APP_TRAFFIC_HOSTS: '{{.APP_TRAFFIC_HOSTS}}'
+      ISUCON_HOST_ADDRESSES: '{{toJson .IP}}'
+      ISUCON_NGINX_HOST_CONFIG: '{{toJson .NGINX_HOST_CONFIG}}'
       ISUCON_APP_PORT: '{{.LISTEN_PORT}}'
-      ISUCON_TLS_CERT_FILE: '{{.TLS_CERT_FILE}}'
-      ISUCON_TLS_KEY_FILE: '{{.TLS_KEY_FILE}}'
-      ISUCON_MAX_CONNECTIONS: '{{.HTTP_MAX_CONNECTIONS}}'
-      ISUCON_STATIC_SOURCE: '{{.STATIC_SOURCE_DIR}}'
-      ISUCON_STATIC_OUTPUT: '{{.STATIC_DIR}}'
+      ISUCON_NGINX_PORT: '{{.NGINX_PORT}}'
+      ISUCON_STATIC_ROOT: '{{.STATIC_REMOTE_DIR}}'
       ISUCON_ACCESS_LOG_PATH: '{{.ACCESS_LOG_PATH}}'
     cmds:
-      - task: build-contest-assets
-      - python3 tools/http/generate.py
+      - python3 tools/nginx/generate.py
       - mkdir -p generated/systemd
       - |
         cat > 'generated/systemd/{{.SERVICE}}.service' <<'UNIT'
@@ -546,9 +547,8 @@ tasks:
         User={{.ISUCON_USER}}
         WorkingDirectory={{.REMOTE_HOME}}/{{.APP_DIR}}
         ExecStart={{.REMOTE_HOME}}/{{.APP_DIR}}/{{.APP_NAME}}
-        Environment=HTTP_CONFIG_FILE={{.REMOTE_HOME}}/http.json
-        AmbientCapabilities=CAP_NET_BIND_SERVICE
-        CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+        Environment=APP_ADDR=:{{.LISTEN_PORT}}
+        Environment=MEASUREMENT_ADDR=127.0.0.1:6060
         Restart=on-failure
         TimeoutStopSec=15
         LimitNOFILE=65536
@@ -568,7 +568,7 @@ tasks:
       - task: deploy-app
 
   deploy-all:
-    desc: 不要サービスを停止しGoアプリ・静的資材・OS設定を反映
+    desc: 不要サービスを停止しnginx・Goアプリ・OS設定を反映
     preconditions: *no_active_run
     cmds:
       # Contest hook; a contest without prepared assets defines it as a no-op.
@@ -613,6 +613,19 @@ tasks:
       - task: prepare-initial-data
       - '{{.OPERATION_LOCK}} {{.DEPLOYCTL_DIR}}/deployctl apply app -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
 
+  deploy-nginx-dry:
+    desc: nginxと静的資材の配布・検証・反映計画を表示
+    deps: [gen, build-deployctl]
+    cmds:
+      - '{{.DEPLOYCTL_DIR}}/deployctl apply nginx -dry-run -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
+
+  deploy-nginx:
+    desc: nginx設定をNGINX_HOSTSへ配布・検証・reload
+    preconditions: *no_active_run
+    deps: [gen, build-deployctl]
+    cmds:
+      - '{{.OPERATION_LOCK}} {{.DEPLOYCTL_DIR}}/deployctl apply nginx -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
+
   deploy-sysctl:
     desc: sysctl設定を全ホストへ配布・反映
     preconditions: *no_active_run
@@ -635,13 +648,14 @@ tasks:
       - '{{.OPERATION_LOCK}} {{.DEPLOYCTL_DIR}}/deployctl apply-plan roles -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
 
   check-network:
-    desc: Go公開listener・計測listener・競技固有経路を確認
+    desc: nginx入口・nginxからGoへの接続・競技固有経路を確認
     deps: [gen]
     silent: true
     cmds:
-      - for: { var: APP_HOSTS }
-        cmd: >-
-          {{.SSH}} {{.SSH_USER}}@{{.ITEM}} "python3 -c 'import json,socket; c=json.load(open(\"{{.REMOTE_HOME}}/http.json\")); host,port=c[\"address\"].rsplit(\":\",1); host=host.strip(\"[]\"); host=\"127.0.0.1\" if host in (\"\",\"0.0.0.0\",\"::\") else host; socket.create_connection((host,int(port)),2).close(); socket.create_connection((\"127.0.0.1\",6060),2).close()'" && echo "[{{.ITEM}}] Go HTTP and measurements OK"
+      - for: { var: APP_TRAFFIC_HOSTS }
+        cmd: '{{.SSH}} {{.SSH_USER}}@{{.ITEM}} "timeout 2 bash -c \"</dev/tcp/127.0.0.1/{{.LISTEN_PORT}}\"" && echo "[{{.ITEM}}] app OK"'
+      - for: { var: NGINX_HOSTS }
+        cmd: '{{.SSH}} {{.SSH_USER}}@{{.ITEM}} "bash -s" < generated/nginx/_checks/{{.ITEM}}.sh'
       - task: check-contest-network
 
   check-roles:
@@ -874,7 +888,7 @@ tasks:
       - for: { var: ALL_HOSTS }
         cmd: |
           {{.SSH}} {{.SSH_USER}}@{{.ITEM}} \
-            "systemctl is-active {{.SERVICE}} | tr '\n' ' '; echo; uptime"
+            "systemctl is-active {{.SERVICE}} nginx | tr '\n' ' '; echo; uptime"
 
   logs:
     desc: APP_HOSTSのアプリログ

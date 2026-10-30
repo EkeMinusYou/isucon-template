@@ -1,67 +1,95 @@
 # ISUCON template — redesign
 
-外部の振る舞いを維持し、Goのみで公開HTTP/TLSから業務処理・状態管理まで新規設計するテンプレートです。実行構成の制約は[AGENTS.md](AGENTS.md#全面再設計の方針)を正本とします。nginx・DB・キャッシュサーバー等は起動せず、OS・systemd・開発/計測ツールと公式の外部サービスを利用します。
+外部の振る舞いを維持し、nginxを入口に、業務処理と状態管理をGoでゼロから作るテンプレートです。既存方式との比較用に`isucon-template`から分けて管理します。実行構成の制約は[AGENTS.md](AGENTS.md#全面再設計の方針)を正本とします。
+
+HTTP/TLS・静的配信・圧縮・リバースプロキシをnginx、業務処理・状態管理・索引・検索・永続化・復元をGoが担います。DB・キャッシュサーバー等は使用しません。OS・systemd、開発・配布・ベンチ・分析ツール、および公式仕様が要求する外部サービスは利用します。
 
 ## 3段階
 
-1. [setup](.agents/skills/isucon-setup/SKILL.md)で初期ソースと公式資料から外部仕様を`docs/behavior.md`へ整理します。調査用ソース・初期nginx設定はリポジトリ外の`REFERENCE_DIR`へ取得し、初期データを独立したファイルへ分離します。
-2. **別の新しいセッション**の[bootstrap](.agents/skills/isucon-bootstrap/SKILL.md)で外部仕様・データ・資源から設計します。[Go HTTPの秘伝のタレ](docs/special-sources/go-http.md)と`webapp/go/`の土台へ業務実装を加え、配布・計測・復元・公式ベンチの初回PASSまで確認します。
-3. [agent](.agents/skills/isucon-agent/SKILL.md)で得点への効果から仮説を選び、実装・計測・比較を続けます。
+1. [isucon-setup](.agents/skills/isucon-setup/SKILL.md)で初期ソースと公式資料を確認し、外部仕様を`docs/behavior.md`へ整理します。旧ソースはリポジトリ外の`REFERENCE_DIR`へ取得します。初期データはGoから直接読めるファイルへ分離します。
+2. **別の新しいセッション**の[isucon-bootstrap](.agents/skills/isucon-bootstrap/SKILL.md)で外部仕様・提供データ・資源条件から設計し、汎用土台のある`webapp/go/`へ業務ロジックを新規実装します。計測・配布・初期化・復元を整え、公式ベンチの初回PASSまで確認します。
+3. [isucon-agent](.agents/skills/isucon-agent/SKILL.md)で、得点への効果から仮説を選び、実装・計測・比較を続けます。
 
-setupの会話・初期ソース・内部構成はbootstrapへ渡しません。業務API・認証・データ構造・永続化はテンプレートに含めません。
+setupの会話・初期ソース・内部構成はbootstrapへ渡しません。bootstrapからagentへは同じセッションで進めます。
 
 ## 設定と操作
 
-`Taskfile.yml`が構成の正本です。`APP_HOSTS`がGoの配置先、`APP_TRAFFIC_HOSTS`が公開入口で、先頭が`ENTRY_HOST`です。既定は1台のGoが8080番を直接待ち受けます。TLSが必要なら`LISTEN_PORT`とサーバー上の`TLS_CERT_FILE`・`TLS_KEY_FILE`を指定します。nginxは`DISABLED_SERVICES`に含まれます。
+構成の正本は`Taskfile.yml`です。ホスト・IP・Goサービス・port・TARGET_OS/ARCH・初期化資材を当日の環境へ合わせます。`APP_HOSTS`はGoプロセスを置くホスト、`APP_TRAFFIC_HOSTS`はnginxの転送先、`NGINX_HOSTS`は公開HTTP入口です。既定は1台にnginxとGoを置き、Goは8080番で待ち受けます。`DISABLED_SERVICES`には停止・無効化する不要なミドルウェアのunitを列挙します。setupは旧サービスの調査を先に済ませ、bootstrapでの切り替え時に停止します。
+
+ローカルにはGo、go-task、SSH、rsync、alp、zstd、DuckDBが必要です。dashboardを使う場合だけNode.jsを使います。競技サーバーへはGoバイナリをクロスコンパイルして配布します。
 
 ```sh
-task inspect-hosts
-task setup             # 調査用ソース・設定をリポジトリ外へ取得
-# 外部仕様・データを準備して別セッションへ切り替える
+task inspect-hosts     # 使用可能な資源の確認
+task setup             # 汎用Go土台を維持し、旧ソースを調査用領域へ取得
+# ここで外部仕様・データを準備し、別セッションへ切り替える
 
-task gen               # HTTP設定・事前圧縮資材・systemd unitを生成
-task setup-check
-task deploy-all        # 不要サービス停止、OS・Go・HTTP設定・静的資材を配布
-task initialize        # Goの初期化APIを一度実行
-task setup-postflight
-task bench
+task setup-check       # 新実装のbuild・検査・配布計画を確認
+task deploy-all        # 不要サービス停止、OS設定・Goアプリ・nginx配布
+task initialize        # Goアプリの初期化APIを一度実行
+task setup-postflight  # 配布物・役割・通信・collector残存を確認
+task bench             # ベンチ実行と計測・回収・分析
 task compare-runs BASE_RUN=<基準RUN> NEW_RUN=<新RUN>
 ```
 
-`task deploy`はbuild・配布・restartを行い、初期化しません。`RESET_INPUTS`に初期化に必要な全ファイル、不要なら`none`を指定します。永続データは配布ディレクトリの外へ置きます。競技固有の生成・配布は`Taskfile.contest.yml`・`tools/contest/`へ置きます。
+`task deploy`はGoアプリのbuild・配布・restartを行います。初期化はしません。通常再起動で受理済み更新を保持できるよう、永続データは配布ディレクトリの外へ置きます。`RESET_INPUTS`には初期化に必要なファイルを列挙し、不要なら`none`を指定します。追加の生成・配布は`prepare-initial-data`と`tools/contest/`の配布設定へ接続します。
 
-配布前に`task deploy-app-dry`・`task deploy-all-dry`で対象と実行順を確認できます。サーバー変更とベンチは共通の操作ロックで直列化します。別リポジトリの同じ競技環境と並行実行しません。ポータル設定は`tools/contest/`と`.env.local`に置き、秘密情報はcommitしません。
+`task config-check`は`CONFIG_CHECK_COMMAND`でローカル検査します。既定はGoのvetです。配布設定の確認には`deploy-app-dry`・`deploy-all-dry`・`initialize-dry`を使い、実サーバーへ接続せず計画を表示します。
 
-## Go HTTPの初期実装
+サーバー変更とベンチは共通の操作ロックで直列化します。別リポジトリとはロックを共有しないため、同じ競技環境の別試行と同時に実行しません。ポータル設定と認証変数は`tools/contest/`と`.env.local`で設定し、秘密情報はcommitしません。
 
-`webapp/go/`には公開HTTP/TLS・HTTP/2、keepalive、接続上限、明示した不変資材のキャッシュ・事前圧縮配信、SSE/WebSocketを妨げないアクセスログ、起動・終了を用意しています。業務routerは`routes.go`へ実装します。既定は`/healthz`のみで、`/initialize`や業務APIは404です。
+## 計測と分析
 
-`HTTP_STATIC_ROUTES`で公開URL・ディレクトリ・キャッシュ方針を指定します。未設定なら静的資材は公開しません。`task gen`は`public/`から`generated/public/`へ元ファイルと小さくなるgzip版を生成します。配布先は`/home/isucon/public`です。登録した資材は起動時にメモリへ読み込み、元ファイルとgzip版の一致を検証します。更新データ・認可付きファイル・動的アップロードは別handlerと永続領域で扱います。
+標準計測は[Go profile](docs/measurement/go-profiling.md)、[nginxアクセスログ](docs/measurement/nginx-access-log.md)、[状態・操作の計測](docs/measurement/state-and-operations.md)、ホスト・nginx・Goサービスの資源、障害ログです。永続化方式にかかわらず、得点につながる操作の件数・進行・待ち時間を確認できるようにします。
 
-```yaml
-  HTTP_STATIC_ROUTES: '[{"prefix":"/assets/","directory":"/home/isucon/public/assets","cache_control":"public, max-age=86400"}]'
-  HTTP_HOST_CONFIG:
-    map:
-      isucon-2:
-        max_connections: 16384
-```
-
-`HTTP_HOST_CONFIG`で`APP_HOSTS`ごとの待受、TLSパス、接続上限、静的routesを上書きできます。生成物は`generated/http/<host>.json`、配布先は`/home/isucon/http.json`です。秘密鍵は参照パスだけを設定し、生成物やGitに含めません。Go間転送が必要なら`newUpstreamTransport()`を使い、ルーティング・更新順序・再試行を仕様に合わせて実装します。分散を初期構成として強制しません。
-
-## 計測と検証
-
-公開トラフィックと計測は別listenerです。`MEASUREMENT_ADDR`はloopbackの6060番、公開routerは`/debug`以下を公開しません。`serverConfig.Snapshot`へ業務指標を追加できます。
-
-アクセスログはGoが`ACCESS_LOG_PATH`（既定`/home/isucon/access.log`）へJSON出力します。認証後に`setRequestSession(r, identity)`を呼ぶと、ハッシュ化した識別値で操作間を対応付けます。生tokenや計測ヘッダーをクライアントへ返しません。body読取量・応答サイズ・接続再利用・TLS再利用とloggerの健全性は土台で接続済みです。
-
-`task bench`がRUN採番、計測開始・停止・回収、alp・DuckDB・操作遷移の集計とローカルcommitを行います。`run.json`の合否・得点・成果物状態を確認し、欠損を0と扱いません。既存のdashboardはGoの入口ログとruntime指標を表示します。
+`task bench`がRUNを採番し、計測開始・ベンチ実行・停止・回収・集計・ローカルcommitを行います。失敗RUNも保存します。`runs/<RUN_ID>/run.json`の合否・得点・成果物状態を確認し、欠損を0と扱いません。負荷期間だけの分析値はDuckDBへ、期間を分離できない集計はRUNの成果物へ残します。
 
 ```sh
-task test-app          # TLS/HTTP2・静的配信・304・Range・SSE・計測分離
-task test-http         # 静的資材の生成・再生成
+task q -- "select * from load_windows"
 task q -- "select * from go_runtime_window"
-task q -- "select * from access_log_health"
+task artifacts
 task artifacts-run RUN=runs/<RUN_ID>
 ```
 
-ローカルにはGo、go-task、Python、SSH、rsync、alp、zstd、DuckDBが必要です。dashboardにはNode.jsを使います。Goは対象OS/ARCHへクロスコンパイルして配布します。詳細は[Tools](tools/README.md)、[計測](docs/measurement/README.md)、[Evidence](.agents/skills/_shared/evidence.md)を参照してください。
+詳細は[Tools](tools/README.md)、判断基準は[Evidence](.agents/skills/_shared/evidence.md)を参照してください。
+
+競技サーバーの初期nginx設定は、他の初期ソースと同様にリポジトリへ含めません。`task setup-nginx`は`REFERENCE_DIR`へ取得し、setupは外部仕様だけを渡します。テンプレートには[秘伝のタレ](docs/special-sources/nginx.md)に基づく汎用ベースを同梱し、bootstrapでTLS・URL・静的資材など競技固有の条件を設定します。
+
+## 業務ロジックを持たないGo土台
+
+`webapp/go/`は起動・終了処理と共通計測moduleへの接続だけを持ちます。API・認証・状態管理・永続化はbootstrapで実装します。既定で`/healthz`だけを提供し、`/initialize`や競技APIは未実装の404です。
+
+nginxが公開HTTP/TLSを受け、内部HTTPでGoへ転送します。Goの`APP_ADDR`は既定`:8080`、計測用の`MEASUREMENT_ADDR`は`127.0.0.1:6060`です。計測は別listenerに分離し、公開routerには登録しません。Goの起動方法や待受を変更しても、共通計測moduleとcollectorのURLを対応させれば構いません。
+
+`server.go`の`serverConfig.Snapshot`に内部指標を追加できます。`measurement.go`の`setMeasurementHeaders`は、bootstrapが選んだ認証セッションと実際のbody読取量をnginxログへ渡す接続口です。Cookie名や認証方式は仮定しません。標準アクセスログはnginxが出し、Goでは重複出力しません。
+
+`task gen`はsystemd unitも`generated/systemd/<SERVICE>.service`へ生成し、`APP_NAME`・`APP_DIR`・`REMOTE_HOME`・`ISUCON_USER`・`LISTEN_PORT`を反映します。`task deploy`でこのunitとGoバイナリを配布します。`task test-app`で起動・計測分離・終了を確認できます。初期化・復元・公式ベンチPASSは業務実装後にbootstrapで検証します。
+
+## 複数台のnginx設定
+
+- `nginx/common/`：全ホスト共通の基本設定・ログ・圧縮・接続設定。
+- `nginx/roles/<role>/`：役割ごとの設定。共通設定へ重ね、同じ相対パスのファイルは役割側を採用します。既定は`edge`です。
+- `Taskfile.yml`：`NGINX_HOSTS`、IP、Goの配置と転送先を定義します。
+- `generated/nginx/<host>/`：`task gen`が作る配布物。直接編集せず、各ホストの`/etc/nginx/`へ配布します。
+
+最初は1台で使えます。`NGINX_HOSTS`へホストを追加すると、同じ`edge`設定と`APP_TRAFFIC_HOSTS`の転送先を使います。ホストごとの違いが必要になった場合だけ、`NGINX_HOST_CONFIG`を指定します。
+
+```yaml
+  NGINX_HOSTS: isucon-1 isucon-2
+  APP_HOSTS: isucon-1 isucon-2 isucon-3
+  APP_TRAFFIC_HOSTS: isucon-1 isucon-2 isucon-3
+  NGINX_HOST_CONFIG:
+    map:
+      isucon-2:
+        role: edge
+        app_hosts: [isucon-2, isucon-3]
+```
+
+外部からの入口は引き続き`ENTRY_HOST`（`NGINX_HOSTS`の先頭）です。複数台への外部トラフィックの振り分けは、競技の接続条件に合わせて別途設計します。
+
+この例ではisucon-1が既定の全転送先、isucon-2が指定した2台へ転送します。別の役割が必要なら`nginx/roles/<role>/`を追加して指定します。転送先は`APP_HOSTS`の範囲で選びます。`listen_port`でホスト別の待受portも指定でき、省略時は`NGINX_PORT`を使います。`task check-network`も各ホストが実際に使う転送先を検査します。役割から外したホストの生成物は次の`task gen`で除去され、サービス停止は`task apply-roles`または`task deploy-all`が行います。
+
+`task gen-contest-routing`は共通生成後の競技固有hookです。通常のホスト別設定には上記の入力を使い、hookで生成物を手修正しません。nginx設定は`task deploy-nginx-dry`で配布先を確認し、`task deploy-nginx`で構文検査・反映します。生成失敗時は以前の生成物を保持し、配布へ進みません。
+
+公開静的資材は`STATIC_DIR`（既定`public/`）から全NGINX_HOSTSの`STATIC_REMOTE_DIR`へ配布します。役割のserver設定で仕様を確認したURLだけを直接配信し、必要なlocationへ`static-cache.conf`をincludeします。動的アップロードや永続データは、配布時に削除されるこのディレクトリへ置かず、別の保存・同期経路を設計してください。TLS秘密鍵は取得・生成物へ含めず、配布先に保持します。
+
+`task test-nginx`で生成処理を検証できます。`NGINX_TEST_IMAGE=nginx:1.26.3 task test-nginx`ではDocker内で2台分の生成設定・proxy・キャッシュ・圧縮・計測ログも確認します。

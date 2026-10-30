@@ -237,7 +237,7 @@ func TestRepositoryConfigContainsEveryDeployTarget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"app", "sysctl"} {
+	for _, name := range []string{"app", "sysctl", "nginx"} {
 		if _, ok := cfg.Deployments[name]; !ok {
 			t.Errorf("deployment %q is missing", name)
 		}

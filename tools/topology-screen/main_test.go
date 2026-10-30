@@ -199,7 +199,7 @@ func TestResolveInputsRejectsEmptyMatch(t *testing.T) {
 
 func TestDefaultFieldsReadNginxTemplateLog(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "access.log")
-	body := `{"method":"GET","uri":"/api/items","status":200,"host":"example.test","response_time":0.1,"upstream_response_time":"0.05","body_bytes":100}` + "\n"
+	body := `{"method":"GET","uri":"/api/items","status":200,"vhost":"example.test","response_time":0.1,"upstream_response_time":"0.05","body_bytes":100}` + "\n"
 	if err := os.WriteFile(path, []byte(body), 0600); err != nil {
 		t.Fatal(err)
 	}
