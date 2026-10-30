@@ -1,6 +1,7 @@
 import copy
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -67,23 +68,49 @@ class GenerationTest(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("task"), "task is not installed")
     def test_taskfile_passes_host_overrides_to_renderer(self):
-        taskfile = (ROOT / "Taskfile.yml").read_text().replace(
-            "  NGINX_HOST_CONFIG:\n    map: {}",
-            "  NGINX_HOST_CONFIG:\n    map:\n      isucon-2:\n        role: edge\n        app_hosts: [isucon-3]",
-        )
-        (self.root / "Taskfile.yml").write_text(taskfile)
-        shutil.copyfile(ROOT / "Taskfile.contest.yml", self.root / "Taskfile.contest.yml")
+        # Exercise the real generation graph with isolated values and hooks.
+        taskfile = re.sub(r"  # >>> contest values >>>.*?  # <<< contest values <<<",
+                          "", (ROOT / "Taskfile.yml").read_text(), flags=re.S)
+        fixture = """  APP_NAME: app
+  SERVICE: app
+  LISTEN_PORT: '8080'
+  NGINX_PORT: '80'
+  ACCESS_LOG_PATH: /var/log/nginx/access.log
+  ALL_HOSTS: isucon-1 isucon-2 isucon-3
+  APP_HOSTS: isucon-1
+  APP_TRAFFIC_HOSTS: isucon-1
+  NGINX_HOSTS: isucon-1
+  IP:
+    map:
+      isucon-1: 192.0.2.1
+      isucon-2: 192.0.2.2
+      isucon-3: 192.0.2.3
+  NGINX_HOST_CONFIG:
+    map:
+      isucon-2:
+        role: edge
+        app_hosts: [isucon-3]
+"""
+        (self.root / "Taskfile.yml").write_text(taskfile.replace("vars:\n", "vars:\n" + fixture, 1))
+        (self.root / "Taskfile.contest.yml").write_text("version: '3'\ntasks:\n  gen-contest-routing: {}\n")
         shutil.copytree(self.source, self.root / "nginx")
         (self.root / "tools/nginx").mkdir(parents=True)
         shutil.copyfile(ROOT / "tools/nginx/generate.py", self.root / "tools/nginx/generate.py")
-        subprocess.run(["task", "gen", "NGINX_HOSTS=isucon-1 isucon-2",
-                        "APP_HOSTS=isucon-1 isucon-2 isucon-3"],
-                       cwd=self.root, check=True, capture_output=True, text=True)
+        # gen validates the shared route definition before rendering nginx.
+        shutil.copytree(ROOT / "tools/user-transition-metrics", self.root / "tools/user-transition-metrics",
+                        ignore=shutil.ignore_patterns("user-transition-metrics", "__pycache__"))
+        (self.root / "tools/contest").mkdir(parents=True)
+        (self.root / "tools/contest/user-transition-routes.json").write_text(
+            '{"cookie_field":"session_id","api_prefix":"/","routes":[{"name":"example","pattern":"^/example$"}]}')
+        result = subprocess.run(["task", "gen", "NGINX_HOSTS=isucon-1 isucon-2",
+                                 "APP_HOSTS=isucon-1 isucon-2 isucon-3"],
+                                cwd=self.root, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
         first = (self.root / "generated/nginx/isucon-1/conf.d/upstream.conf").read_text()
         second = (self.root / "generated/nginx/isucon-2/conf.d/upstream.conf").read_text()
-        self.assertIn("172.31.0.126:8080", first)
-        self.assertIn("172.31.5.116:8080", second)
-        self.assertNotIn("172.31.0.126:8080", second)
+        self.assertIn("192.0.2.1:8080", first)
+        self.assertIn("192.0.2.3:8080", second)
+        self.assertNotIn("192.0.2.1:8080", second)
         unit = (self.root / "generated/systemd/app.service").read_text()
         self.assertIn("ExecStart=/home/isucon/webapp/go/app", unit)
         self.assertIn("Environment=APP_ADDR=:8080", unit)
