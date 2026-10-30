@@ -94,6 +94,9 @@ func (h *staticHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	http.ServeContent(w, r, name, asset.modtime, bytes.NewReader(data))
 }
 func staticHeaders(w http.ResponseWriter, now time.Time) {
+	if w.Header().Get("Cache-Control") != "" {
+		return
+	}
 	w.Header().Set("Cache-Control", "public, max-age=86400")
 	w.Header().Set("Expires", now.Add(staticTTL).UTC().Format(http.TimeFormat))
 }
