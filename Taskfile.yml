@@ -15,6 +15,8 @@ includes:
     flatten: true
 
 vars:
+  # Referenced by CONFIG_CHECK_COMMAND; define before the contest values.
+  APP_DIR: webapp/go
   # >>> contest values >>>
   # 競技ごとに書き換える区画。template-diffはここをbackport候補として扱わない。
   # 区画の外は、次の競技でもそのまま使う既定値である。
@@ -23,6 +25,10 @@ vars:
   SERVICE: app
   LISTEN_PORT: '8080'
   NGINX_PORT: '80'
+  NGINX_TLS_PORT: '443'
+  # Optional non-secret service environment; choose runtime values from measurements.
+  APP_ENV:
+    map: {}
   TARGET_OS: linux
   TARGET_ARCH: amd64
   # Optional Go PGO profile path for build/build-pgo; unset uses -pgo=auto (default.pgo).
@@ -44,7 +50,6 @@ vars:
 
   SSH_USER: ubuntu
   ISUCON_USER: isucon
-  APP_DIR: webapp/go
   STATIC_DIR: public
   # Setup-only source checkout, excluded from the design workspace.
   REFERENCE_DIR: '{{.ROOT_DIR}}-reference'
@@ -549,6 +554,7 @@ tasks:
       ISUCON_NGINX_HOST_CONFIG: '{{toJson .NGINX_HOST_CONFIG}}'
       ISUCON_APP_PORT: '{{.LISTEN_PORT}}'
       ISUCON_NGINX_PORT: '{{.NGINX_PORT}}'
+      ISUCON_NGINX_TLS_PORT: '{{default "443" .NGINX_TLS_PORT}}'
       ISUCON_STATIC_ROOT: '{{.STATIC_REMOTE_DIR}}'
       ISUCON_ACCESS_LOG_PATH: '{{.ACCESS_LOG_PATH}}'
     cmds:
@@ -567,7 +573,8 @@ tasks:
         ExecStart={{.REMOTE_HOME}}/{{.APP_DIR}}/{{.APP_NAME}}
         Environment=APP_ADDR=:{{.LISTEN_PORT}}
         Environment=MEASUREMENT_ADDR=127.0.0.1:6060
-        Restart=on-failure
+        {{range $name, $value := default (dict) .APP_ENV}}Environment={{printf "%s=%v" $name $value | replace "%" "%%" | quote}}
+        {{end}}Restart=on-failure
         TimeoutStopSec=15
         LimitNOFILE=65536
 

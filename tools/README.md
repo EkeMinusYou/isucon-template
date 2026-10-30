@@ -30,6 +30,25 @@
 
 `local`・`remote`には`{host}`を指定でき、ホスト別設定を配布できます。`validate`付きuploadは転送先を退避し、検査失敗時にそのuploadを復元します。`DEPLOYCTL_CONFIG`で競技固有の設定を選び、`include`で共通graphを再利用できます。新たなGoサービスのrole・実行・状態確認も同じ設定へ追加します。
 
+activationには任意の`ready`を宣言でき、scriptが正常終了した後で、そのホストからHTTP応答を待ちます。
+
+```yaml
+ready:
+  url: http://127.0.0.1:{var:listen_port}/healthz
+  timeout: 30s
+  status: 200
+```
+
+URLとtimeoutは既存の`{host}`・`{var:name}`を展開します。statusは省略時200、timeoutは省略時30秒です。
+HTTPのredirectを追跡せず、指定statusになるまで再試行し、期限切れはdeploy失敗にします。
+外部の公開入口の検査とは別に、復元を含むアプリの利用開始条件を確認するためのものです。
+既定のapp/app-unitで有効です。異なる準備完了条件は競技側の配布宣言へ設定し、
+`/healthz`の200だけで、受理済みデータや操作間の正当性まで検証できたとは扱いません。
+同じアプリのReadinessを確認する`ready`と、通常再起動前後のデータ照合を行う競技側テストは分けて使います。
+
+nginx設定の同期では、生成物で管理するファイルを更新し、TLS資材・OSの`mime.types`・`modules-enabled/`は保持します。
+`APP_ENV`はTaskfileからsystemd unitへ生成する非機密の環境変数mapです。値中の`%`はsystemd用にescapeします。
+
 ### 計測と集計
 
 `measurectl/collectors.yaml`と`digesters.yaml`が生成・回収の正本です。nginxアクセスログの出力先は`ACCESS_LOG_PATH`、roleは`ingress`（`NGINX_HOSTS`）です。標準profile、runtime、proc、journal、alpと操作遷移を収集します。`enabled_by_default: false`の計測は必要な場合だけ有効にします。

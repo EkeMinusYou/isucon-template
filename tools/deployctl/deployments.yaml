@@ -15,6 +15,9 @@ deployments:
           sudo systemctl daemon-reload
           sudo systemctl start {var:service}
           sudo systemctl is-active --quiet {var:service}
+        ready:
+          url: http://127.0.0.1:{var:listen_port}/healthz
+          timeout: 30s
 
   app:
     uploads:
@@ -37,6 +40,9 @@ deployments:
           sudo systemctl daemon-reload
           sudo systemctl restart {var:service}
           sudo systemctl is-active --quiet {var:service}
+        ready:
+          url: http://127.0.0.1:{var:listen_port}/healthz
+          timeout: 30s
 
   nginx:
     uploads:
@@ -54,7 +60,7 @@ deployments:
         role: nginx
         local: generated/nginx/{host}/
         remote: /etc/nginx/
-        excludes: [tls/, mime.types, "*.key", "*.pem", "*.crt"]
+        excludes: [tls/, modules-enabled/, mime.types, "*.key", "*.pem", "*.crt"]
         delete: true
         validate: sudo nginx -t
     activations:

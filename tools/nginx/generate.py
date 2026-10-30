@@ -54,7 +54,7 @@ def overlay(source, destination, values):
 
 
 def generate(source, output, *, all_hosts, nginx_hosts, app_hosts, traffic_hosts,
-             addresses, host_config, app_port, nginx_port, static_root, access_log):
+             addresses, host_config, app_port, nginx_port, static_root, access_log, tls_port=443):
     all_hosts = names(all_hosts, "ALL_HOSTS")
     nginx_hosts = names(nginx_hosts, "NGINX_HOSTS")
     app_hosts = names(app_hosts, "APP_HOSTS")
@@ -65,7 +65,7 @@ def generate(source, output, *, all_hosts, nginx_hosts, app_hosts, traffic_hosts
         raise ValueError("APP_TRAFFIC_HOSTS must belong to APP_HOSTS")
     if not isinstance(host_config, dict) or not set(host_config) <= set(nginx_hosts):
         raise ValueError("NGINX_HOST_CONFIG keys must belong to NGINX_HOSTS")
-    app_port, nginx_port = port(app_port), port(nginx_port)
+    app_port, nginx_port, tls_port = port(app_port), port(nginx_port), port(tls_port)
     values = {"NGINX_PORT": nginx_port, "ACCESS_LOG_PATH": absolute_path(access_log)}
     static_root = absolute_path(static_root)
     source, output = Path(source).resolve(), Path(output).resolve()
@@ -77,7 +77,7 @@ def generate(source, output, *, all_hosts, nginx_hosts, app_hosts, traffic_hosts
         stage = Path(temporary) / "nginx"
         for host in nginx_hosts:
             config = host_config.get(host, {})
-            if not isinstance(config, dict) or set(config) - {"role", "app_hosts", "listen_port"}:
+            if not isinstance(config, dict) or set(config) - {"role", "app_hosts", "listen_port", "tls_port"}:
                 raise ValueError(f"invalid nginx options for {host}")
             role = config.get("role", "edge")
             if not isinstance(role, str) or not NAME.fullmatch(role):
@@ -86,7 +86,7 @@ def generate(source, output, *, all_hosts, nginx_hosts, app_hosts, traffic_hosts
             if not set(backends) <= set(app_hosts):
                 raise ValueError(f"{host} upstream hosts must belong to APP_HOSTS")
             listen_port = port(config.get("listen_port", nginx_port))
-            host_values = dict(values, NGINX_PORT=listen_port)
+            host_values = dict(values, NGINX_PORT=listen_port, TLS_PORT=port(config.get("tls_port", tls_port)))
             destination = stage / host
             overlay(source / "common", destination, host_values)
             overlay(source / "roles" / role, destination, host_values)
@@ -127,6 +127,7 @@ def main():
                  host_config=json.loads(os.environ.get("ISUCON_NGINX_HOST_CONFIG", "{}")),
                  app_port=os.environ["ISUCON_APP_PORT"],
                  nginx_port=os.environ["ISUCON_NGINX_PORT"],
+                 tls_port=os.environ.get("ISUCON_NGINX_TLS_PORT", "443"),
                  static_root=os.environ["ISUCON_STATIC_ROOT"],
                  access_log=os.environ["ISUCON_ACCESS_LOG_PATH"])
     except (ValueError, KeyError, OSError) as error:

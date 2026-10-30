@@ -151,6 +151,14 @@ func (r *deployRunner) activationJobs(activations []activation) ([]activationJob
 			if err != nil {
 				return nil, fmt.Errorf("activation %q: %w", a.Label, err)
 			}
+			if a.Ready != nil {
+				wait, err := readinessScript(*a.Ready, expander{host: host, vars: r.vars})
+				if err != nil {
+					return nil, fmt.Errorf("activation %q readiness: %w", a.Label, err)
+				}
+				// A failed activation must not be hidden by a successful probe.
+				script = "(\n" + script + "\n) && (\n" + wait + "\n)\n"
+			}
 			jobs = append(jobs, activationJob{a: a, host: host, script: script})
 		}
 	}

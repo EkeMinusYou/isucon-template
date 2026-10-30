@@ -33,6 +33,11 @@ task compare-runs BASE_RUN=<基準RUN> NEW_RUN=<新RUN>
 
 `task deploy`はGoアプリのbuild・配布・restartを行います。初期化はしません。通常再起動で受理済み更新を保持できるよう、永続データは配布ディレクトリの外へ置きます。`RESET_INPUTS`には初期化に必要なファイルを列挙し、不要なら`none`を指定します。追加の生成・配布は`prepare-initial-data`と`tools/contest/`の配布設定へ接続します。
 
+`APP_ENV`に非機密の環境変数mapを指定すると、`task gen`がGoサービスのsystemd unitへ反映します。
+既定は空で、GC・メモリ上限等の値は固定しません。待受・計測アドレスを変える場合はTaskfileのport・collector設定も揃えます。
+Goアプリの配布・unitの起動は、既定で各APP_HOSTSの`/healthz`が200を返すまで最大30秒待ちます。
+判定URL・期限・期待statusは[配布宣言のready](tools/README.md#デプロイ)で変更できます。bootstrapは復元を完了してから準備完了を返すよう実装し、復元するデータの正当性は競技側のテストで確認します。
+
 `task config-check`は`CONFIG_CHECK_COMMAND`でローカル検査します。既定はGoのvetです。配布設定の確認には`deploy-app-dry`・`deploy-all-dry`・`initialize-dry`を使い、実サーバーへ接続せず計画を表示します。
 
 サーバー変更とベンチは共通の操作ロックで直列化します。別リポジトリとはロックを共有しないため、同じ競技環境の別試行と同時に実行しません。ポータル設定と認証変数は`tools/contest/`と`.env.local`で設定し、秘密情報はcommitしません。
@@ -95,10 +100,10 @@ nginxが公開HTTP/TLSを受け、内部HTTPでGoへ転送します。Goの`APP_
 
 外部からの入口は引き続き`ENTRY_HOST`（`NGINX_HOSTS`の先頭）です。複数台への外部トラフィックの振り分けは、競技の接続条件に合わせて別途設計します。
 
-この例ではisucon-1が既定の全転送先、isucon-2が指定した2台へ転送します。別の役割が必要なら`nginx/roles/<role>/`を追加して指定します。転送先は`APP_HOSTS`の範囲で選びます。`listen_port`でホスト別の待受portも指定でき、省略時は`NGINX_PORT`を使います。`task check-network`も各ホストが実際に使う転送先を検査します。役割から外したホストの生成物は次の`task gen`で除去され、サービス停止は`task apply-roles`または`task deploy-all`が行います。
+この例ではisucon-1が既定の全転送先、isucon-2が指定した2台へ転送します。別の役割が必要なら`nginx/roles/<role>/`を追加して指定します。転送先は`APP_HOSTS`の範囲で選びます。`listen_port`でホスト別のHTTP待受portも指定でき、省略時は`NGINX_PORT`を使います。TLSを使うroleでは`@@TLS_PORT@@`を参照でき、既定は`NGINX_TLS_PORT`（443）、ホスト別の`tls_port`で上書きします。この値の指定だけではTLSを有効にせず、listenerと証明書はrole側で構成します。`task check-network`も各ホストが実際に使う転送先を検査します。役割から外したホストの生成物は次の`task gen`で除去され、サービス停止は`task apply-roles`または`task deploy-all`が行います。
 
 `task gen-contest-routing`は共通生成後の競技固有hookです。通常のホスト別設定には上記の入力を使い、hookで生成物を手修正しません。nginx設定は`task deploy-nginx-dry`で配布先を確認し、`task deploy-nginx`で構文検査・反映します。生成失敗時は以前の生成物を保持し、配布へ進みません。
 
-公開静的資材は`STATIC_DIR`（既定`public/`）から全NGINX_HOSTSの`STATIC_REMOTE_DIR`へ配布します。役割のserver設定で仕様を確認したURLだけを直接配信し、必要なlocationへ`static-cache.conf`をincludeします。動的アップロードや永続データは、配布時に削除されるこのディレクトリへ置かず、別の保存・同期経路を設計してください。TLS秘密鍵は取得・生成物へ含めず、配布先に保持します。
+公開静的資材は`STATIC_DIR`（既定`public/`）から全NGINX_HOSTSの`STATIC_REMOTE_DIR`へ配布します。役割のserver設定で仕様を確認したURLだけを直接配信し、必要なlocationへ`static-cache.conf`をincludeします。動的アップロードや永続データは、配布時に削除されるこのディレクトリへ置かず、別の保存・同期経路を設計してください。TLS秘密鍵は取得・生成物へ含めず、配布先に保持します。OS提供の`modules-enabled/`と`mime.types`も配布時の削除対象にしません。
 
 `task test-nginx`で生成処理を検証できます。`NGINX_TEST_IMAGE=nginx:1.26.3 task test-nginx`ではDocker内で2台分の生成設定・proxy・キャッシュ・圧縮・計測ログも確認します。

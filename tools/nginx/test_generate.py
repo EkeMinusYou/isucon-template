@@ -75,6 +75,12 @@ class GenerationTest(unittest.TestCase):
   SERVICE: app
   LISTEN_PORT: '8080'
   NGINX_PORT: '80'
+  NGINX_TLS_PORT: '443'
+  APP_ENV:
+    map:
+      GOGC: '250'
+      APP_LABEL: 'worker with spaces'
+      APP_PERCENT: '50%'
   ACCESS_LOG_PATH: /var/log/nginx/access.log
   ALL_HOSTS: isucon-1 isucon-2 isucon-3
   APP_HOSTS: isucon-1
@@ -115,6 +121,19 @@ class GenerationTest(unittest.TestCase):
         self.assertIn("ExecStart=/home/isucon/webapp/go/app", unit)
         self.assertIn("Environment=APP_ADDR=:8080", unit)
         self.assertIn("Environment=MEASUREMENT_ADDR=127.0.0.1:6060", unit)
+        self.assertIn('Environment="GOGC=250"', unit)
+        self.assertIn('Environment="APP_LABEL=worker with spaces"', unit)
+        self.assertIn('Environment="APP_PERCENT=50%%"', unit)
+
+    def test_tls_port_is_configurable_without_enabling_tls_in_default_role(self):
+        role = self.source / "roles/tls/sites-enabled"
+        role.mkdir(parents=True)
+        (role / "app.conf").write_text("server { listen @@TLS_PORT@@ ssl; }\n")
+        self.render(tls_port=9443, host_config={"h1": {"role": "tls"}, "h2": {"role": "tls", "tls_port": 8443}})
+        self.assertIn("listen 9443 ssl", (self.output / "h1/sites-enabled/app.conf").read_text())
+        self.assertIn("listen 8443 ssl", (self.output / "h2/sites-enabled/app.conf").read_text())
+        self.render(tls_port=9443)
+        self.assertNotIn("ssl", (self.output / "h1/sites-enabled/app.conf").read_text())
 
     def test_regeneration_removes_old_host_and_files(self):
         self.render()
@@ -130,7 +149,7 @@ class GenerationTest(unittest.TestCase):
         for invalid in (
             {"h2": {"role": "../edge"}}, {"h2": {"app_hosts": ["unknown"]}},
             {"h3": {"role": "edge"}}, {"h2": {"role": "missing"}},
-            {"h2": {"app_hosts": []}}, {"h2": {"typo": True}}, {"h2": {"listen_port": 65536}},
+            {"h2": {"app_hosts": []}}, {"h2": {"typo": True}}, {"h2": {"listen_port": 65536}}, {"h2": {"tls_port": 65536}},
         ):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 self.render(host_config=invalid)

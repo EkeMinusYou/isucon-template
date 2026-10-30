@@ -41,9 +41,16 @@ type upload struct {
 }
 
 type activation struct {
-	Label  string `yaml:"label"`
-	Role   string `yaml:"role"`
-	Script string `yaml:"script"`
+	Label  string     `yaml:"label"`
+	Role   string     `yaml:"role"`
+	Script string     `yaml:"script"`
+	Ready  *readiness `yaml:"ready,omitempty"`
+}
+
+type readiness struct {
+	URL     string `yaml:"url"`
+	Timeout string `yaml:"timeout"`
+	Status  int    `yaml:"status,omitempty"`
 }
 
 var (

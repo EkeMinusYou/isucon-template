@@ -145,10 +145,25 @@ func TestNginxGoRolesOnlyManageAssignedServices(t *testing.T) {
 	}
 }
 
+func TestDefaultConfigCheckResolvesApplicationDirectory(t *testing.T) {
+	cfg := readSetupTaskfile(t)
+	cfg["tasks"] = map[string]interface{}{"show": map[string]interface{}{"silent": true, "cmds": []string{"echo '{{.CONFIG_CHECK_COMMAND}}'"}}}
+	for _, tc := range []struct{ override, directory string }{{"", "webapp/go"}, {"APP_DIR=custom-go", "custom-go"}} {
+		args := []string{"show"}
+		if tc.override != "" {
+			args = append(args, tc.override)
+		}
+		got := runSetupFixture(t, cfg, t.TempDir(), nil, args...)
+		if strings.TrimSpace(got) != "go -C "+tc.directory+" vet ./..." {
+			t.Fatalf("config check has an unresolved directory: %q", got)
+		}
+	}
+}
+
 func TestTaskfileDefaultsToNginxGoRuntime(t *testing.T) {
 	cfg := readSetupTaskfile(t)
 	cfg["tasks"] = map[string]interface{}{"show": map[string]interface{}{"silent": true, "cmds": []string{"echo '{{.MANAGED_SERVICES}}'", "echo '{{.DEPLOYCTL_COMMON}}'", "echo '{{.MEASURECTL_ROLES}}'"}}}
-	out := runSetupFixture(t, cfg, t.TempDir(), nil, "show", "NGINX_HOSTS=isucon-2")
+	out := runSetupFixture(t, cfg, t.TempDir(), nil, "show", "NGINX_HOSTS=isucon-2", "SERVICE=app", "APP_HOSTS=isucon-1", "APP_TRAFFIC_HOSTS=isucon-1", "LISTEN_PORT=8080", "STATIC_REMOTE_DIR=/home/isucon/public", "CONTEST_SERVICE_ROLES=")
 	for _, unwanted := range []string{"-role mysql=", "-var sql_dir=", "disabled_services=nginx"} {
 		if strings.Contains(out, unwanted) {
 			t.Fatal(out)
