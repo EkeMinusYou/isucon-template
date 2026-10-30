@@ -290,6 +290,11 @@ tasks:
     generates: [user-transition-metrics]
     cmds: ['go build -trimpath -ldflags "-s -w" -o user-transition-metrics .']
 
+  check-api-routes:
+    desc: 共通API分類と操作定義の構文・参照を検査
+    deps: [build-user-transition-metrics]
+    cmds: ['{{.USER_TRANSITION_METRICS_DIR}}/user-transition-metrics -check-config -config tools/contest/user-transition-routes.json']
+
   build-measurectl:
     internal: true
     silent: true
@@ -499,10 +504,12 @@ tasks:
 
         [ -n "$ISUCON_CONFIG_CHECK_COMMAND" ] || fail "CONFIG_CHECK_COMMAND is empty; configure local Go application checks"
         [ "$failures" -eq 0 ] || exit 1
+      - python3 tools/validation/run.py --check-config
       - sh -c "$ISUCON_CONFIG_CHECK_COMMAND"
       - task: build
       - task: test-app
       - task: test-nginx
+      - task: test-validation
       - task: test-tools
         vars:
           TOOL_MODULE_EXCLUDE: tools/dashboard/*
@@ -510,16 +517,27 @@ tasks:
       - task: deploy-app-dry
       - task: deploy-all-dry
 
+  validate:
+    desc: 競技側で宣言した公開HTTP応答・テストを検証し結果を保存
+    cmds:
+      - '{{.OPERATION_LOCK}} python3 tools/validation/run.py --config tools/contest/validation.json --output generated/validation/latest.json'
+
+  test-validation:
+    desc: 外部サーバーを使わず汎用検証runnerをテスト
+    cmds: [python3 -m unittest discover -s tools/validation -p 'test_*.py']
+
   setup-postflight:
     desc: Check roles, internal connectivity, deployed files and collector cleanup
     deps: [build-deployctl, build-measurectl]
     cmds:
       - task: check-roles
       - task: check-network
+      - task: validate
       - '{{.DEPLOYCTL_DIR}}/deployctl verify -config {{.DEPLOYCTL_CONFIG}} {{.DEPLOYCTL_COMMON}}'
       - '{{.MEASURECTL_DIR}}/measurectl collect check-clean -config {{.MEASURECTL_COLLECTORS_CONFIG}} {{.MEASURECTL_REMOTE}}'
 
   gen:
+    deps: [check-api-routes]
     desc: 共通・役割別nginx設定からホスト別配布物を生成
     silent: true
     env:
@@ -716,6 +734,9 @@ tasks:
           -profiles-enabled={{.PROFILES_ENABLED}} \
           -results '{{.RESULT_DIR}}' -raw-dir '{{.RAW_DIR}}' -run-state-file '{{.RUN_STATE_FILE}}' \
           -collector-flags '{{.MEASURECTL_FLAGS}} {{default "" .MEASURECTL_COLLECT_FLAGS}}' {{.MEASURECTL_REMOTE}}
+        mkdir -p '{{.RESULT_DIR}}/{{.RUN_ID}}/raw'
+        cp tools/contest/user-transition-routes.json '{{.RESULT_DIR}}/{{.RUN_ID}}/raw/api-routes.json'
+        python3 tools/validation/run.py --snapshot '{{.RESULT_DIR}}/{{.RUN_ID}}/contract-validation.json'
         BASH
 
   after-bench:
@@ -741,6 +762,7 @@ tasks:
         -digester-flags '{{.MEASURECTL_DIGEST_FLAGS}}' {{.MEASURECTL_REMOTE}}
       - task: q-sync
         silent: true
+      - '{{.ANALYSISCTL_DIR}}/analysisctl quality -config {{.ANALYSIS_CONFIG}} -db {{.ANALYSIS_DB}} {{.FINISH_RUN_ID}}'
       - '{{.MEASURECTL_DIR}}/measurectl artifacts -recorded -run-dir {{.RESULT_DIR}}/{{.FINISH_RUN_ID}}'
 
   profiles-collect:

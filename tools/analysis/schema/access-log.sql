@@ -76,21 +76,28 @@ with windows as (
        and to_timestamp(try_cast(msec as double)-coalesce(try_cast(response_time as double),0))<w.ended_at
     );
 
--- HTTP ingress の生 access log (raw/access-<host>.log[.zst]) の 5 秒 bucket。
--- alp.json は走行 1 回ぶんの集計なので、処理量と応答時間の時間発展はここで見る。
--- route 正規化は alp.yml の matching_groups が正本。setup で当日の route を入れるときは
--- 両方へ同じ正規化を書く。どの pattern にも一致しない URI は、そのまま route になる。
+-- Reuse this RUN's captured definitions across traffic, progress and concurrency.
+create or replace temp table http_normalized_routes as
+with configs as (
+    select json_extract_string(value,'$.run_id') as run_id,
+           json_extract(value,'$.config') as config
+    from json_each(coalesce(getvariable('operation_definitions')::varchar,'[]'))
+), paths as (
+    select distinct run_id, uri, coalesce(try(url_decode(split_part(uri,'?',1))),split_part(uri,'?',1)) as path
+    from http_access_requests
+)
+select p.run_id,p.uri,p.path,c.config is not null as config_available,
+       starts_with(p.path,json_extract_string(c.config,'$.api_prefix')) as is_api,
+       (select json_extract_string(r.value,'$.name')
+        from json_each(json_extract(c.config,'$.routes')) r
+        where regexp_matches(case when coalesce(json_extract(r.value,'$.match_query')::boolean,false)
+                                  then p.uri else p.path end,json_extract_string(r.value,'$.pattern'))
+        order by r.key::integer limit 1) as matched_route
+from paths p left join configs c using(run_id);
+
+-- Filter starts before bucketing; unmatched APIs stay visible without ID labels.
 create or replace view http_traffic_buckets as
-with routes as (
-    select [
-        -- # >>> contest values >>>
-        -- プレースホルダー。当日の path を、動的セグメントを正規化して、
-        -- より具体的なものから並べる。alp.yml の matching_groups と同じ内容にする。
-        '^/initialize$'
-        -- # <<< contest values <<<
-    ] as patterns
-),
-requests as materialized (
+with requests as materialized (
     select *,
         case when connection_id is not null then
             logged_at_epoch-response_time_sec-lag(logged_at_epoch) over (
@@ -99,14 +106,6 @@ requests as materialized (
             )
         end as client_gap_sec
     from http_access_requests
-),
--- Parse each log once and normalize each distinct URI once. Repeated requests
--- often share the same URI throughout a RUN.
-normalized_routes as materialized (
-    select
-        r.uri,
-        coalesce(list_filter(g.patterns, lambda p: regexp_matches(r.uri, p))[1], r.uri) as route
-    from (select distinct uri from requests) r, routes g
 ),
 buckets as (
     select
@@ -120,7 +119,7 @@ buckets as (
              -greatest(to_timestamp(floor((r.logged_at_epoch-r.response_time_sec)/5)*5),
                     coalesce(r.analysis_started_at,to_timestamp(floor((r.logged_at_epoch-r.response_time_sec)/5)*5)))) as bucket_seconds,
         r.method,
-        g.route,
+        coalesce(g.matched_route,case when g.is_api then '<unclassified-api>' else g.path end) as route,
         count(*) as requests,
         count(*) filter (where r.status between 200 and 299) as status_2xx,
         count(*) filter (where r.status between 300 and 399) as status_3xx,
@@ -141,8 +140,21 @@ buckets as (
         sum(r.client_gap_sec) as sum_client_gap_sec,
         count(r.client_gap_sec) as client_gap_samples
     from requests r
-    join normalized_routes g on r.uri is not distinct from g.uri
+    join http_normalized_routes g on r.run_id=g.run_id and r.uri is not distinct from g.uri
     where r.logged_at_epoch is not null
     group by all
 )
 select * from buckets;
+
+-- Counts use the same RUN, host and load window as http_traffic_buckets.
+create or replace view http_route_coverage as
+select r.run_id,r.ingress_host,
+       case when not n.config_available then 'definitions-missing'
+            when r.uri is null then 'invalid-uri'
+            when n.matched_route is not null then 'classified'
+            when n.is_api then 'unclassified-api' else 'outside-api' end as status,
+       count(*) as requests,
+       count(*) filter (where r.logged_at_epoch is not null) as traffic_requests
+from http_access_requests r join http_normalized_routes n
+ on r.run_id=n.run_id and r.uri is not distinct from n.uri
+group by all;

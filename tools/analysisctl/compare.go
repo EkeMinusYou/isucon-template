@@ -47,9 +47,30 @@ func (r runner) compareRuns(base, current string) error {
 	if err := r.runReport(r.config.Reports.CompareRuns, variables); err != nil {
 		return err
 	}
+	if r.config.Reports.RouteQuality != "" {
+		if err := r.routeQuality(base, current); err != nil {
+			return err
+		}
+	}
 	if path := r.config.Reports.CompareContest; path != "" {
 		fmt.Fprintln(r.stdout, "== Contest aggregates ==")
 		return r.runReport(path, variables)
 	}
 	return nil
+}
+
+func (r runner) routeQuality(base, current string) error {
+	if r.config.Reports.RouteQuality == "" {
+		return fmt.Errorf("reports.route_quality is not configured")
+	}
+	fmt.Fprintln(r.stdout, "== API classification and count reconciliation ==")
+	count, err := r.queryCount("select count(*) from route_coverage where run_id in (" + sqlString(base) + "," + sqlString(current) + ")")
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		fmt.Fprintln(r.stdout, "route coverage unavailable; no observed counts to assess")
+		return nil
+	}
+	return r.runReport(r.config.Reports.RouteQuality, map[string]string{"base_run": base, "new_run": current})
 }

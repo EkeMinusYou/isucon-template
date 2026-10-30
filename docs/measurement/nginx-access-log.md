@@ -13,6 +13,6 @@ Goは応答ヘッダーの確定前に次を設定します。汎用土台の`we
 
 nginxはクライアントから同名ヘッダーを転送せず、Goの応答からだけログへ取り込み、外部への応答では隠します。`request_content_length`は要求のContent-Lengthで、実読取量とは別です。存在しない数値はJSONの`null`にします。静的な直接配信にはGoの測定値はありません。
 
-`alp.yml`、`tools/contest/user-transition-routes.json`、`tools/analysis/schema/access-log.sql`のAPI分類を揃え、実際のログで識別列・未分類API・時刻を確認します。長時間応答は終了時に初めて記録されるため、進行中SSEの件数・待ち時間は必要に応じてGoの内部イベントで補います。HTTP/2の接続内並行要求を逐次HTTP/1.1の待ち時間として解釈しません。
+API分類の正本は`tools/contest/user-transition-routes.json`だけです。`task check-api-routes`で宣言を検査し、alp・操作遷移・DuckDBは同じ分類を使います。RUN開始時の定義を保存し、`task q`の`route_coverage`とRUN比較で未分類・定義欠損・集計件数を確認します。`alp.yml`とSQLへ分類を重複記述しません。長時間応答は終了時に初めて記録されるため、進行中SSEの件数・待ち時間は必要に応じてGoの内部イベントで補います。HTTP/2の接続内並行要求を逐次HTTP/1.1の待ち時間として解釈しません。
 
 Goログを追加する場合は[Goのアクセスログ](go-access-log.md)を参照し、別ファイルへ出します。nginxとGoの同一要求を二重集計せず、nginxログにGo loggerの排出counterを対応させません。追加した`upstream_*`列は生ログに残りますが、標準DuckDBビューはまだ集計しません。

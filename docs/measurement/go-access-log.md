@@ -24,7 +24,7 @@ Goアクセスログを追加する場合は共通moduleの`app.NewAccessLogger`
 
 middlewareでResponseWriterを包む場合は、暗黙の200、途中切断、Flush・Hijack等の必要なinterfaceを維持します。SSE等ではハンドラー終了と接続終了の意味を合わせ、単にhandler開始時刻を完了時刻として記録しません。
 
-GoをHTTP入口として使う場合は、全HTTP入口のログと`ingress` roleを揃えます。`alp.yml`、`user-transition-routes.json`、`analysis/schema/access-log.sql`のAPI分類・動的ID正規化を揃え、ログ出力からalp・操作遷移・負荷期間のDuckDB集計まで確認してください。
+GoをHTTP入口として使う場合は、全HTTP入口のログと`ingress` roleを揃えます。`tools/contest/user-transition-routes.json`だけにAPI分類・動的ID正規化を宣言し、ログ出力からalp・操作遷移・負荷期間のDuckDB集計まで確認してください。
 
 接続間隔の計算は逐次HTTP/1.1を前提とします。HTTP/2の並行streamでは接続単位の差を利用者の待ち時間と解釈せず、必要なら別の観測を追加します。取得できない指標を0で補いません。
 

@@ -17,6 +17,7 @@ semantic_schemas:
 
 reports:
   bottleneck_profile: queries/bottleneck-profile.sql
+  route_quality: queries/route-quality.sql
   compare_runs: queries/compare-runs.sql
   # Optional: add a contest-specific comparison after its aggregates are available.
   # compare_contest: ../contest/queries/compare-runs.sql
@@ -95,6 +96,10 @@ sources:
     schema: schema/access-log.sql
     match: "raw/access-*.log*"
     view: http_traffic_buckets
+  - table: route_coverage
+    schema: schema/access-log.sql
+    match: "raw/access-*.log*"
+    view: http_route_coverage
   - table: operation_progress
     schema: schema/operation-progress.sql
     match: "raw/access-*.log*"

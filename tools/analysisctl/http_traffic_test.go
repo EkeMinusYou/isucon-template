@@ -23,7 +23,7 @@ func TestHTTPTrafficPreservesRoutesBucketsAndLogSelection(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Use overlapping generic routes to check that the first pattern wins.
-	schema = []byte(strings.Replace(string(schema), "'^/initialize$'", "'^/items/', '^/items/[^/]+$'", 1))
+	schema = append([]byte(`set variable operation_definitions = '[{"run_id":"20260901-120000","config":{"api_prefix":"/api/","routes":[{"name":"items","pattern":"^/items/"},{"name":"item","pattern":"^/items/[^/]+$"}]}}]';`), schema...)
 	runDir := filepath.Join(t.TempDir(), "runs", "20260901-120000")
 	writeTestFile(t, runDir, "raw/access-entry-a.log", `{"msec":"1800000005.25","response_time":0.5,"method":"GET","uri":"/items/a","status":200,"body_bytes":10,"upstream_time":"0.2"}
 {"msec":"1800000004.9","response_time":0.4,"method":"GET","uri":"/items/b","status":404,"body_bytes":20,"upstream_time":"0.001, 0.002"}
@@ -54,7 +54,7 @@ select run_id, ingress_host, epoch(ts)::bigint as bucket, bucket_seconds,
 from http_traffic_buckets;
 create temp table expected as
 select * from (values
- ('20260901-120000', 'entry-a', 1800000000, 5, 'GET', '^/items/', 3, 1, 1, 1, 0, 1.15, 0.5, 60),
+ ('20260901-120000', 'entry-a', 1800000000, 5, 'GET', 'items', 3, 1, 1, 1, 0, 1.15, 0.5, 60),
  ('20260901-120000', 'entry-a', 1800000005, 5, 'POST', '/outside', 1, 0, 0, 0, 1, 0, 0, 0),
  ('20260901-120000', 'entry-a', 1800000005, 5, 'GET', NULL, 1, 0, 0, 0, 0, 1, 1, 0),
  ('20260901-120000', 'entry-b', 1800000005, 5, 'GET', '/outside', 1, 0, 0, 0, 1, 2, 2, 40)
@@ -85,7 +85,6 @@ func TestHTTPTrafficCountsConnectionsAndClientGaps(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	schema = []byte(strings.Replace(string(schema), "'^/initialize$'", "'^/a$'", 1))
 	runDir := filepath.Join(t.TempDir(), "runs", "20260901-120000")
 	// Connection 7 carries two requests; connection 8 resumes TLS; the last line
 	// predates the connection fields and must not join any connection.

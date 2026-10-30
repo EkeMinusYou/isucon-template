@@ -31,12 +31,14 @@ const (
 )
 
 type routeConfig struct {
-	Name    string `json:"name"`
-	Pattern string `json:"pattern"`
-	re      *regexp.Regexp
+	Name       string `json:"name"`
+	Pattern    string `json:"pattern"`
+	MatchQuery bool   `json:"match_query,omitempty"`
+	re         *regexp.Regexp
 }
 
 type config struct {
+	Comment            string              `json:"_comment,omitempty"`
 	CookieField        string              `json:"cookie_field"`
 	APIPrefix          string              `json:"api_prefix"`
 	Routes             []routeConfig       `json:"routes"`
@@ -221,9 +223,11 @@ func main() {
 	maxEvents := flag.Int("max-events", defaultMaxEvents, "maximum classified events retained in memory")
 	maxScenarios := flag.Int("max-scenarios", defaultMaxScenarios, "maximum scenario groups written to the report")
 	maxOutputBytes := flag.Int("max-output-bytes", defaultMaxOutputBytes, "maximum report size")
+	normalize := flag.Bool("normalize-access-log", false, "normalize JSON access logs from stdin for alp")
+	check := flag.Bool("check-config", false, "validate route and operation declarations without reading logs")
 	flag.Parse()
 
-	if flag.NArg() == 0 {
+	if flag.NArg() == 0 && !*normalize && !*check {
 		fatal(errors.New("at least one access log path is required"))
 	}
 	if *maxEvents <= 0 || *maxScenarios <= 0 || *maxOutputBytes <= 0 {
@@ -232,6 +236,15 @@ func main() {
 	cfg, err := loadConfig(*configPath)
 	if err != nil {
 		fatal(err)
+	}
+	if *check {
+		return
+	}
+	if *normalize {
+		if err := normalizeAccessLog(cfg, os.Stdin, os.Stdout); err != nil {
+			fatal(err)
+		}
+		return
 	}
 	agg := newAggregator(cfg, *maxEvents)
 	for _, path := range flag.Args() {
@@ -269,8 +282,13 @@ func loadConfig(path string) (config, error) {
 		return config{}, fmt.Errorf("read config: %w", err)
 	}
 	var cfg config
-	if err := json.Unmarshal(body, &cfg); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&cfg); err != nil {
 		return config{}, fmt.Errorf("parse config: %w", err)
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return config{}, errors.New("config must contain exactly one JSON object")
 	}
 	if cfg.CookieField == "" || cfg.APIPrefix == "" {
 		return config{}, errors.New("cookie_field and api_prefix are required")
@@ -383,7 +401,7 @@ func (a *aggregator) scan(r io.Reader) error {
 			continue
 		}
 		a.summary.APIRequests++
-		route, ok := a.classify(path)
+		route, ok := a.classify(base.URI)
 		if !ok {
 			a.summary.UnmatchedAPIRequests++
 			continue
@@ -427,9 +445,14 @@ func (a *aggregator) scan(r io.Reader) error {
 	return scanner.Err()
 }
 
-func (a *aggregator) classify(path string) (string, bool) {
+func (a *aggregator) classify(uri string) (string, bool) {
+	path := normalizePath(uri)
 	for _, route := range a.config.Routes {
-		if route.re.MatchString(path) {
+		target := path
+		if route.MatchQuery {
+			target = uri
+		}
+		if route.re.MatchString(target) {
 			return route.Name, true
 		}
 	}

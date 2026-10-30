@@ -2,7 +2,6 @@ output: count,method,uri,2xx,3xx,4xx,5xx,max,avg,sum,p90,p99,sum_body,avg_body
 sort: sum
 reverse: true
 limit: 65536
-matching_groups:
-  # >>> contest values >>>
-  # Normalize the contest's dynamic path segments here, most specific first.
-  # <<< contest values <<<
+# Route labels are normalized from tools/contest/user-transition-routes.json
+# before alp runs. Keep grouping empty; this file controls presentation only.
+matching_groups: []

@@ -47,9 +47,9 @@ setupは既存ソースも照合して外部仕様・提供データ・資源・
 
 ## ログ・追加メトリクスを整えるとき
 
-- 形式・列名・時刻・単位を生成側とparserで一致させる。URIの動的IDは集計側で正規化し、途中切断や長時間応答も正しく扱えることを確認する。
+- 形式・列名・時刻・単位を生成側とparserで一致させる。API分類は`tools/contest/user-transition-routes.json`へ一元化し、`task check-api-routes`で検査する。URIの動的IDはこの定義で正規化し、途中切断や長時間応答も正しく扱えることを確認する。
 - user-transitionはセッションを安定して識別できる方法を調査し、認証Cookie等の生値を恒久保存しない識別列を出す。ログ列名とroutes.jsonのcookie_fieldを一致させ、集計成果物に識別値を残さない。識別方法が仕様上成立しない場合のみ理由を示して対象外とする。
-- routes.jsonの汎用プレースホルダーをそのまま完成扱いにしない。公式APIとGoのroute登録から動的IDを正規化し、未分類API・識別列欠損・時刻不正の件数も確認する。
+- routes.jsonの汎用プレースホルダーをそのまま完成扱いにしない。公式APIとGoのroute登録から動的IDを正規化し、`route_coverage`とRUN比較の件数差、識別列欠損・時刻不正の件数も確認する。
 - nginxアクセスログのmsec等、実際の出力形式をDuckDBの読み手まで照合する。圧縮ログ・空ログ・不正入力を確認し、分析結果にデータがない場合は未取得・空・解析失敗・設定無効を切り分ける。
 - 標準のアクセスログはnginxだけで記録する。Goの`app.NewAccessLogger`は内部診断に必要な場合だけ別出力として使い、その場合に受理・書出し・queue長・出力エラーを接続する。nginxのログにGoのlogger counterを対応させない。
 - 追加計測はsampling間隔、対象、timeout、出力量・cardinality、enable/disableとcleanupを定める。計測を増やした結果、CPU・I/O・disk容量を圧迫しないか検証する。

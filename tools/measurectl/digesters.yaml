@@ -109,19 +109,27 @@ digesters:
     outputs:
       - file: '{host}-oom.log'
 
+  - name: api-routes
+    source: access
+    label: captured API classification
+    stderr: api-routes.stderr
+    outputs:
+      - file: api-routes.json
+        run: cat {run_dir}/raw/api-routes.json
+
   - name: alp
     label: alp
     source: access
     stderr: alp.stderr
     # zstdcat は非圧縮ファイルもそのまま通すので、圧縮前後どちらの入力でも動く。
-    stdin: zstdcat
+    stdin: tools/analysis/alp-input.sh
     # alp は 1 回の実行で複数フォーマットを出せない。同じログを独立に舐めるだけなので
     # 並列に流す (直列だと素朴に 2 倍かかる)。
     outputs:
       - file: alp.txt
-        run: alp json --config alp.yml
+        run: alp json --config alp.yml --decode-uri --query-string
       - file: alp.json
-        run: alp json --config alp.yml --format json
+        run: alp json --config alp.yml --decode-uri --query-string --format json
         # ダッシュボードが読む。壊れた JSON を置くより空配列のほうが扱いやすい。
         on_error: '[]'
         on_skip: '[]'
@@ -132,7 +140,7 @@ digesters:
     stderr: alp-by-ingress.stderr
     outputs:
       - file: alp-by-ingress.tsv
-        run: tools/analysis/alp-by-ingress.sh {input}
+        run: tools/analysis/alp-by-ingress.sh {run_dir}/raw/api-routes.json {input}
         on_error: "ingress_host\tcount\tmethod\turi\t2xx\t3xx\t4xx\t5xx\tmax\tavg\tsum\tp90\tp99\tsum_body\tavg_body"
         on_skip: "ingress_host\tcount\tmethod\turi\t2xx\t3xx\t4xx\t5xx\tmax\tavg\tsum\tp90\tp99\tsum_body\tavg_body"
 
@@ -147,6 +155,6 @@ digesters:
     timeout: 120s
     outputs:
       - file: user-transitions.json
-        run: tools/user-transition-metrics/user-transition-metrics -config tools/contest/user-transition-routes.json -output - {input}
+        run: tools/user-transition-metrics/user-transition-metrics -config {run_dir}/raw/api-routes.json -output - {input}
         on_error: '{"schema_version":3,"identity_field":"session_id","ordering":"request_start_time; ties by response_end_time then input order","scenario_grouping":"exact set of normalized method-route nodes observed in one Cookie session","summary":{"input_files":0,"input_lines":0,"malformed_lines":0,"invalid_time_lines":0,"api_requests":0,"classified_requests":0,"unmatched_api_requests":0,"requests_with_identity":0,"missing_identity_requests":0,"sessions":0,"transitions":0,"overlapping_transitions":0,"ambiguous_order_transitions":0,"window_start_unix_ms":0,"window_end_unix_ms":0,"scenario_groups":0,"scenarios_emitted":0,"scenario_sessions_omitted":0},"edges":[],"scenarios":[]}'
         on_skip: '{"schema_version":3,"identity_field":"session_id","ordering":"request_start_time; ties by response_end_time then input order","scenario_grouping":"exact set of normalized method-route nodes observed in one Cookie session","summary":{"input_files":0,"input_lines":0,"malformed_lines":0,"invalid_time_lines":0,"api_requests":0,"classified_requests":0,"unmatched_api_requests":0,"requests_with_identity":0,"missing_identity_requests":0,"sessions":0,"transitions":0,"overlapping_transitions":0,"ambiguous_order_transitions":0,"window_start_unix_ms":0,"window_end_unix_ms":0,"scenario_groups":0,"scenarios_emitted":0,"scenario_sessions_omitted":0},"edges":[],"scenarios":[]}'

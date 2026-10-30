@@ -1,27 +1,11 @@
--- Normalize only operation-related requests once for progress and concurrency.
+-- All consumers share one per-RUN route map, including explicit query matching.
 create or replace temp table operation_requests as
-with configs as (
-    select json_extract_string(value,'$.run_id') as run_id,
-           json_extract(value,'$.config') as config
-    from json_each(coalesce(getvariable('operation_definitions')::varchar,'[]'))
-), paths as materialized (
-    select distinct r.run_id, split_part(r.uri,'?',1) as path
-    from http_access_requests r
-    where list_contains(getvariable('operation_methods')::varchar[],r.method)
-), normalized as materialized (
-    select p.run_id, p.path,
-           (select json_extract_string(route.value,'$.name')
-            from json_each(json_extract(c.config,'$.routes')) route
-            where regexp_matches(p.path,json_extract_string(route.value,'$.pattern'))
-            order by route.key::integer limit 1) as route
-    from paths p join configs c using(run_id)
-)
-select r.run_id,r.event_id,r.identity_key,r.method,r.status,n.route,
+select r.run_id,r.event_id,r.identity_key,r.method,r.status,n.matched_route as route,
        r.logged_at_epoch,r.response_time_sec
-from http_access_requests r join normalized n
- on n.run_id=r.run_id and n.path=split_part(r.uri,'?',1)
+from http_access_requests r join http_normalized_routes n
+ on n.run_id=r.run_id and n.uri is not distinct from r.uri
 where list_contains(getvariable('operation_methods')::varchar[],r.method)
- and r.valid_timing and to_timestamp(r.logged_at_epoch)<=r.analysis_ended_at;
+ and n.config_available and r.valid_timing and to_timestamp(r.logged_at_epoch)<=r.analysis_ended_at;
 
 -- Selected operations can have other API calls between them. Definitions are
 -- captured with the RUN, rather than read from today's contest configuration.

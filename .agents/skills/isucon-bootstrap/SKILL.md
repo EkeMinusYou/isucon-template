@@ -20,7 +20,7 @@ description: 初期ソースや内部構成を参照せず、外部仕様と資�
 3. `webapp/go/`の汎用土台を使い、選んだ構成で全機能を新規実装する。待受・起動方法は変更してよいが、共通計測moduleとRUN回収の接続を維持する。同じ構成の成立に必要な参照・更新・初期化・復元を一体で扱う。実装の進捗を小さく区切ることと、旧構成を段階的に最適化することを混同しない。
 4. 新実装へ[標準計測](../isucon-setup/references/measurement.md)を組み込み、正規build・deploy・初期化経路を揃える。得点につながる件数・進行・待ち時間を、[状態・操作の計測](../../../docs/measurement/state-and-operations.md)に従って確認できるようにする。重要な完了から次の開始までを`operation_pairs`、進行中の区間を`operation_intervals`へ設定する。[nginxアクセスログ](../../../docs/measurement/nginx-access-log.md)へセッション識別値・必要な実読取量を接続し、負荷期間の進行・同時数・受信量・接続を確認する。
 5. [秘伝のタレ](../isucon-special-sauce/SKILL.md)を適用する。公開静的資材の更新・認可・初期化仕様からキャッシュ期限を決め、入口の実応答で確認する。SSE等のストリーミング、TLS、body上限も仕様に合わせる。
-6. 必要なローカル検証、`task setup-check`、正規deploy・初期化・`task setup-postflight`を行い、`task bench`で新構成を検証する。失敗は仕様・実装・環境・計測のどこかを切り分けて補修する。
+6. 公開HTTP応答の期待値と必要な操作列テストを[共通の検証runner](../../../tools/validation/README.md)へ宣言する。業務上の観測順序は外部仕様から競技側のテストに実装し、部品テストの成功と観測していない範囲を区別する。必要なローカル検証、`task setup-check`、正規deploy・初期化・`task setup-postflight`を行い、`task bench`で新構成を検証する。失敗は仕様・実装・環境・計測のどこかを切り分けて補修する。
 
 [既知資料](../_shared/known-solutions.md)はGoでの設計に必要な場合だけ使う。メモリ配置・索引・並行処理・永続化方式は得点と資源から選ぶ。
 

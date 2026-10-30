@@ -54,6 +54,15 @@ task artifacts-run RUN=runs/<RUN_ID>
 
 競技サーバーの初期nginx設定は、他の初期ソースと同様にリポジトリへ含めません。`task setup-nginx`は`REFERENCE_DIR`へ取得し、setupは外部仕様だけを渡します。テンプレートには[秘伝のタレ](docs/special-sources/nginx.md)に基づく汎用ベースを同梱し、bootstrapでTLS・URL・静的資材など競技固有の条件を設定します。
 
+## 競技仕様と共通の検査
+
+API分類は`tools/contest/user-transition-routes.json`にまとめ、alp・操作遷移・DuckDBで共用します。
+`task check-api-routes`で宣言を検査し、RUN開始時の定義を保存します。ベンチ回収後と`task compare-runs`では未分類・定義欠損と集計件数の対応も自動表示します。
+
+公開HTTP応答の期待値と競技固有のテストは`tools/contest/validation.json`へ宣言し、`task validate`で実行・保存します。
+`task setup-postflight`にも接続済みです。通知方式、必要な観測順序、URL、キャッシュ期限は競技側で決めます。
+空の宣言は未設定として扱い、既定の業務シナリオは持ちません。[設定と結果の扱い](tools/validation/README.md)を参照してください。
+
 ## 業務ロジックを持たないGo土台
 
 `webapp/go/`は起動・終了処理と共通計測moduleへの接続だけを持ちます。API・認証・状態管理・永続化はbootstrapで実装します。既定で`/healthz`だけを提供し、`/initialize`や競技APIは未実装の404です。

@@ -585,3 +585,9 @@ select
 from host_rollup h
 left join service_rollup s using (run_id)
 join load_windows w using (run_id);
+
+-- Empty means unavailable until a RUN with access logs has been imported.
+create table if not exists route_coverage (
+    run_id varchar, ingress_host varchar, status varchar,
+    requests bigint, traffic_requests bigint
+);

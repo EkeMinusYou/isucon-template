@@ -33,9 +33,9 @@ tools/user-transition-metrics/user-transition-metrics \
   runs/<RUN_ID>/raw/access-*.log.zst
 ```
 
-`routes.json` がアプリ固有 adapter です。`cookie_field` は access log JSON 上の
+`tools/contest/user-transition-routes.json`がAPI分類の正本で、alp・操作遷移・DuckDBが共用します。`task check-api-routes`で設定を検査します。`cookie_field` は access log JSON 上の
 Cookieフィールド、`api_prefix` は集計対象の入口、`routes` は上から評価する
-有限個の正規表現と出力名です。別のISUCONではこのファイルを差し替え、generic coreは
+有限個の正規表現と出力名です。通常はqueryを除いたpathを照合し、`match_query: true`のrouteだけ元のURI（query付き）へ照合します。別のISUCONではこのファイルを差し替え、generic coreは
 変更しません。未分類APIは動的IDをそのままラベルにせず、summaryへ件数だけ残します。
 
 イベントは `msec - response_time` で求めたリクエスト開始時刻順です。同時刻は
@@ -52,7 +52,7 @@ Cookie発行前のログイン／登録は対象外であり、Cookie付きの�
 例えば「完了→次の開始」の間に検索等が入っても、同じ`session_id`の次の対象操作までを調べられます。
 方法は[状態・操作の計測](../../docs/measurement/state-and-operations.md#重要な操作間の標準集計)を参照してください。
 
-設定は`user-transitions.json`の`operation_config`へ保存します。`task q-sync`がそのRUNの設定と
+RUN開始時の設定は独立した`api-routes.json`へ保存し、この集計も同じ設定を読み、`operation_config`へ含めます。`task q-sync`がそのRUNの設定と
 既存アクセスログを使い、負荷期間内の`operation_progress`と、同時実行数・空き時間の`operation_concurrency`を生成します。古い設定で収集したRUNを
 現在の定義で読み替えません。`operation_config`のない旧RUNではこの表の行がありません。
 隣接APIとシナリオの既存集計は収集全期間のままで、負荷期間だけの表と混ぜません。
@@ -60,3 +60,9 @@ Cookie発行前のログイン／登録は対象外であり、Cookie付きの�
 `connection_reuse`も同じログ読込みを使い、ホスト別に負荷期間内の接続数、複数要求を処理した
 接続数、接続あたり要求数の平均・中央値・p95・最大を保存します。ログに接続IDがない件数も示します。
 接続全寿命の要求数ではなく、負荷期間に観測した要求数です。RTTの採取・相関分析は標準には含めません。
+
+## alp用の正規化
+
+`-normalize-access-log`はstdinの構造化ログを同じ分類で変換し、stdoutへ流します。
+元のログは変更せず、未分類APIは`<unclassified-api>`、API範囲外はqueryを除いたpathになります。
+標準digesterとホスト別alp集約はこの入口を使います。壊れたJSONやURI欠損は成功扱いにせず、digester失敗として記録します。

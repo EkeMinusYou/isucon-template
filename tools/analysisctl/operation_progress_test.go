@@ -114,4 +114,17 @@ select count(*) from operation_progress where from_events<>reached_events+not_ob
 	if strings.TrimSpace(got) != "2|1\n0\n1" {
 		t.Fatalf("saved aggregate or temporary raw data: %s", got)
 	}
+	// An independently captured definition must win over an older transition report.
+	savedConfig["operation_pairs"].([]any)[0].(map[string]any)["name"] = "captured_next_visit"
+	captured, _ := json.Marshal(savedConfig)
+	writeTestFile(t, dir, "api-routes.json", string(captured))
+	r.db = filepath.Join(t.TempDir(), "captured.duckdb")
+	if err := r.syncSelection(filepath.ToSlash(dir), []string{dir}, []string{"20260901-120000"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err = r.duckdbOutput(nil, "-readonly", "-noheader", "-list", r.db, "-c", "select name,reached_events from operation_progress where name in ('next_visit','captured_next_visit');")
+	if err != nil || strings.TrimSpace(got) != "captured_next_visit|2" {
+		t.Fatalf("captured definitions did not take precedence: %q, %v", got, err)
+	}
+
 }

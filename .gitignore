@@ -65,3 +65,7 @@ __pycache__/
 # Local application binary and generated service units.
 /webapp/go/app
 /generated/systemd/
+
+# Local contract checks may include contest test output.
+/generated/validation/
+**/contract-validation.json

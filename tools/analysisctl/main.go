@@ -41,6 +41,7 @@ type profileConfig struct {
 type reportConfig struct {
 	BottleneckProfile string `yaml:"bottleneck_profile"`
 	CompareRuns       string `yaml:"compare_runs"`
+	RouteQuality      string `yaml:"route_quality"`
 	CompareContest    string `yaml:"compare_contest"`
 }
 
@@ -82,7 +83,7 @@ var (
 )
 
 // Increment when persisted sources or analysis-window semantics change.
-const importSchemaVersion = "19"
+const importSchemaVersion = "20"
 
 func main() {
 	if err := runCLI(os.Args[1:], os.Stdout, os.Stderr); err != nil {
@@ -93,7 +94,7 @@ func main() {
 
 func runCLI(args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: analysisctl <sync|rebuild|status|profile|compare> [flags] [arguments]")
+		return errors.New("usage: analysisctl <sync|rebuild|status|profile|compare|quality> [flags] [arguments]")
 	}
 	command := args[0]
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
@@ -138,6 +139,17 @@ func runCLI(args []string, stdout, stderr io.Writer) error {
 			return errors.New("usage: analysisctl compare [flags] BASE_RUN NEW_RUN")
 		}
 		return r.compareRuns(arguments[0], arguments[1])
+	case "quality":
+		if len(arguments) != 1 {
+			return errors.New("usage: analysisctl quality [flags] RUN_ID")
+		}
+		if !runIDPattern.MatchString(arguments[0]) {
+			return errors.New("invalid RUN ID; expected YYYYMMDD-HHMMSS")
+		}
+		if err := r.requireDatabase(); err != nil {
+			return err
+		}
+		return r.routeQuality(arguments[0], arguments[0])
 	case "profile":
 		if len(arguments) != 3 {
 			return errors.New("usage: analysisctl profile [flags] RUN_ID HOST SYMBOL_PATTERN")
@@ -456,7 +468,18 @@ func (r runner) syncSelection(runGlob string, dirs, runIDs []string) error {
 	// Preserve each RUN's declared operation definitions when importing old logs.
 	var definitions []map[string]any
 	for _, dir := range dirs {
-		body, err := os.ReadFile(filepath.Join(dir, "user-transitions.json"))
+		body, err := os.ReadFile(filepath.Join(dir, "api-routes.json"))
+		if err == nil {
+			if !json.Valid(body) {
+				return fmt.Errorf("invalid captured route definitions for %s", filepath.Base(dir))
+			}
+			definitions = append(definitions, map[string]any{"run_id": filepath.Base(dir), "config": json.RawMessage(body)})
+			continue
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		body, err = os.ReadFile(filepath.Join(dir, "user-transitions.json"))
 		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}

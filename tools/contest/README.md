@@ -13,12 +13,13 @@
 | `bench-patterns.json` | `tools/bench-output` | ベンチ出力のscore・合否正規表現。coreは形式を持たない |
 | `portal-bench.json`、`portal/` | `tools/portal-bench` | ポータルの実行要求・認証ヘッダー・応答フィールド・完了条件。ISUCON12・13の設定例を含む |
 | `load-phase.yaml` | `tools/analysisctl` | 任意。ベンチログの実負荷開始・停止行の正規表現。`tools/analysis/sources.yaml`の`load_phase`で参照する |
-| `user-transition-routes.json` | `tools/user-transition-metrics` | Cookie列・正規化route・操作間の進行と進行中の区間の宣言 |
+| `user-transition-routes.json` | alp・操作遷移・DuckDB | 共通のAPI分類とCookie列・操作間の進行の宣言 |
+| `validation.json` | `task validate` | 公開HTTP応答の期待値と競技固有テストのargv。[検証runner](../validation/README.md)を参照 |
 | `analysis-schema/` | `tools/analysis/sources.yaml` | ベンチログの解釈をDuckDBのviewにするschema。エラー行の意味ビュー、score集計、進捗行の推移 |
 | `deployments.yaml` | `tools/deployctl` | 汎用graphをincludeし、解法固有のdeploymentとplanを置き換えるoverlay。追加seedもここに置く |
 
 templateに置いてあるのは`bench-patterns.json`、`user-transition-routes.json`、
-`analysis-schema/bench-errors-semantic.sql`、`analysis-schema/bench-progress.sql`のプレースホルダーだけである。setupで当日の形式へ書き換え、
+`validation.json`、`analysis-schema/bench-errors-semantic.sql`、`analysis-schema/bench-progress.sql`のプレースホルダーだけである。setupで当日の形式へ書き換え、
 必要になった解法固有の宣言だけをこのディレクトリへ足す。`Taskfile.contest.yml`のhookタスク
 （`build-contest-assets`、`prepare-db-assets`、`gen-contest-routing`、`setup-contest-assets`、`check-contest-network`）も同じ考え方で、該当する処理がなければ空のままにする。
 

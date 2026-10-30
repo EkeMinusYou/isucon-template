@@ -38,7 +38,7 @@
 
 ### access log
 
-[nginxアクセスログ](../docs/measurement/nginx-access-log.md)にJSON列・時刻・識別方法をまとめています。API分類は`alp.yml`、`tools/contest/user-transition-routes.json`、`analysis/schema/access-log.sql`で揃えます。生ログはRUNごとに保存・圧縮し、負荷期間を選んでからDuckDBへ集計します。
+[nginxアクセスログ](../docs/measurement/nginx-access-log.md)にJSON列・時刻・識別方法をまとめています。API分類は`tools/contest/user-transition-routes.json`を正本にし、alp・操作遷移・DuckDBが共用します。生ログはRUNごとに保存・圧縮し、負荷期間を選んでからDuckDBへ集計します。
 
 ### RUNの比較
 
@@ -131,11 +131,15 @@ scoreには1つのcapture groupを持たせ、該当する行がない項目は�
 
 `tools/contest/user-transition-routes.json`のCookie列・API prefix・正規化routeを当日のAPIへ合わせる。
 bootstrapでは[重要な操作間の標準集計](../docs/measurement/state-and-operations.md#重要な操作間の標準集計)も設定する。
-`task q`で`operation_progress`・`operation_concurrency`・`connection_reuse`を比較できる。受信量は`http_traffic_series`、Goの追加アクセスロガーを使う場合だけ、ログ出力counterを`access_log_health`で読む。nginxログの健全性をこのcounterで判断しない。routeは動的IDを
-そのまま残さず、限定された正規表現を上から具体的な順に並べる。Cookieを持たない競技や、識別子を
-安全にログへ出せない場合は、この集計を無効にする。access logの時系列bucket
-（`tools/analysis/schema/access-log.sql`の`# >>> contest values >>>`区画）と`alp.yml`の
-`matching_groups`にも同じ正規化を入れる。
+`task q`で`operation_progress`・`operation_concurrency`・`connection_reuse`を比較できる。受信量は`http_traffic_series`、Goの追加アクセスロガーを使う場合だけログ出力counterを`access_log_health`で読む。nginxログの健全性をこのcounterで判断しない。
+
+routeは正本のJSONに名前と正規表現を具体的な順に宣言する。既定はqueryを除いたデコード済みpathで照合し、queryの条件を区別するrouteだけ`match_query: true`で元のURIへ照合する。API prefix内の未分類要求は`<unclassified-api>`として件数を残し、動的IDを集計ラベルにしない。`alp.yml`は表示設定だけを持ち、SQLに競技固有のpatternは書かない。
+
+`task before-bench`がRUN開始時の宣言を保存し、回収後は`api-routes.json`として残す。DuckDBの再構築はRUNの宣言を使い、旧RUNでは保存済み`user-transitions.json`の`operation_config`だけを代替に使う。どちらもない場合は現在の定義で読み替えず、`route_coverage`へ`definitions-missing`を記録する。`route_coverage`は同じ負荷区間・ホスト内のclassified/unclassified/outsideの件数を示し、ベンチ回収後と`task compare-runs`では`http_traffic`との件数差も自動表示する。観測がない場合はunavailableとし、完全性を確認済みと扱わない。0件の集計は実際の観測対象・欠損状態と併せて読む。
+
+Cookieを持たない等で操作遷移が成立しない競技では理由を示してそのdigesterを無効にできる。API分類の保存とHTTP集約は独立して維持する。
+
+公開HTTP応答・競技固有の操作列テストは[共通の検証runner](validation/README.md)へ宣言し、`task validate`で結果を保存する。検査のない状態と成功を区別する。
 
 `tools/contest/analysis-schema/bench-errors-semantic.sql`の`bench_errors`・`bench_warning_events`・
 `bench_error_counts`を当日のベンチ出力の書式へ合わせる。bench.logの読み込み自体は汎用の
