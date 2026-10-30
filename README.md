@@ -22,6 +22,7 @@
 | `LISTEN_PORT` | HTTP待受。既定80 |
 | `TLS_ADDR` | TLS待受。例`:443`。空なら無効 |
 | `TLS_CERT_FILE`, `TLS_KEY_FILE` | ホスト上の証明書と鍵。TLS有効時に指定 |
+| `HTTP2_ENABLED` | 公開HTTPSのHTTP/2。既定`true`、`false`でHTTP/1.1のみ |
 | `STATIC_DIR`, `STATIC_REMOTE_DIR` | 不変の公開静的資材の配布元・配布先 |
 | `STATIC_URL_PREFIX` | 静的配信のURL prefix。既定`/static/`。仕様に合わせる |
 | `ACCESS_LOG_PATH` | GoのJSONログ。既定`/home/isucon/log/access.log` |
@@ -44,7 +45,9 @@ task compare-runs BASE_RUN=<RUN_ID> NEW_RUN=<RUN_ID>
 
 `task gen`はGoのsystemd unitを生成します。低位portのbind capabilityと`LimitNOFILE=65536`を設定し、計測listenerは`127.0.0.1:6060`へ分離します。`APP_ENV`は非機密の追加環境変数mapです。
 
-TLS資材はGit対象外の`tls/`へ置くと、`deploy-all`で`TLS_REMOTE_DIR`（既定`/home/isucon/tls`）へ配布します。`TLS_ADDR=:443`と、配布した証明書・鍵のパスをTaskfileへ指定します。TLSではHTTP/2を有効にし、ホスト名・証明書の信頼点・有効期間を公開検証で確認します。秘密情報はcommitしません。
+TLS資材はGit対象外の`tls/`へ置くと、`deploy-all`で`TLS_REMOTE_DIR`（既定`/home/isucon/tls`）へ配布します。`TLS_ADDR=:443`と、配布した証明書・鍵のパスをTaskfileへ指定します。TLSでは既定でHTTP/2を有効にし、ホスト名・証明書の信頼点・有効期間を公開検証で確認します。秘密情報はcommitしません。
+
+`HTTP2_ENABLED`はTaskfileで設定し、`task deploy`で反映します。`false`にするとTLSのALPNからHTTP/2を外し、HTTP/1.1だけを提供します。平文HTTPは設定にかかわらずHTTP/1です。Goを直接起動する場合も同名の環境変数で指定でき、不正な値は起動時にエラーにします。切り替え後はアクセスログの`protocol`（`HTTP/1.1`または`HTTP/2.0`）を確認し、同じアプリ・証明書・負荷条件で得点、応答時間、新規接続数、CPU負担を比較します。
 
 静的資材は`public/`からGoホストへ配布します。既定は1日キャッシュ、ETag/Last-Modified、静的MIMEのみのgzip、範囲要求、上限付きのファイル内容キャッシュです。[秘伝のタレの対応](docs/special-sources/nginx.md)を参照してください。動的画像・認証付き応答・APIはこの配信へ混ぜず、更新と初期化の可視性に応じた実装を用意します。
 

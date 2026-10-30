@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"io"
 	"net"
@@ -101,55 +102,90 @@ func TestServerRejectsPublicMeasurementListener(t *testing.T) {
 	}
 }
 
-func TestDirectTLSServesHTTP2AndCapturesPublicConnection(t *testing.T) {
-	certificate := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
-	cert := certificate.TLS.Certificates[0]
-	certificate.Close()
-	root := t.TempDir()
-	certPath := filepath.Join(root, "server.crt")
-	keyPath := filepath.Join(root, "server.key")
-	var certPEM []byte
-	for _, der := range cert.Certificate {
-		certPEM = append(certPEM, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})...)
-	}
-	key, err := x509.MarshalPKCS8PrivateKey(cert.PrivateKey)
-	if err != nil {
-		t.Fatal(err)
-	}
-	os.WriteFile(certPath, certPEM, 0600)
-	os.WriteFile(keyPath, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: key}), 0600)
-	config := serverConfig{TLSAddress: availableAddress(t), TLSCertFile: certPath, TLSKeyFile: keyPath, MeasurementAddr: availableAddress(t), AccessLog: filepath.Join(root, "access.log")}
-	ctx, cancel := context.WithCancel(context.Background())
-	result := make(chan error, 1)
-	go func() { result <- serve(ctx, config, newHandler()) }()
-	transport := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, ForceAttemptHTTP2: true}
-	client := &http.Client{Transport: transport, Timeout: time.Second}
-	t.Cleanup(func() {
-		client.CloseIdleConnections()
-		cancel()
-		select {
-		case err := <-result:
+func TestDirectTLSProtocolConfigurationAndPublicConnectionLog(t *testing.T) {
+	enabled, disabled := true, false
+	for _, tc := range []struct {
+		name     string
+		enabled  *bool
+		protocol string
+		alpn     string
+	}{
+		{name: "default", protocol: "HTTP/2.0", alpn: "h2"},
+		{name: "enabled", enabled: &enabled, protocol: "HTTP/2.0", alpn: "h2"},
+		{name: "disabled", enabled: &disabled, protocol: "HTTP/1.1", alpn: "http/1.1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			certificate := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+			cert := certificate.TLS.Certificates[0]
+			certificate.Close()
+			root := t.TempDir()
+			certPath := filepath.Join(root, "server.crt")
+			keyPath := filepath.Join(root, "server.key")
+			var certPEM []byte
+			for _, der := range cert.Certificate {
+				certPEM = append(certPEM, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})...)
+			}
+			key, err := x509.MarshalPKCS8PrivateKey(cert.PrivateKey)
 			if err != nil {
-				t.Error(err)
+				t.Fatal(err)
 			}
-		case <-time.After(3 * time.Second):
-			t.Error("shutdown timed out")
-		}
-	})
-	deadline := time.Now().Add(3 * time.Second)
-	for {
-		response, err := client.Get("https://" + config.TLSAddress + "/healthz")
-		if err == nil {
-			io.Copy(io.Discard, response.Body)
-			response.Body.Close()
-			if response.ProtoMajor != 2 {
-				t.Fatalf("TLS did not negotiate HTTP/2: %s", response.Proto)
+			os.WriteFile(certPath, certPEM, 0600)
+			os.WriteFile(keyPath, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: key}), 0600)
+			config := serverConfig{HTTP2Enabled: tc.enabled, TLSAddress: availableAddress(t), TLSCertFile: certPath, TLSKeyFile: keyPath, MeasurementAddr: availableAddress(t), AccessLog: filepath.Join(root, "access.log")}
+			ctx, cancel := context.WithCancel(context.Background())
+			result := make(chan error, 1)
+			go func() { result <- serve(ctx, config, newHandler()) }()
+			transport := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, ForceAttemptHTTP2: true}
+			client := &http.Client{Transport: transport, Timeout: time.Second}
+			t.Cleanup(func() {
+				client.CloseIdleConnections()
+				cancel()
+				select {
+				case err := <-result:
+					if err != nil {
+						t.Error(err)
+					}
+				case <-time.After(3 * time.Second):
+					t.Error("shutdown timed out")
+					return
+				}
+				data, err := os.ReadFile(config.AccessLog)
+				if err != nil {
+					t.Fatal(err)
+				}
+				lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+				for _, line := range lines {
+					var entry struct {
+						Protocol   string `json:"protocol"`
+						Connection uint64 `json:"connection"`
+					}
+					if err := json.Unmarshal([]byte(line), &entry); err != nil {
+						t.Fatal(err)
+					}
+					if entry.Protocol != tc.protocol || entry.Connection == 0 {
+						t.Fatalf("public connection log: %+v; want %s and a connection ID", entry, tc.protocol)
+					}
+				}
+			})
+			deadline := time.Now().Add(3 * time.Second)
+			for {
+				response, err := client.Get("https://" + config.TLSAddress + "/healthz")
+				if err == nil {
+					io.Copy(io.Discard, response.Body)
+					response.Body.Close()
+					if response.Proto != tc.protocol {
+						t.Fatalf("TLS protocol: got %s, want %s", response.Proto, tc.protocol)
+					}
+					if response.TLS.NegotiatedProtocol != tc.alpn {
+						t.Fatalf("ALPN: got %q, want %q", response.TLS.NegotiatedProtocol, tc.alpn)
+					}
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal(err)
+				}
+				time.Sleep(10 * time.Millisecond)
 			}
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal(err)
-		}
-		time.Sleep(10 * time.Millisecond)
+		})
 	}
 }

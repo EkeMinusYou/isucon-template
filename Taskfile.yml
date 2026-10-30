@@ -27,6 +27,7 @@ vars:
   TLS_ADDR: ''
   TLS_CERT_FILE: ''
   TLS_KEY_FILE: ''
+  HTTP2_ENABLED: 'true'
   STATIC_URL_PREFIX: /static/
   # Optional non-secret service environment; choose runtime values from measurements.
   APP_ENV:
@@ -553,6 +554,7 @@ tasks:
         Environment=TLS_ADDR={{.TLS_ADDR}}
         Environment=TLS_CERT_FILE={{.TLS_CERT_FILE}}
         Environment=TLS_KEY_FILE={{.TLS_KEY_FILE}}
+        Environment=HTTP2_ENABLED={{.HTTP2_ENABLED}}
         Environment=STATIC_DIR={{.STATIC_REMOTE_DIR}}
         Environment=STATIC_URL_PREFIX={{.STATIC_URL_PREFIX}}
         Environment=ACCESS_LOG={{.ACCESS_LOG_PATH}}

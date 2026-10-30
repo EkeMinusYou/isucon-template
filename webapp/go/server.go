@@ -15,10 +15,12 @@ import (
 )
 
 type serverConfig struct {
-	Address         string
-	TLSAddress      string
-	TLSCertFile     string
-	TLSKeyFile      string
+	Address     string
+	TLSAddress  string
+	TLSCertFile string
+	TLSKeyFile  string
+	// HTTP2Enabled defaults to true when omitted and affects public TLS only.
+	HTTP2Enabled    *bool
 	MeasurementAddr string
 	AccessLog       string
 	StaticDir       string
@@ -118,6 +120,11 @@ func serve(ctx context.Context, config serverConfig, handler http.Handler) error
 				return fmt.Errorf("public TLS: %w", err)
 			}
 			server.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{cert}}
+			if config.HTTP2Enabled != nil && !*config.HTTP2Enabled {
+				// A non-nil empty map disables net/http automatic HTTP/2 setup.
+				server.TLSNextProto = make(map[string]func(*http.Server, *tls.Conn, http.Handler))
+				server.TLSConfig.NextProtos = []string{"http/1.1"}
+			}
 		}
 		listeners = append(listeners, l)
 		servers = append(servers, server)
@@ -133,7 +140,7 @@ func serve(ctx context.Context, config serverConfig, handler http.Handler) error
 	for i, s := range servers {
 		l := listeners[i]
 		secure := s.TLSConfig != nil
-		log.Printf("public HTTP listening on %s; TLS=%v", l.Addr(), secure)
+		log.Printf("public HTTP listening on %s; TLS=%v; HTTP2=%v", l.Addr(), secure, secure && (config.HTTP2Enabled == nil || *config.HTTP2Enabled))
 		go func(s *http.Server, l net.Listener, secure bool) {
 			if secure {
 				results <- s.ServeTLS(l, "", "")

@@ -17,7 +17,7 @@
 | `open_file_cache max=1024 inactive=60s` | 内容・validator・圧縮済み表現を最大1024件・64MiBまで保持。最も古い利用項目から追い出し、60秒で再検証。8MiB超はファイルから配信 |
 | 静的gzip・`gzip_min_length 1024` | 1KiB以上のHTML/CSS/JavaScript/SVGだけを事前圧縮して再利用。JSON APIへ一律適用しない |
 | `gzip_vary on` | `Vary: Accept-Encoding`。q値でgzip拒否を尊重し、gzipとidentityのETagを分ける |
-| HTTP/2 | TLSのALPNで有効化。平文HTTPはHTTP/1。TLS1.2以上 |
+| HTTP/2 | TLSのALPNで既定有効。`HTTP2_ENABLED=false`でHTTP/1.1のみへ切替。平文HTTPはHTTP/1。TLS1.2以上 |
 | buffered JSON access log | 共通の非同期ロガーで5ms batch・100ms flush、最大4096件queue、欠損・出力失敗を計測 |
 
 `STATIC_URL_PREFIX`は外部仕様で確認した静的URLだけに設定する。既定の`/static/`は開始用の値であり、競技のURLを推測する根拠にはしない。同一URLで更新する画像、HTML、認証付き資材、初期化で置き換わるファイルへ1日の期限を一律適用しない。静的cacheはプロセス内にあるため、`task deploy-static`後の通常restartで更新できる。即時更新や厳密な初期化が必要なものは専用のhandlerとcache無効化を設計する。
@@ -26,9 +26,9 @@ HTTP/1 keepalive、FD上限、静的cacheの容量と期限、gzip対象、TCP�
 
 ## 反映と確認
 
-コードは`webapp/go/`と共通の`tools/measurement/app/`、配布値は`Taskfile.yml`を編集し、`task deploy-all`で反映する。systemdのFD上限・bind capabilityは再起動後に実プロセスでも確認する。静的配信は200/304、HEAD・Range、ETag、Cache-Control・Expires、gzipと非圧縮の両表現を検証する。TLSは公式の証明書・信頼点でホスト名と有効期間を検証し、HTTP/2を確認する。
+コードは`webapp/go/`と共通の`tools/measurement/app/`、配布値は`Taskfile.yml`を編集し、`task deploy-all`で反映する。systemdのFD上限・bind capabilityは再起動後に実プロセスでも確認する。静的配信は200/304、HEAD・Range、ETag、Cache-Control・Expires、gzipと非圧縮の両表現を検証する。TLSは公式の証明書・信頼点でホスト名と有効期間を検証し、設定したHTTPバージョンを公開応答とアクセスログの`protocol`で確認する。
 
-`task test-app`はローカルHTTP/TLS、HTTP/2、静的配信を検証する。競技固有の公開URL・更新・認可・初期化条件は`tools/contest/validation.json`と競技側テストへ宣言する。アプリ・計測の起動成功だけで競技の正当性まで確認済みとしない。
+`task test-app`はローカルHTTP/TLS、HTTP/2の有効・無効、静的配信を検証する。競技固有の公開URL・更新・認可・初期化条件は`tools/contest/validation.json`と競技側テストへ宣言する。アプリ・計測の起動成功だけで競技の正当性まで確認済みとしない。
 
 ## 元の設定のリファレンス
 
