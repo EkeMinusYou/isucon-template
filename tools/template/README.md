@@ -1,6 +1,6 @@
 # Template backport
 
-このリポジトリはテンプレート（`isucon-template-redesign`）のコピーとして始まる。競技中は両者が乖離するので、
+このリポジトリはテンプレート（`isucon-template`）のコピーとして始まる。競技中は両者が乖離するので、
 大会後に「templateへ戻すべき改善」だけを取り出せるようにするための宣言とツールを置く。
 
 | ファイル | 役割 |
@@ -11,7 +11,7 @@
 ## 使い方
 
 ```sh
-task template-diff                      # 既定で ../isucon-template-redesign と比較する
+task template-diff                      # 既定で ../isucon-template と比較する
 task template-diff TEMPLATE_DIR=../foo  # 別の場所のcheckoutと比較する
 task template-diff DETAIL=1             # 差分の本文も表示する
 ```

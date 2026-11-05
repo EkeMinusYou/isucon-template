@@ -384,7 +384,7 @@ tasks:
     desc: templateへ反映すべき差分をtools/template/paths.txtの範囲で表示する（DETAIL=1で差分本文）
     silent: true
     cmds:
-      - DETAIL='{{.DETAIL}}' bash tools/template/diff.sh '{{.TEMPLATE_DIR | default "../isucon-template-redesign"}}'
+      - DETAIL='{{.DETAIL}}' bash tools/template/diff.sh '{{.TEMPLATE_DIR | default "../isucon-template"}}'
 
   inspect-hosts:
     desc: 初期実装の内部構成を表示せずホスト資源だけを確認
